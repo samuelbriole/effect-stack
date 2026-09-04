@@ -41,7 +41,8 @@ export const router = Router.make({
 
 Routes are checked in declaration order. The first structurally matching route wins; malformed values on that route
 produce `RouteDecodeError` rather than falling through. This release supports exact static segments and required named
-segments only; trailing and repeated slashes remain significant.
+segments only; trailing and repeated slashes remain significant. `Route.make` rejects invalid untyped definitions with
+`RouteDefinitionError`, while URL matching and construction return typed `Result` failures.
 
 See the repository [adoption guide](../../docs/adoption.md) and the shared [React](../../examples/router-react) and
 [Solid](../../examples/router-solid) tracers.

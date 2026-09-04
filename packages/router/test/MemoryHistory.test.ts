@@ -2,6 +2,7 @@ import * as MemoryHistory from "@effect-web/router/MemoryHistory"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Option from "effect/Option"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 
@@ -62,5 +63,12 @@ describe("MemoryHistory", () => {
 
       expect(yield* Ref.get(changes)).toEqual(["/one", "/two", "/three"])
       expect((yield* history.current).state).toEqual({ step: 3 })
+    }))
+
+  it.effect("closes its change stream with its Scope", () =>
+    Effect.gen(function*() {
+      const history = yield* Effect.scoped(MemoryHistory.make("/closed"))
+      const change = yield* Stream.runHead(history.changes)
+      expect(Option.isNone(change)).toBe(true)
     }))
 })

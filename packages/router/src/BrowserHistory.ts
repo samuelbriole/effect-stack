@@ -10,11 +10,12 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as History from "./History.ts"
 
-const StateKey = "__effectWebRouter"
+const StateKey = "@effect-web/router/history-state"
 
 const BrowserMetadata = Schema.Struct({
-  key: Schema.String,
-  index: Schema.Number,
+  version: Schema.Literal(1),
+  key: Schema.String.check(Schema.isPattern(/^browser-(?:initial|\d+)$/)),
+  index: Schema.Int,
   value: Schema.Unknown
 })
 
@@ -31,7 +32,7 @@ const browserState = (value: unknown): BrowserMetadata | undefined =>
   Option.getOrUndefined(Schema.decodeUnknownOption(BrowserState)(value))?.[StateKey]
 
 const makeState = (key: string, index: number, value: unknown): BrowserState => ({
-  [StateKey]: { key, index, value }
+  [StateKey]: { version: 1, key, index, value }
 })
 
 const historyError = (operation: History.HistoryError["operation"]) => (cause: unknown): History.HistoryError =>

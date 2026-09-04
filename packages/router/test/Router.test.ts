@@ -1,3 +1,4 @@
+import * as History from "@effect-web/router/History"
 import * as MemoryHistory from "@effect-web/router/MemoryHistory"
 import * as Route from "@effect-web/router/Route"
 import * as Router from "@effect-web/router/Router"
@@ -6,6 +7,7 @@ import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -25,7 +27,8 @@ const project = Route.make({
   id: "project",
   path: "/projects/:projectId",
   params: { projectId: Schema.FiniteFromString },
-  search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) }
+  search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
+  hash: Schema.Literals(["", "details"])
 })
 
 const makeRegistry = Effect.fn("RouterTest.makeRegistry")(function*() {
@@ -62,6 +65,59 @@ describe("Router", () => {
         expect(next.search.tab).toBe("activity")
       }
       expect(next.location.pathname).toBe("/projects/42")
+
+      registry.set(
+        router.navigate,
+        Router.replace(project, {
+          params: { projectId: 43 },
+          search: {},
+          hash: ""
+        })
+      )
+      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+      const replaced = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+      expect(replaced.id === "project" && replaced.params.projectId).toBe(43)
+      expect(replaced.location.index).toBe(next.location.index)
+      expect(replaced.location.key).toBe(next.location.key)
+    }))
+
+  it.effect("publishes waiting state before mutating history", () =>
+    Effect.gen(function*() {
+      const pushStarted = yield* Deferred.make<void>()
+      const allowPush = yield* Deferred.make<void>()
+      const initial: History.Location = {
+        pathname: "/",
+        search: "",
+        hash: "",
+        state: undefined,
+        key: "initial",
+        index: 0
+      }
+      const history = History.Service.of({
+        current: Effect.succeed(initial),
+        push: Effect.fn("RouterTest.pushHistory")(function*(destination) {
+          yield* Deferred.succeed(pushStarted, undefined)
+          yield* Deferred.await(allowPush)
+          return { ...destination, state: destination.state, key: "next", index: 1 }
+        }),
+        replace: (destination) => Effect.succeed({ ...destination, state: destination.state, key: "next", index: 0 }),
+        go: () => Effect.void,
+        changes: Stream.empty
+      })
+      const router = Router.make({ routes: [home, project], layer: Layer.succeed(History.Service, history) })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.state)
+      yield* AtomRegistry.mount(registry, router.navigate)
+      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+
+      registry.set(router.navigate, Router.push(project, { params: { projectId: 1 }, search: {}, hash: "" }))
+      yield* Deferred.await(pushStarted)
+      const waiting = registry.get(router.state)
+      expect(waiting.waiting).toBe(true)
+      expect(AsyncResult.isSuccess(waiting) && waiting.value.id).toBe("home")
+
+      yield* Deferred.succeed(allowPush, undefined)
+      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
     }))
 
   it.effect("resolves back and forward through the history change stream", () =>
@@ -395,6 +451,31 @@ describe("Router", () => {
       expect(Option.isSome(settled)).toBe(true)
       if (Option.isSome(settled)) {
         expect(AsyncResult.isFailure(settled.value)).toBe(true)
+      }
+    }))
+
+  it.effect.each(
+    [
+      ["/projects/1?tab=unknown", "search"],
+      ["/projects/1#unknown", "hash"]
+    ] as const
+  )("identifies a malformed %s transition", ([href, part]) =>
+    Effect.gen(function*() {
+      const router = Router.make({ routes: [project], layer: MemoryHistory.layer(href) })
+      const registry = AtomRegistry.make()
+      registry.mount(router.state)
+      const settled = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true }).pipe(
+        Effect.exit
+      )
+      registry.dispose()
+      if (Exit.isFailure(settled)) {
+        const failure = Cause.findErrorOption(settled.cause)
+        expect(Option.isSome(failure) && failure.value).toMatchObject({
+          _tag: "@effect-web/router/RouteDecodeError",
+          part
+        })
+      } else {
+        expect.fail(`Expected ${part} failure`)
       }
     }))
 })

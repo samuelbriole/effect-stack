@@ -37,6 +37,26 @@ describe("Route", () => {
     expect(matched.success.value.hash).toBe("details")
   })
 
+  it("round-trips singleton repeated search values and rejects empty arrays", () => {
+    const route = Route.make({
+      id: "tags",
+      path: "/tags",
+      params: {},
+      search: { tag: Schema.Array(Schema.String) }
+    })
+    const href = Route.href(route, { params: {}, search: { tag: ["effect"] }, hash: "" })
+    expect(Result.isSuccess(href) && href.success).toBe("/tags?tag=effect")
+    if (Result.isFailure(href)) return
+
+    const matched = Route.match(route, new URL(href.success, "https://example.test"))
+    expect(Result.isSuccess(matched) && Option.isSome(matched.success) && matched.success.value.search.tag).toEqual([
+      "effect"
+    ])
+
+    const empty = Route.href(route, { params: {}, search: { tag: [] }, hash: "" })
+    expect(Result.isFailure(empty) && empty.failure.part).toBe("search")
+  })
+
   it("percent-encodes a path exactly once", () => {
     const route = Route.make({
       id: "person",
@@ -59,6 +79,19 @@ describe("Route", () => {
       hash: ""
     })
     expect(Result.isFailure(invalidUnicode) && invalidUnicode.failure.part).toBe("path")
+
+    const dotSegment = Route.href(route, { params: { name: ".." }, search: {}, hash: "" })
+    expect(Result.isFailure(dotSegment) && dotSegment.failure.part).toBe("path")
+  })
+
+  it("encodes static path segments exactly once", () => {
+    const route = Route.make({ id: "encoded-static", path: "/café/100%", params: {}, search: {} })
+    const href = Route.href(route, { params: {}, search: {}, hash: "" })
+    expect(Result.isSuccess(href) && href.success).toBe("/caf%C3%A9/100%25")
+    if (Result.isFailure(href)) return
+
+    const matched = Route.match(route, new URL(href.success, "https://example.test"))
+    expect(Result.isSuccess(matched) && Option.isSome(matched.success)).toBe(true)
   })
 
   it("keeps trailing and repeated slashes significant", () => {
@@ -68,6 +101,24 @@ describe("Route", () => {
     const repeated = Route.match(route, new URL("https://example.test/exact//path"))
     expect(Result.isSuccess(trailing) && Option.isNone(trailing.success)).toBe(true)
     expect(Result.isSuccess(repeated) && Option.isNone(repeated.success)).toBe(true)
+  })
+
+  it("rejects invalid definitions at runtime for untyped callers", () => {
+    const makeUntyped = Route.make as (options: {
+      readonly id: string
+      readonly path: string
+      readonly params: Record<string, typeof Schema.String>
+      readonly search: Record<string, typeof Schema.String>
+    }) => Route.Any
+
+    expect(() =>
+      makeUntyped({
+        id: "invalid",
+        path: "/projects/:projectId",
+        params: {},
+        search: {}
+      })
+    ).toThrowError(Route.RouteDefinitionError)
   })
 
   it("distinguishes a different path from invalid route data", () => {
@@ -88,5 +139,19 @@ describe("Route", () => {
 
     const invalidHash = Route.match(project, new URL("https://example.test/projects/1#other"))
     expect(Result.isFailure(invalidHash) && invalidHash.failure.part).toBe("hash")
+
+    const searchEncodeFailure = Route.href(project, {
+      params: { projectId: 1 },
+      search: { tab: "other" as "activity" },
+      hash: ""
+    })
+    expect(Result.isFailure(searchEncodeFailure) && searchEncodeFailure.failure.part).toBe("search")
+
+    const hashEncodeFailure = Route.href(project, {
+      params: { projectId: 1 },
+      search: {},
+      hash: "other" as "details"
+    })
+    expect(Result.isFailure(hashEncodeFailure) && hashEncodeFailure.failure.part).toBe("hash")
   })
 })

@@ -176,6 +176,20 @@ export class RouteEncodeError extends Schema.TaggedError<RouteEncodeError>()("@e
   message: Schema.String
 }) {}
 
+/**
+ * A route definition is invalid at construction time.
+ *
+ * @since 0.1.0
+ * @category errors
+ */
+export class RouteDefinitionError extends Schema.TaggedError<RouteDefinitionError>()(
+  "@effect-web/router/RouteDefinitionError",
+  {
+    routeId: Schema.String,
+    message: Schema.String
+  }
+) {}
+
 type PathParameter<Segment extends string> = Segment extends `:${infer Name}` ? Name : never
 
 /**
@@ -296,6 +310,26 @@ export function make(options: {
   unknown,
   unknown
 > {
+  const expectedParameters = [...pathParameterNames(options.path)].sort()
+  const actualParameters = Object.keys(options.params).sort()
+  if (
+    !options.path.startsWith("/") ||
+    expectedParameters.length !== actualParameters.length ||
+    expectedParameters.some((parameter, index) => parameter !== actualParameters[index])
+  ) {
+    throw new RouteDefinitionError({
+      routeId: options.id,
+      message: `Path parameters (${expectedParameters.join(", ")}) do not match Schema fields (${
+        actualParameters.join(", ")
+      })`
+    })
+  }
+  if (pathSegments(options.path).some((segment) => segment === "." || segment === "..")) {
+    throw new RouteDefinitionError({
+      routeId: options.id,
+      message: "Static . and .. path segments are not supported"
+    })
+  }
   return {
     id: options.id,
     path: options.path,
@@ -333,6 +367,25 @@ const encodeUriPart = (
 const rawSearch = (search: string): Readonly<Record<string, unknown>> => {
   const values = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
   return UrlParams.toRecord(UrlParams.fromInput(values))
+}
+
+const normalizeSearch = (
+  fields: UrlFields,
+  input: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> => {
+  const output: Record<string, unknown> = {}
+  for (const key of Object.keys(fields)) {
+    const value = input[key]
+    if (value === undefined) {
+      continue
+    }
+    if (typeof value === "string" && Result.isFailure(Schema.decodeUnknownResult(fields[key])(value))) {
+      output[key] = [value]
+    } else {
+      output[key] = value
+    }
+  }
+  return output
 }
 
 /**
@@ -391,7 +444,9 @@ export const match = <
     )
   }
 
-  const search = Schema.decodeUnknownResult(route.searchSchema)(rawSearch(url.search))
+  const search = Schema.decodeUnknownResult(route.searchSchema)(
+    normalizeSearch(route.searchSchema.fields, rawSearch(url.search))
+  )
   if (Result.isFailure(search)) {
     return Result.fail(
       new RouteDecodeError({
@@ -453,6 +508,15 @@ const encodeSearch = (
       continue
     }
     if (Array.isArray(item) && item.every((entry) => typeof entry === "string")) {
+      if (item.length === 0) {
+        return Result.fail(
+          new RouteEncodeError({
+            routeId,
+            part: "search",
+            message: `Search field ${key} cannot encode an empty array`
+          })
+        )
+      }
       for (const entry of item) {
         params.push([key, entry])
       }
@@ -491,7 +555,6 @@ export const href = <R extends Any>(
     )
   }
 
-  let pathname = route.path
   if (!Predicate.isObject(params.success)) {
     return Result.fail(
       new RouteEncodeError({
@@ -501,13 +564,25 @@ export const href = <R extends Any>(
       })
     )
   }
-  for (const [key, value] of Object.entries(params.success)) {
+  const pathnameSegments: Array<string> = []
+  for (const segment of pathSegments(route.path)) {
+    const key = segment.startsWith(":") ? segment.slice(1) : undefined
+    const value = key === undefined ? segment : params.success[key]
     if (typeof value !== "string") {
       return Result.fail(
         new RouteEncodeError({
           routeId: route.id,
           part: "path",
-          message: `Path parameter ${key} must encode to a string`
+          message: `Path parameter ${key ?? segment} must encode to a string`
+        })
+      )
+    }
+    if (key !== undefined && (value === "." || value === "..")) {
+      return Result.fail(
+        new RouteEncodeError({
+          routeId: route.id,
+          part: "path",
+          message: `Path parameter ${key} cannot be a dot segment`
         })
       )
     }
@@ -515,8 +590,9 @@ export const href = <R extends Any>(
     if (Result.isFailure(encoded)) {
       return encoded
     }
-    pathname = pathname.replace(`:${key}`, encoded.success)
+    pathnameSegments.push(encoded.success)
   }
+  const pathname = pathnameSegments.length === 0 ? "/" : `/${pathnameSegments.join("/")}`
 
   const searchValue = Schema.encodeResult(route.searchSchema)(input.search)
   if (Result.isFailure(searchValue)) {

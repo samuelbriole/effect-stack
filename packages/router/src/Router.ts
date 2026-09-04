@@ -272,21 +272,33 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     )
   })
 
-  const start = Effect.fn("Router.start")(function*(location: History.Location) {
+  const start = Effect.fn("Router.start")(function*(
+    transition: Effect.Effect<
+      Resolved<Routes>,
+      NavigationError<Routes>,
+      Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
+    >
+  ) {
     const token = yield* Ref.updateAndGet(generation, (value) => value + 1)
     const previous = yield* SubscriptionRef.get(state)
     yield* SubscriptionRef.set(state, AsyncResult.waitingFrom(Option.some(previous)))
 
-    const transition = resolve(routes, location).pipe(
+    const provided = transition.pipe(
       Effect.scoped,
       Effect.provide(services),
       Effect.onExit((exit) => publish(token, previous, exit))
     )
-    return yield* FiberMap.run(transitions, "navigation", transition, { startImmediately: true })
+    return yield* FiberMap.run(transitions, "navigation", provided, { startImmediately: true })
   })
 
-  const startAndWait = Effect.fn("Router.startAndWait")(function*(location: History.Location) {
-    const fiber = yield* start(location)
+  const startAndWait = Effect.fn("Router.startAndWait")(function*(
+    transition: Effect.Effect<
+      Resolved<Routes>,
+      NavigationError<Routes>,
+      Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
+    >
+  ) {
+    const fiber = yield* start(transition)
     return yield* Fiber.join(fiber)
   })
 
@@ -295,10 +307,8 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
       case "To": {
         const href = yield* Effect.fromResult(Route.href(command.route, command.input))
         const destination = History.destinationFromHref(href, command.state)
-        const location = command.replace
-          ? yield* history.replace(destination)
-          : yield* history.push(destination)
-        yield* startAndWait(location)
+        const updateHistory = command.replace ? history.replace(destination) : history.push(destination)
+        yield* startAndWait(updateHistory.pipe(Effect.flatMap((location) => resolve(routes, location))))
         return
       }
       case "Back":
@@ -311,15 +321,14 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
         yield* history.go(command.delta)
         return
       case "Refresh": {
-        const location = yield* history.current
-        yield* startAndWait(location)
+        yield* startAndWait(history.current.pipe(Effect.flatMap((location) => resolve(routes, location))))
         return
       }
     }
   })
 
   yield* history.changes.pipe(
-    Stream.runForEach((location) => start(location).pipe(Effect.asVoid)),
+    Stream.runForEach((location) => start(resolve(routes, location)).pipe(Effect.asVoid)),
     Effect.catch((error) =>
       SubscriptionRef.get(state).pipe(
         Effect.flatMap((previous) =>
@@ -331,7 +340,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
   )
 
   const initial = yield* history.current
-  yield* start(initial)
+  yield* start(resolve(routes, initial))
 
   return { state, dispatch }
 })
