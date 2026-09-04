@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@4.0.0-next.8/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "wewelll/effect-stack" }],
+  "changelog": ["@changesets/changelog-github", { "repo": "samuelbriole/effect-stack" }],
   "commit": false,
   "fixed": [],
   "linked": [],

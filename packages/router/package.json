@@ -4,14 +4,14 @@
   "type": "module",
   "license": "MIT",
   "description": "Effect-native, renderer-independent routing for the web",
-  "homepage": "https://github.com/wewelll/effect-stack#readme",
+  "homepage": "https://github.com/samuelbriole/effect-stack#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wewelll/effect-stack.git",
+    "url": "https://github.com/samuelbriole/effect-stack.git",
     "directory": "packages/router"
   },
   "bugs": {
-    "url": "https://github.com/wewelll/effect-stack/issues"
+    "url": "https://github.com/samuelbriole/effect-stack/issues"
   },
   "sideEffects": false,
   "exports": {
