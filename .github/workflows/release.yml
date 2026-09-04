@@ -40,5 +40,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.changesets.outputs.pr-number }}
         run: |
-          head_ref=$(gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName)
-          gh workflow run check.yml --ref "$head_ref"
+          head_sha=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)
+          for _ in {1..10}; do
+            run_id=$(gh run list --workflow check.yml --event pull_request --limit 20 \
+              --json databaseId,headSha \
+              --jq "map(select(.headSha == \"$head_sha\"))[0].databaseId // empty")
+            test -n "$run_id" && break
+            sleep 2
+          done
+          test -n "${run_id:-}"
+          gh run rerun "$run_id"
