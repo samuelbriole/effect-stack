@@ -1,6 +1,6 @@
 # Architecture
 
-Effect Stack is a set of headless modules with explicit ownership. Applications may adopt each module independently.
+EffectStack is a set of headless modules with explicit ownership. Applications may adopt each module independently.
 
 ## Ownership boundaries
 

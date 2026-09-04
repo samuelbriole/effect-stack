@@ -1,16 +1,15 @@
-# Effect Stack
+# EffectStack
 
 Effect-native application infrastructure with platform- and framework-agnostic cores and first-party adapters. Inspired by
 [TanStack](https://tanstack.com/), each package can be adopted independently.
 
-> Effect Stack is an independent community project built on Effect. It is not maintained by the Effect organization.
+> EffectStack is an independent community project built on Effect. It is not maintained by Effectful Technologies Inc.
 
 ```sh
 pnpm add @effect-stack/router effect@rc
 ```
 
-> Effect Stack currently targets Effect `4.0.0-rc.112`. Use the explicit `effect@rc` tag while Effect v4 remains a release
-> candidate.
+> EffectStack targets Effect v4 RC.
 
 ## Packages
 
