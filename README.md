@@ -1,7 +1,7 @@
 # EffectStack
 
 A family of Effect-native libraries with headless, framework-agnostic cores and first-party adapters. Inspired by
-[TanStack](https://tanstack.com/), each package can be adopted independently.
+[TanStack](https://tanstack.com/).
 
 > EffectStack is an independent community project built on Effect. It is not maintained by Effectful Technologies Inc.
 
