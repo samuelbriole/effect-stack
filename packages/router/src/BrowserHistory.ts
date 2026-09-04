@@ -60,26 +60,26 @@ const requireWindow = (): Window => {
 export const make = Effect.fn("BrowserHistory.make")(function*() {
   const browser = yield* Effect.try({ try: requireWindow, catch: historyError("current") })
 
-  const read = (): History.Location => {
-    const metadata = browserState(browser.history.state)
-    return {
-      pathname: browser.location.pathname,
-      search: browser.location.search,
-      hash: browser.location.hash,
-      state: metadata === undefined ? browser.history.state : metadata.value,
-      key: metadata?.key ?? makeKey(browser),
-      index: metadata?.index ?? 0
-    }
-  }
+  const current: Effect.Effect<History.Location, History.HistoryError> = Effect.try({
+    try: () => {
+      let metadata = browserState(browser.history.state)
+      if (metadata === undefined) {
+        metadata = { version: 1, key: makeKey(browser), index: 0, value: browser.history.state }
+        browser.history.replaceState({ [StateKey]: metadata }, "")
+      }
+      return {
+        pathname: browser.location.pathname,
+        search: browser.location.search,
+        hash: browser.location.hash,
+        state: metadata.value,
+        key: metadata.key,
+        index: metadata.index
+      }
+    },
+    catch: historyError("current")
+  })
 
-  if (browserState(browser.history.state) === undefined) {
-    yield* Effect.try({
-      try: () => browser.history.replaceState(makeState(makeKey(browser), 0, browser.history.state), ""),
-      catch: historyError("replace")
-    })
-  }
-
-  const current = Effect.try({ try: read, catch: historyError("current") })
+  yield* current
 
   const push = Effect.fn("BrowserHistory.push")(function*(destination: History.Destination) {
     const previous = yield* current
