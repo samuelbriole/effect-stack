@@ -1,0 +1,61 @@
+{
+  "name": "@effect-web/router",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Effect-native, renderer-independent routing for the web",
+  "homepage": "https://github.com/wewelll/effect-web#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wewelll/effect-web.git",
+    "directory": "packages/router"
+  },
+  "bugs": {
+    "url": "https://github.com/wewelll/effect-web/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./Route": "./src/Route.ts",
+    "./History": "./src/History.ts",
+    "./BrowserHistory": "./src/BrowserHistory.ts",
+    "./MemoryHistory": "./src/MemoryHistory.ts",
+    "./Router": "./src/Router.ts",
+    "./internal/*": null
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      "./package.json": "./package.json",
+      ".": "./dist/index.js",
+      "./Route": "./dist/Route.js",
+      "./History": "./dist/History.js",
+      "./BrowserHistory": "./dist/BrowserHistory.js",
+      "./MemoryHistory": "./dist/MemoryHistory.js",
+      "./Router": "./dist/Router.js",
+      "./internal/*": null
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "check": "tsc -b tsconfig.json",
+    "pack:check": "pnpm build && pnpm pack --dry-run && node ../../scripts/check-package.mjs"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "effect": "4.0.0-rc.112"
+  }
+}

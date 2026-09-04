@@ -1,0 +1,20 @@
+{
+  "name": "@effect-web-example/router-solid",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@effect-web-example/router-shared": "workspace:*",
+    "@effect-web/router": "workspace:*",
+    "@effect/atom-solid": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112",
+    "solid-js": "1.9.15"
+  },
+  "devDependencies": {
+    "vite": "8.2.2",
+    "vite-plugin-solid": "2.11.14"
+  }
+}

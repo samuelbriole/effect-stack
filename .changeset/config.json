@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@4.0.0-next.8/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "wewelll/effect-web" }],
+  "commit": false,
+  "fixed": [],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": [
+    "@effect-web-example/router-shared",
+    "@effect-web-example/router-react",
+    "@effect-web-example/router-solid"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@effect-web-example/router-react",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@effect-web-example/router-shared": "workspace:*",
+    "@effect-web/router": "workspace:*",
+    "@effect/atom-react": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "scheduler": "0.27.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@types/scheduler": "0.26.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "vite": "8.2.2"
+  }
+}

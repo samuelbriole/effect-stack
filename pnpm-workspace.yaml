@@ -1,0 +1,36 @@
+packages:
+  - packages/*
+  - examples/*
+
+verifyDepsBeforeRun: error
+enableGlobalVirtualStore: false
+
+allowBuilds:
+  dprint: false
+  esbuild: false
+  msgpackr-extract: false
+
+minimumReleaseAgeExclude:
+  - '@changesets/apply-release-plan@8.1.0'
+  - '@changesets/changelog-github@1.0.1'
+  - '@changesets/cli@3.0.2'
+  - '@changesets/get-github-info@1.0.1'
+  - '@changesets/git@4.0.1'
+  - '@changesets/read@1.0.1'
+  - '@dprint/android-arm64@0.57.1'
+  - '@dprint/android-x64@0.57.1'
+  - '@dprint/darwin-arm64@0.57.1'
+  - '@dprint/darwin-x64@0.57.1'
+  - '@dprint/linux-arm64-glibc@0.57.1'
+  - '@dprint/linux-arm64-musl@0.57.1'
+  - '@dprint/linux-loong64-glibc@0.57.1'
+  - '@dprint/linux-loong64-musl@0.57.1'
+  - '@dprint/linux-ppc64-glibc@0.57.1'
+  - '@dprint/linux-ppc64-musl@0.57.1'
+  - '@dprint/linux-riscv64-glibc@0.57.1'
+  - '@dprint/linux-x64-glibc@0.57.1'
+  - '@dprint/linux-x64-musl@0.57.1'
+  - '@dprint/win32-arm64@0.57.1'
+  - '@dprint/win32-x64@0.57.1'
+  - dprint@0.57.1
+  - happy-dom@20.14.0
