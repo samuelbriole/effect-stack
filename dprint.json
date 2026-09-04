@@ -18,7 +18,6 @@
     "**/dist-types",
     "**/coverage",
     "**/*.tsbuildinfo",
-    "**/CHANGELOG.md",
     "pnpm-lock.yaml",
     "**/.*",
     "!.changeset",
