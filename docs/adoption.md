@@ -83,5 +83,29 @@ const View = () => {
 }
 ```
 
-See the complete [React](../examples/router-react) and [Solid](../examples/router-solid) tracers, both of which consume the
-same [renderer-neutral definitions](../examples/router-shared).
+## Vue
+
+Install `@effect/atom-vue@rc`, provide an Atom registry at the application boundary, and use its Ref-based composables:
+
+```ts
+import { AtomRegistry, registryKey, useAtomSet, useAtomValue } from "@effect/atom-vue"
+import { createApp, defineComponent, h } from "vue"
+
+const View = defineComponent({
+  setup() {
+    const state = useAtomValue(() => router.state)
+    const navigate = useAtomSet(() => router.navigate)
+    return () => h("button", { onClick: () => navigate(Router.back) }, state.value.waiting ? "Waiting" : "Back")
+  }
+})
+
+const registry = AtomRegistry.make()
+const app = createApp(View)
+app.provide(registryKey, registry)
+app.onUnmount(() => registry.dispose())
+app.mount("#root")
+```
+
+See the complete [React](../examples/router-react), [Solid](../examples/router-solid), and
+[Vue](../examples/router-vue) tracers, all of which consume the same
+[renderer-neutral definitions](../examples/router-shared).

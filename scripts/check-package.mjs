@@ -33,7 +33,7 @@ const source = (await Promise.all(
   files.filter((file) => file.endsWith(".js")).map((file) => readFile(resolve(root, file), "utf8"))
 )).join("\n")
 
-const forbidden = ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid"]
+const forbidden = ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"]
 for (const dependency of forbidden) {
   if (source.includes(`from "${dependency}`) || source.includes(`from '${dependency}`)) {
     throw new Error(`Renderer dependency found in router output: ${dependency}`)

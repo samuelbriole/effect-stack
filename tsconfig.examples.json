@@ -5,6 +5,7 @@
   "references": [
     { "path": "examples/router-shared" },
     { "path": "examples/router-react" },
-    { "path": "examples/router-solid" }
+    { "path": "examples/router-solid" },
+    { "path": "examples/router-vue" }
   ]
 }

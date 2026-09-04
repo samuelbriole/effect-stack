@@ -16,8 +16,8 @@ small Effect service. Atom observes and controls the Router runtime across rende
 ## Dependency direction
 
 ```text
-React/Solid applications -> official Effect Atom adapter -> @effect-web/router -> Effect
-                                                       \-> History adapter
+React/Solid/Vue applications -> official Effect Atom adapter -> @effect-web/router -> Effect
+                                                           \-> History adapter
 ```
 
 Core packages must never import a renderer. A future renderer adapter must depend toward the headless package:
@@ -25,6 +25,7 @@ Core packages must never import a renderer. A future renderer adapter must depen
 ```text
 @effect-web/router-react -> @effect-web/router + @effect/atom-react + React
 @effect-web/router-solid -> @effect-web/router + @effect/atom-solid + Solid
+@effect-web/router-vue   -> @effect-web/router + @effect/atom-vue + Vue
 ```
 
 Such a package is created only after it earns an interface with substantive behavior such as accessible links, outlets,

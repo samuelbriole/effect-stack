@@ -13,8 +13,8 @@ pnpm add @effect-web/router effect@rc
 > Effect Web currently targets Effect `4.0.0-rc.112`. Use the explicit `effect@rc` tag while Effect v4 remains a release
 > candidate.
 
-The same headless route definitions power the included [React](examples/router-react) and
-[Solid](examples/router-solid) examples through their official Effect Atom adapters.
+The same headless route definitions power the included [React](examples/router-react),
+[Solid](examples/router-solid), and [Vue](examples/router-vue) examples through their official Effect Atom adapters.
 
 ## Learn more
 

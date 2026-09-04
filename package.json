@@ -5,7 +5,7 @@
   "packageManager": "pnpm@11.20.0",
   "scripts": {
     "build": "tsc -b tsconfig.packages.json",
-    "build:examples": "pnpm --filter @effect-web-example/router-react build && pnpm --filter @effect-web-example/router-solid build",
+    "build:examples": "pnpm --filter @effect-web-example/router-react build && pnpm --filter @effect-web-example/router-solid build && pnpm --filter @effect-web-example/router-vue build",
     "check": "tsc -b tsconfig.json",
     "lint": "oxlint -f unix && dprint check",
     "lint-fix": "oxlint --fix && dprint fmt",
@@ -23,12 +23,14 @@
     "@changesets/cli": "3.0.2",
     "@effect/atom-react": "4.0.0-rc.112",
     "@effect/atom-solid": "4.0.0-rc.112",
+    "@effect/atom-vue": "4.0.0-rc.112",
     "@effect/vitest": "4.0.0-rc.112",
     "@types/node": "26.4.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
     "@types/scheduler": "0.26.0",
     "@vitejs/plugin-react": "6.1.1",
+    "@vitejs/plugin-vue": "6.0.8",
     "dprint": "0.57.1",
     "effect": "4.0.0-rc.112",
     "happy-dom": "20.14.0",
@@ -41,6 +43,8 @@
     "typescript": "7.0.2",
     "vite": "8.2.2",
     "vite-plugin-solid": "2.11.14",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "vue": "3.5.42",
+    "vue-tsc": "3.3.11"
   }
 }

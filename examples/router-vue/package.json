@@ -1,0 +1,22 @@
+{
+  "name": "@effect-web-example/router-vue",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vue-tsc -b && vite build"
+  },
+  "dependencies": {
+    "@effect-web-example/router-shared": "workspace:*",
+    "@effect-web/router": "workspace:*",
+    "@effect/atom-vue": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112",
+    "vue": "3.5.42"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.8",
+    "typescript": "6.0.3",
+    "vite": "8.2.2",
+    "vue-tsc": "3.3.11"
+  }
+}
