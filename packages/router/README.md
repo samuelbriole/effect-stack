@@ -2,7 +2,7 @@
 
 Renderer-independent routing built with Effect v4 and Effect Atom.
 
-> Effect Stack is an independent community project built on Effect. It is not maintained by the Effect organization.
+> EffectStack is an independent community project built on Effect. It is not maintained by Effectful Technologies Inc.
 
 > This initial release targets the Effect v4 release candidate. Install `effect@rc` and keep it compatible with the
 > package peer range.

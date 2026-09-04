@@ -1,6 +1,6 @@
 # Adoption
 
-Effect Stack packages are incremental. Installing Router does not require adopting future Query, Form, or DB packages.
+EffectStack packages are incremental. Installing Router does not require adopting future Query, Form, or DB packages.
 
 ## Install
 

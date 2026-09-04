@@ -1,6 +1,6 @@
 # Agent guidance
 
-Effect Stack is a family of independently adoptable, Effect-native application libraries. Preserve the architecture and quality bar as the project grows.
+EffectStack is a family of independently adoptable, Effect-native application libraries. Preserve the architecture and quality bar as the project grows.
 
 ## Design
 
