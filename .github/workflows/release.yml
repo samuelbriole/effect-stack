@@ -17,15 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: write
       contents: write
       pull-requests: write
       id-token: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          # Ensure the dedicated token is always used when Changesets pushes
-          # updates to the release branch, allowing its checks to run.
-          persist-credentials: false
       - name: Install dependencies
         uses: ./.github/actions/setup
       - name: Upgrade npm for OIDC support
@@ -36,5 +33,12 @@ jobs:
         with:
           version-script: pnpm changeset-version
           publish-script: pnpm changeset-publish
-          # A dedicated token ensures release-branch updates trigger workflows.
-          github-token: ${{ secrets.CHANGESET_GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check release pull request
+        if: steps.changesets.outputs.has-changesets == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pr-number }}
+        run: |
+          head_ref=$(gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName)
+          gh workflow run check.yml --ref "$head_ref"
