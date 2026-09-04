@@ -15,7 +15,7 @@
     "pack:check": "pnpm --filter @effect-stack/router pack:check",
     "changeset": "changeset",
     "changeset-version": "changeset version",
-    "changeset-publish": "pnpm build && node scripts/publish.mjs",
+    "changeset-publish": "pnpm build && changeset publish",
     "ci": "pnpm lint && pnpm check && pnpm test:run && pnpm test-types && pnpm build && pnpm build:examples && pnpm pack:check"
   },
   "devDependencies": {
