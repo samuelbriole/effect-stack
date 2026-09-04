@@ -5,36 +5,30 @@
  */
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as History from "./History.ts"
 
 const StateKey = "__effectWebRouter"
 
-interface BrowserState {
-  readonly [StateKey]?: {
-    readonly key: string
-    readonly index: number
-    readonly value: unknown
-  }
-}
+const BrowserMetadata = Schema.Struct({
+  key: Schema.String,
+  index: Schema.Number,
+  value: Schema.Unknown
+})
+
+const BrowserState = Schema.Struct({
+  [StateKey]: BrowserMetadata
+})
+
+type BrowserMetadata = typeof BrowserMetadata.Type
+type BrowserState = typeof BrowserState.Type
 
 let nextKey = 0
 
-const browserState = (value: unknown): BrowserState[typeof StateKey] | undefined => {
-  if (typeof value !== "object" || value === null || !(StateKey in value)) {
-    return undefined
-  }
-  const metadata = Reflect.get(value, StateKey)
-  if (typeof metadata !== "object" || metadata === null) {
-    return undefined
-  }
-  const key = Reflect.get(metadata, "key")
-  const index = Reflect.get(metadata, "index")
-  if (typeof key !== "string" || typeof index !== "number") {
-    return undefined
-  }
-  return { key, index, value: Reflect.get(metadata, "value") }
-}
+const browserState = (value: unknown): BrowserMetadata | undefined =>
+  Option.getOrUndefined(Schema.decodeUnknownOption(BrowserState)(value))?.[StateKey]
 
 const makeState = (key: string, index: number, value: unknown): BrowserState => ({
   [StateKey]: { key, index, value }
@@ -69,7 +63,7 @@ export const make = Effect.fn("BrowserHistory.make")(function*() {
       pathname: browser.location.pathname,
       search: browser.location.search,
       hash: browser.location.hash,
-      state: metadata?.value,
+      state: metadata === undefined ? browser.history.state : metadata.value,
       key: metadata?.key ?? "browser-initial",
       index: metadata?.index ?? 0
     }

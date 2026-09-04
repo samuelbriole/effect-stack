@@ -215,21 +215,62 @@ describe("Router", () => {
       }
     }))
 
+  it.effect("rejects duplicate exact path templates", () =>
+    Effect.gen(function*() {
+      const duplicatePath = Route.make({ id: "other-home", path: "/", params: {}, search: {} })
+      const router = Router.make({ routes: [home, duplicatePath], layer: MemoryHistory.layer("/") })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.state)
+
+      const settled = yield* AtomRegistry.toStream(registry, router.state).pipe(
+        Stream.filter((state) => !state.waiting && AsyncResult.isFailure(state)),
+        Stream.runHead
+      )
+      expect(Option.isSome(settled)).toBe(true)
+    }))
+
+  it.effect("uses declaration order for ambiguous templates", () =>
+    Effect.gen(function*() {
+      const first = Route.make({
+        id: "by-id",
+        path: "/items/:id",
+        params: { id: Schema.String },
+        search: {}
+      })
+      const second = Route.make({
+        id: "by-slug",
+        path: "/items/:slug",
+        params: { slug: Schema.String },
+        search: {}
+      })
+      const router = Router.make({ routes: [first, second], layer: MemoryHistory.layer("/items/value") })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.state)
+
+      const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+      expect(resolved.id).toBe("by-id")
+    }))
+
   it.effect("interrupts superseded navigation and never commits stale state", () =>
     Effect.gen(function*() {
       const started = yield* Deferred.make<void>()
       const finalized = yield* Deferred.make<void>()
+      let finalizations = 0
+      const loadSlow = Effect.fn("RouterTest.loadSlow")(function*() {
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            finalizations++
+          }).pipe(Effect.andThen(Deferred.succeed(finalized, undefined)))
+        )
+        yield* Deferred.succeed(started, undefined)
+        return yield* Effect.never
+      })
       const slow = Route.make({
         id: "slow",
         path: "/slow",
         params: {},
         search: {},
-        load: () =>
-          Effect.gen(function*() {
-            yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
-            yield* Deferred.succeed(started, undefined)
-            return yield* Effect.never
-          })
+        load: loadSlow
       })
       const router = Router.make({ routes: [home, slow], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
@@ -242,8 +283,103 @@ describe("Router", () => {
       registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
 
       yield* Deferred.await(finalized)
+      expect(finalizations).toBe(1)
       const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(resolved.id).toBe("home")
+    }))
+
+  it.effect("ignores stale non-cancelable Promise success and failure", () =>
+    Effect.gen(function*() {
+      let startSuccess!: () => void
+      let completeSuccess!: () => void
+      const successStarted = new Promise<void>((resolve) => {
+        startSuccess = resolve
+      })
+      const successCompletion = new Promise<{ readonly title: "stale success" }>((resolve) => {
+        completeSuccess = () => resolve({ title: "stale success" })
+      })
+      let startFailure!: () => void
+      let completeFailure!: () => void
+      const failureStarted = new Promise<void>((resolve) => {
+        startFailure = resolve
+      })
+      const failureCompletion = new Promise<never>((_resolve, reject) => {
+        completeFailure = () => reject("stale failure")
+      })
+      const staleSuccess = Route.make({
+        id: "stale-success",
+        path: "/stale-success",
+        params: {},
+        search: {},
+        load: Effect.fn("RouterTest.loadStaleSuccess")(function*() {
+          startSuccess()
+          return yield* Effect.promise(() => successCompletion)
+        })
+      })
+      const staleFailure = Route.make({
+        id: "stale-failure",
+        path: "/stale-failure",
+        params: {},
+        search: {},
+        load: Effect.fn("RouterTest.loadStaleFailure")(function*() {
+          startFailure()
+          return yield* Effect.tryPromise({
+            try: () => failureCompletion,
+            catch: (error) => String(error)
+          })
+        })
+      })
+      const router = Router.make({
+        routes: [home, staleSuccess, staleFailure],
+        layer: MemoryHistory.layer("/")
+      })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.state)
+      yield* AtomRegistry.mount(registry, router.navigate)
+      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+
+      registry.set(router.navigate, Router.push(staleSuccess, { params: {}, search: {}, hash: "" }))
+      yield* Effect.promise(() => successStarted)
+      registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
+      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+      completeSuccess()
+      yield* Effect.promise(() => successCompletion)
+      yield* Effect.yieldNow
+      expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("home")
+
+      registry.set(router.navigate, Router.push(staleFailure, { params: {}, search: {}, hash: "" }))
+      yield* Effect.promise(() => failureStarted)
+      registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
+      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+      completeFailure()
+      yield* Effect.promise(() => failureCompletion.catch(() => undefined))
+      yield* Effect.yieldNow
+      expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("home")
+    }))
+
+  it.effect("disposal interrupts active navigation", () =>
+    Effect.gen(function*() {
+      const started = yield* Deferred.make<void>()
+      const finalized = yield* Deferred.make<void>()
+      const slow = Route.make({
+        id: "dispose-slow",
+        path: "/dispose-slow",
+        params: {},
+        search: {},
+        load: Effect.fn("RouterTest.loadUntilDisposed")(function*() {
+          yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
+          yield* Deferred.succeed(started, undefined)
+          return yield* Effect.never
+        })
+      })
+      const router = Router.make({ routes: [slow], layer: MemoryHistory.layer("/dispose-slow") })
+      const registry = AtomRegistry.make()
+      yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
+      registry.mount(router.state)
+
+      yield* Deferred.await(started)
+      registry.dispose()
+      yield* Deferred.await(finalized)
     }))
 
   it.effect("surfaces malformed initial locations as typed state failures", () =>

@@ -226,7 +226,7 @@ interface LazyOptions<
   readonly load: () => Effect.Effect<Module, LoadError, Scope.Scope | LoadServices>
 }
 
-const pathSegments = (path: string): ReadonlyArray<string> => path.split("/").filter((segment) => segment.length > 0)
+const pathSegments = (path: string): ReadonlyArray<string> => path === "/" ? [] : path.slice(1).split("/")
 
 const describeSchemaError = (error: Schema.SchemaError): string => error.message
 
@@ -238,7 +238,7 @@ const describeSchemaError = (error: Schema.SchemaError): string => error.message
  */
 export function make<
   const Id extends string,
-  const Path extends string,
+  const Path extends `/${string}`,
   const ParamsFields extends UrlFields,
   const SearchFields extends UrlFields,
   HashSchema extends Schema.ConstraintCodec<unknown, string, never, never> = Schema.String
@@ -261,7 +261,7 @@ export function make<
  */
 export function make<
   const Id extends string,
-  const Path extends string,
+  const Path extends `/${string}`,
   const ParamsFields extends UrlFields,
   const SearchFields extends UrlFields,
   HashSchema extends Schema.ConstraintCodec<unknown, string, never, never> = Schema.String,
@@ -315,6 +315,18 @@ const decodeUriPart = (
     return Result.succeed(decodeURIComponent(input))
   } catch {
     return Result.fail(new RouteDecodeError({ routeId, part, input, message: "Invalid percent encoding" }))
+  }
+}
+
+const encodeUriPart = (
+  routeId: string,
+  part: UrlPart,
+  input: string
+): Result.Result<string, RouteEncodeError> => {
+  try {
+    return Result.succeed(encodeURIComponent(input))
+  } catch {
+    return Result.fail(new RouteEncodeError({ routeId, part, message: "Value contains invalid Unicode" }))
   }
 }
 
@@ -499,7 +511,11 @@ export const href = <R extends Any>(
         })
       )
     }
-    pathname = pathname.replace(`:${key}`, encodeURIComponent(value))
+    const encoded = encodeUriPart(route.id, "path", value)
+    if (Result.isFailure(encoded)) {
+      return encoded
+    }
+    pathname = pathname.replace(`:${key}`, encoded.success)
   }
 
   const searchValue = Schema.encodeResult(route.searchSchema)(input.search)
@@ -527,7 +543,11 @@ export const href = <R extends Any>(
       })
     )
   }
-  const hash = hashValue.success.length === 0 ? "" : `#${encodeURIComponent(hashValue.success)}`
+  const encodedHash = encodeUriPart(route.id, "hash", hashValue.success)
+  if (Result.isFailure(encodedHash)) {
+    return encodedHash
+  }
+  const hash = encodedHash.success.length === 0 ? "" : `#${encodedHash.success}`
   return Result.succeed(`${pathname}${search.success}${hash}`)
 }
 

@@ -51,10 +51,17 @@ export class RouterConfigurationError extends Schema.TaggedError<RouterConfigura
  * @since 0.1.0
  * @category errors
  */
-export interface RouteLoadError<Id extends string, Error> {
-  readonly _tag: "RouteLoadError"
-  readonly routeId: Id
-  readonly error: Error
+class RouteLoadErrorBase extends Schema.TaggedError<RouteLoadErrorBase>()(
+  "RouteLoadError",
+  {
+    routeId: Schema.String,
+    error: Schema.Unknown
+  }
+) {}
+
+export class RouteLoadError<Id extends string, Error> extends RouteLoadErrorBase {
+  declare readonly routeId: Id
+  declare readonly error: Error
 }
 
 /**
@@ -151,16 +158,15 @@ interface Engine<Routes extends ReadonlyArray<Route.Any>> {
 }
 
 const routeLoadError = <R extends Route.Any>(route: R, error: Route.Route.LoadError<R>): LoadFailure<R> =>
-  ({
-    _tag: "RouteLoadError",
-    routeId: route.id,
-    error
-  }) as LoadFailure<R>
+  new RouteLoadError({ routeId: route.id, error }) as LoadFailure<R>
 
 const validateRoutes = (routes: ReadonlyArray<Route.Any>): Result.Result<void, RouterConfigurationError> => {
   const ids = new Set<string>()
   const paths = new Set<string>()
   for (const route of routes) {
+    if (!route.path.startsWith("/")) {
+      return Result.fail(new RouterConfigurationError({ message: `Route ${route.id} path must start with /` }))
+    }
     const pathParameters = [...Route.pathParameterNames(route.path)].sort()
     const schemaParameters = Object.keys(route.paramsSchema.fields).sort()
     if (
@@ -187,154 +193,148 @@ const validateRoutes = (routes: ReadonlyArray<Route.Any>): Result.Result<void, R
   return Result.succeed(undefined)
 }
 
-const resolve = <Routes extends ReadonlyArray<Route.Any>>(
+const resolve = Effect.fn("Router.resolve")(function*<Routes extends ReadonlyArray<Route.Any>>(
   routes: Routes,
   location: History.Location
-): Effect.Effect<
+): Effect.fn.Return<
   Resolved<Routes>,
   NavigationError<Routes>,
   Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
-> =>
-  Effect.gen(function*() {
-    for (const route of routes) {
-      const result = Route.match(route, location)
-      if (Result.isFailure(result)) {
-        return yield* result.failure
-      }
-      if (Option.isNone(result.success)) {
-        continue
-      }
+> {
+  for (const route of routes) {
+    const result = Route.match(route, location)
+    if (Result.isFailure(result)) {
+      return yield* result.failure
+    }
+    if (Option.isNone(result.success)) {
+      continue
+    }
 
-      const matched = result.success.value
-      if (route.load === undefined) {
-        return {
-          ...matched,
-          location,
-          module: undefined
-        } as Resolved<Routes>
-      }
-
-      const load = route.load as () => Effect.Effect<
-        Route.Route.Module<RouteUnion<Routes>>,
-        Route.Route.LoadError<RouteUnion<Routes>>,
-        Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
-      >
-      const module = yield* load().pipe(
-        Effect.mapError((error) => routeLoadError(route, error) as NavigationError<Routes>)
-      )
+    const matched = result.success.value
+    if (route.load === undefined) {
       return {
         ...matched,
         location,
-        module
+        module: undefined
       } as Resolved<Routes>
     }
 
-    return yield* new RouteNotFound({
-      pathname: location.pathname,
-      search: location.search,
-      hash: location.hash
-    })
+    const load = route.load as () => Effect.Effect<
+      Route.Route.Module<RouteUnion<Routes>>,
+      Route.Route.LoadError<RouteUnion<Routes>>,
+      Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
+    >
+    const module = yield* load().pipe(
+      Effect.mapError((error) => routeLoadError(route, error) as NavigationError<Routes>)
+    )
+    return {
+      ...matched,
+      location,
+      module
+    } as Resolved<Routes>
+  }
+
+  return yield* new RouteNotFound({
+    pathname: location.pathname,
+    search: location.search,
+    hash: location.hash
   })
+})
 
-const currentPrevious = <A, E>(
-  state: AsyncResult.AsyncResult<A, E>
-): Option.Option<AsyncResult.AsyncResult<A, E>> => Option.some(state)
-
-const makeEngine = <Routes extends ReadonlyArray<Route.Any>>(
+const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends ReadonlyArray<Route.Any>>(
   routes: Routes
-): Effect.Effect<
+): Effect.fn.Return<
   Engine<Routes>,
   RouterConfigurationError | History.HistoryError,
   History.Service | Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
-> =>
-  Effect.gen(function*() {
-    yield* Effect.fromResult(validateRoutes(routes))
-    const history = yield* History.Service
-    const services = yield* Effect.context<History.Service | Route.Route.LoadServices<RouteUnion<Routes>>>()
-    const state = yield* SubscriptionRef.make<AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes>>>(
-      AsyncResult.initial(true)
-    )
-    const generation = yield* Ref.make(0)
-    const transitions = yield* FiberMap.make<"navigation", Resolved<Routes>, NavigationError<Routes>>()
+> {
+  yield* Effect.fromResult(validateRoutes(routes))
+  const history = yield* History.Service
+  const services = yield* Effect.context<History.Service | Route.Route.LoadServices<RouteUnion<Routes>>>()
+  const state = yield* SubscriptionRef.make<AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes>>>(
+    AsyncResult.initial(true)
+  )
+  const generation = yield* Ref.make(0)
+  const transitions = yield* FiberMap.make<"navigation", Resolved<Routes>, NavigationError<Routes>>()
 
-    const publish = Effect.fn("Router.publish")(function*(
-      token: number,
-      previous: AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes>>,
-      exit: Exit.Exit<Resolved<Routes>, NavigationError<Routes>>
-    ) {
-      const current = yield* Ref.get(generation)
-      if (current !== token) {
+  const publish = Effect.fn("Router.publish")(function*(
+    token: number,
+    previous: AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes>>,
+    exit: Exit.Exit<Resolved<Routes>, NavigationError<Routes>>
+  ) {
+    const current = yield* Ref.get(generation)
+    if (current !== token) {
+      return
+    }
+    yield* SubscriptionRef.set(
+      state,
+      AsyncResult.fromExitWithPrevious(exit, Option.some(previous))
+    )
+  })
+
+  const start = Effect.fn("Router.start")(function*(location: History.Location) {
+    const token = yield* Ref.updateAndGet(generation, (value) => value + 1)
+    const previous = yield* SubscriptionRef.get(state)
+    yield* SubscriptionRef.set(state, AsyncResult.waitingFrom(Option.some(previous)))
+
+    const transition = resolve(routes, location).pipe(
+      Effect.scoped,
+      Effect.provide(services),
+      Effect.onExit((exit) => publish(token, previous, exit))
+    )
+    return yield* FiberMap.run(transitions, "navigation", transition, { startImmediately: true })
+  })
+
+  const startAndWait = Effect.fn("Router.startAndWait")(function*(location: History.Location) {
+    const fiber = yield* start(location)
+    return yield* Fiber.join(fiber)
+  })
+
+  const dispatch = Effect.fn("Router.dispatch")(function*(command: Command<Routes>) {
+    switch (command._tag) {
+      case "To": {
+        const href = yield* Effect.fromResult(Route.href(command.route, command.input))
+        const destination = History.destinationFromHref(href, command.state)
+        const location = command.replace
+          ? yield* history.replace(destination)
+          : yield* history.push(destination)
+        yield* startAndWait(location)
         return
       }
-      yield* SubscriptionRef.set(
-        state,
-        AsyncResult.fromExitWithPrevious(exit, currentPrevious(previous))
-      )
-    })
-
-    const start = Effect.fn("Router.start")(function*(location: History.Location) {
-      const token = yield* Ref.updateAndGet(generation, (value) => value + 1)
-      const previous = yield* SubscriptionRef.get(state)
-      yield* SubscriptionRef.set(state, AsyncResult.waitingFrom(currentPrevious(previous)))
-
-      const transition = resolve(routes, location).pipe(
-        Effect.scoped,
-        Effect.provide(services),
-        Effect.onExit((exit) => publish(token, previous, exit))
-      )
-      return yield* FiberMap.run(transitions, "navigation", transition, { startImmediately: true })
-    })
-
-    const startAndWait = Effect.fn("Router.startAndWait")(function*(location: History.Location) {
-      const fiber = yield* start(location)
-      return yield* Fiber.join(fiber)
-    })
-
-    const dispatch = Effect.fn("Router.dispatch")(function*(command: Command<Routes>) {
-      switch (command._tag) {
-        case "To": {
-          const href = yield* Effect.fromResult(Route.href(command.route, command.input))
-          const destination = History.destinationFromHref(href, command.state)
-          const location = command.replace
-            ? yield* history.replace(destination)
-            : yield* history.push(destination)
-          yield* startAndWait(location)
-          return
-        }
-        case "Back":
-          yield* history.go(-1)
-          return
-        case "Forward":
-          yield* history.go(1)
-          return
-        case "Go":
-          yield* history.go(command.delta)
-          return
-        case "Refresh": {
-          const location = yield* history.current
-          yield* startAndWait(location)
-          return
-        }
+      case "Back":
+        yield* history.go(-1)
+        return
+      case "Forward":
+        yield* history.go(1)
+        return
+      case "Go":
+        yield* history.go(command.delta)
+        return
+      case "Refresh": {
+        const location = yield* history.current
+        yield* startAndWait(location)
+        return
       }
-    })
-
-    yield* history.changes.pipe(
-      Stream.runForEach((location) => start(location).pipe(Effect.asVoid)),
-      Effect.catch((error) =>
-        SubscriptionRef.get(state).pipe(
-          Effect.flatMap((previous) =>
-            SubscriptionRef.set(state, AsyncResult.failWithPrevious(error, { previous: currentPrevious(previous) }))
-          )
-        )
-      ),
-      Effect.forkScoped
-    )
-
-    const initial = yield* history.current
-    yield* start(initial)
-
-    return { state, dispatch }
+    }
   })
+
+  yield* history.changes.pipe(
+    Stream.runForEach((location) => start(location).pipe(Effect.asVoid)),
+    Effect.catch((error) =>
+      SubscriptionRef.get(state).pipe(
+        Effect.flatMap((previous) =>
+          SubscriptionRef.set(state, AsyncResult.failWithPrevious(error, { previous: Option.some(previous) }))
+        )
+      )
+    ),
+    Effect.forkScoped
+  )
+
+  const initial = yield* history.current
+  yield* start(initial)
+
+  return { state, dispatch }
+})
 
 const flattenState = <A, E, LayerError>(
   outer: AsyncResult.AsyncResult<AsyncResult.AsyncResult<A, E>, LayerError>

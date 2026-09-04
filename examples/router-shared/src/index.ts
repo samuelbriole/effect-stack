@@ -37,11 +37,16 @@ export const projectRoute = Route.make({
   hash: Schema.Literals(["", "details"])
 })
 
-const importModule = <A extends PageMetadata>(routeId: string, load: () => Promise<{ readonly page: A }>) =>
-  Effect.tryPromise({
+const importModule = Effect.fn("RouterExample.importModule")(function*<A extends PageMetadata>(
+  routeId: string,
+  load: () => Promise<{ readonly page: A }>
+) {
+  const module = yield* Effect.tryPromise({
     try: load,
     catch: (cause) => new ModuleLoadError({ routeId, message: `Could not load ${routeId}`, cause })
-  }).pipe(Effect.map((module) => module.page))
+  })
+  return module.page
+})
 
 export const lazyRoute = Route.make({
   id: "lazy",

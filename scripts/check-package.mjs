@@ -1,9 +1,30 @@
+import { execFileSync } from "node:child_process"
 import { readFile, readdir } from "node:fs/promises"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-const root = resolve(import.meta.dirname, "../packages/router/dist")
+const packageRoot = resolve(import.meta.dirname, "../packages/router")
+const root = resolve(packageRoot, "dist")
 const publicModules = ["index", "Route", "History", "BrowserHistory", "MemoryHistory", "Router"]
+
+const pack = JSON.parse(execFileSync("pnpm", ["pack", "--dry-run", "--json"], {
+  cwd: packageRoot,
+  encoding: "utf8"
+}))
+const packedFiles = new Set(pack.files.map((file) => file.path))
+const requiredFiles = [
+  "package.json",
+  "README.md",
+  "LICENSE",
+  ...publicModules.flatMap((module) => [`dist/${module}.js`, `dist/${module}.d.ts`])
+]
+for (const file of requiredFiles) {
+  if (!packedFiles.has(file)) {
+    throw new Error(`Required file missing from package: ${file}`)
+  }
+}
+
+JSON.parse(await readFile(resolve(packageRoot, "package.json"), "utf8"))
 
 await Promise.all(publicModules.map((module) => import(pathToFileURL(resolve(root, `${module}.js`)).href)))
 

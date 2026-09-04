@@ -52,6 +52,22 @@ describe("Route", () => {
     expect(Result.isSuccess(matched) && Option.isSome(matched.success) && matched.success.value.params.name).toBe(
       "Ada Lovelace/Byron"
     )
+
+    const invalidUnicode = Route.href(route, {
+      params: { name: "\uD800" },
+      search: {},
+      hash: ""
+    })
+    expect(Result.isFailure(invalidUnicode) && invalidUnicode.failure.part).toBe("path")
+  })
+
+  it("keeps trailing and repeated slashes significant", () => {
+    const route = Route.make({ id: "exact", path: "/exact/path", params: {}, search: {} })
+
+    const trailing = Route.match(route, new URL("https://example.test/exact/path/"))
+    const repeated = Route.match(route, new URL("https://example.test/exact//path"))
+    expect(Result.isSuccess(trailing) && Option.isNone(trailing.success)).toBe(true)
+    expect(Result.isSuccess(repeated) && Option.isNone(repeated.success)).toBe(true)
   })
 
   it("distinguishes a different path from invalid route data", () => {

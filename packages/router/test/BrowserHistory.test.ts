@@ -1,14 +1,34 @@
 // @vitest-environment happy-dom
 import * as BrowserHistory from "@effect-web/router/BrowserHistory"
 import * as History from "@effect-web/router/History"
+import * as Route from "@effect-web/router/Route"
+import * as Router from "@effect-web/router/Router"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
+import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry"
 import { vi } from "vitest"
 
-describe("BrowserHistory", () => {
+const trackEventListeners = () => {
+  const originalAdd = window.addEventListener
+  const originalRemove = window.removeEventListener
+  const addEventListener = vi.fn(originalAdd)
+  const removeEventListener = vi.fn(originalRemove)
+  window.addEventListener = addEventListener
+  window.removeEventListener = removeEventListener
+  return {
+    addEventListener,
+    removeEventListener,
+    restore: () => {
+      window.addEventListener = originalAdd
+      window.removeEventListener = originalRemove
+    }
+  }
+}
+
+describe.sequential("BrowserHistory", () => {
   it.effect("reads, pushes, and replaces browser locations", () =>
     Effect.gen(function*() {
       window.history.replaceState(null, "", "/initial")
@@ -29,14 +49,8 @@ describe("BrowserHistory", () => {
   it.effect("streams popstate without duplicating direct pushes and removes its listener", () =>
     Effect.gen(function*() {
       window.history.replaceState(null, "", "/initial")
-      const addEventListener = vi.spyOn(window, "addEventListener")
-      const removeEventListener = vi.spyOn(window, "removeEventListener")
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          addEventListener.mockRestore()
-          removeEventListener.mockRestore()
-        })
-      )
+      const tracked = trackEventListeners()
+      yield* Effect.addFinalizer(() => Effect.sync(tracked.restore))
       const history = yield* BrowserHistory.make()
       const changes = yield* Ref.make<ReadonlyArray<History.Location>>([])
       const listener = yield* history.changes.pipe(
@@ -49,13 +63,33 @@ describe("BrowserHistory", () => {
       yield* Effect.yieldNow
       expect(yield* Ref.get(changes)).toEqual([])
 
-      window.history.replaceState(window.history.state, "", "/external?from=pop#state")
-      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }))
+      const externalState = { owner: "outside-router" }
+      window.history.replaceState(externalState, "", "/external?from=pop#state")
+      window.dispatchEvent(new PopStateEvent("popstate", { state: externalState }))
       yield* Effect.yieldNow
       expect((yield* Ref.get(changes)).map(History.toHref)).toEqual(["/external?from=pop#state"])
+      expect((yield* Ref.get(changes))[0].state).toEqual(externalState)
 
       yield* Fiber.interrupt(listener)
-      expect(addEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
-      expect(removeEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
+      expect(tracked.addEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
+      expect(tracked.removeEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
+    }))
+
+  it.effect("removes the router popstate listener when its Atom registry is disposed", () =>
+    Effect.gen(function*() {
+      window.history.replaceState(null, "", "/")
+      const tracked = trackEventListeners()
+      yield* Effect.addFinalizer(() => Effect.sync(tracked.restore))
+      const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
+      const router = Router.make({ routes: [home], layer: BrowserHistory.layer })
+      const registry = AtomRegistry.make()
+      yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
+      registry.mount(router.state)
+      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+      yield* Effect.yieldNow
+
+      expect(tracked.addEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
+      registry.dispose()
+      expect(tracked.removeEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
     }))
 })
