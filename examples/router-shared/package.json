@@ -1,5 +1,5 @@
 {
-  "name": "@effect-web-example/router-shared",
+  "name": "@effect-stack-example/router-shared",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@effect-web/router": "workspace:*",
+    "@effect-stack/router": "workspace:*",
     "effect": "4.0.0-rc.112"
   }
 }

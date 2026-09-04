@@ -1,6 +1,8 @@
-# `@effect-web/router`
+# `@effect-stack/router`
 
 Renderer-independent routing built with Effect v4 and Effect Atom.
+
+> Effect Stack is an independent community project built on Effect. It is not maintained by the Effect organization.
 
 > This initial release targets the Effect v4 release candidate. Install `effect@rc` and keep it compatible with the
 > package peer range.
@@ -8,13 +10,13 @@ Renderer-independent routing built with Effect v4 and Effect Atom.
 ## Install
 
 ```sh
-pnpm add @effect-web/router effect@rc
+pnpm add @effect-stack/router effect@rc
 ```
 
 ## Define routes
 
 ```ts
-import { BrowserHistory, Route, Router } from "@effect-web/router"
+import { BrowserHistory, Route, Router } from "@effect-stack/router"
 import { Effect, Schema } from "effect"
 
 const ProjectId = Schema.FiniteFromString.pipe(Schema.brand("ProjectId"))

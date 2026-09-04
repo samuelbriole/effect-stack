@@ -1,4 +1,4 @@
-import * as MemoryHistory from "@effect-web/router/MemoryHistory"
+import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"

@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
-import * as BrowserHistory from "@effect-web/router/BrowserHistory"
-import * as History from "@effect-web/router/History"
-import * as Route from "@effect-web/router/Route"
-import * as Router from "@effect-web/router/Router"
+import * as BrowserHistory from "@effect-stack/router/BrowserHistory"
+import * as History from "@effect-stack/router/History"
+import * as Route from "@effect-stack/router/Route"
+import * as Router from "@effect-stack/router/Router"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"

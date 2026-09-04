@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@4.0.0-next.8/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "wewelll/effect-web" }],
+  "changelog": ["@changesets/changelog-github", { "repo": "wewelll/effect-stack" }],
   "commit": false,
   "fixed": [],
   "linked": [],
@@ -8,8 +8,9 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@effect-web-example/router-shared",
-    "@effect-web-example/router-react",
-    "@effect-web-example/router-solid"
+    "@effect-stack-example/router-shared",
+    "@effect-stack-example/router-react",
+    "@effect-stack-example/router-solid",
+    "@effect-stack-example/router-vue"
   ]
 }

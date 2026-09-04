@@ -8,8 +8,8 @@ import {
   router,
   slowRoute,
   subscribeToSlowLoader
-} from "@effect-web-example/router-shared"
-import * as Router from "@effect-web/router/Router"
+} from "@effect-stack-example/router-shared"
+import * as Router from "@effect-stack/router/Router"
 import { useAtomSet, useAtomValue } from "@effect/atom-solid"
 import * as Cause from "effect/Cause"
 import { createSignal, onCleanup } from "solid-js"
@@ -54,7 +54,7 @@ export const App = () => {
   return (
     <main>
       <p class="eyebrow">Solid tracer · direct @effect/atom-solid integration</p>
-      <h1>@effect-web/router</h1>
+      <h1>@effect-stack/router</h1>
       <nav>
         <a href={destinations.home} onClick={link(Router.push(homeRoute, { params: {}, search: {}, hash: "" }))}>
           Home

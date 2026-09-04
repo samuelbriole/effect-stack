@@ -1,5 +1,5 @@
 {
-  "name": "@effect-web-example/router-react",
+  "name": "@effect-stack-example/router-react",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,8 +7,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@effect-web-example/router-shared": "workspace:*",
-    "@effect-web/router": "workspace:*",
+    "@effect-stack-example/router-shared": "workspace:*",
+    "@effect-stack/router": "workspace:*",
     "@effect/atom-react": "4.0.0-rc.112",
     "effect": "4.0.0-rc.112",
     "react": "19.2.8",

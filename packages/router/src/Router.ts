@@ -26,7 +26,7 @@ import * as Route from "./Route.ts"
  * @since 0.1.0
  * @category errors
  */
-export class RouteNotFound extends Schema.TaggedError<RouteNotFound>()("@effect-web/router/RouteNotFound", {
+export class RouteNotFound extends Schema.TaggedError<RouteNotFound>()("@effect-stack/router/RouteNotFound", {
   pathname: Schema.String,
   search: Schema.String,
   hash: Schema.String
@@ -39,7 +39,7 @@ export class RouteNotFound extends Schema.TaggedError<RouteNotFound>()("@effect-
  * @category errors
  */
 export class RouterConfigurationError extends Schema.TaggedError<RouterConfigurationError>()(
-  "@effect-web/router/RouterConfigurationError",
+  "@effect-stack/router/RouterConfigurationError",
   {
     message: Schema.String
   }

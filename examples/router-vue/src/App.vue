@@ -10,8 +10,8 @@ import {
   type routes,
   slowRoute,
   subscribeToSlowLoader
-} from "@effect-web-example/router-shared"
-import * as Router from "@effect-web/router/Router"
+} from "@effect-stack-example/router-shared"
+import * as Router from "@effect-stack/router/Router"
 import { useAtomSet, useAtomValue } from "@effect/atom-vue"
 import * as Cause from "effect/Cause"
 import { computed, onUnmounted, ref } from "vue"
@@ -74,7 +74,7 @@ const resolution = computed(() => {
 <template>
   <main>
     <p class="eyebrow">Vue tracer · direct @effect/atom-vue integration</p>
-    <h1>@effect-web/router</h1>
+    <h1>@effect-stack/router</h1>
     <nav>
       <a :href="destinations.home" @click="follow($event, homeCommand)">Home</a>
       <a :href="destinations.project" @click="follow($event, projectCommand)">Project 42</a>

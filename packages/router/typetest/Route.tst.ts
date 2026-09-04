@@ -1,4 +1,4 @@
-import * as Route from "@effect-web/router/Route"
+import * as Route from "@effect-stack/router/Route"
 import * as Schema from "effect/Schema"
 import { describe, expect, test } from "tstyche"
 

@@ -1,7 +1,7 @@
-import * as History from "@effect-web/router/History"
-import * as MemoryHistory from "@effect-web/router/MemoryHistory"
-import * as Route from "@effect-web/router/Route"
-import * as Router from "@effect-web/router/Router"
+import * as History from "@effect-stack/router/History"
+import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
+import * as Route from "@effect-stack/router/Route"
+import * as Router from "@effect-stack/router/Router"
 import { describe, expect, it } from "@effect/vitest"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
@@ -266,7 +266,7 @@ describe("Router", () => {
       if (Option.isSome(settled) && AsyncResult.isFailure(settled.value)) {
         const failure = Cause.findErrorOption(settled.value.cause)
         expect(Option.isSome(failure) && failure.value).toMatchObject({
-          _tag: "@effect-web/router/RouterConfigurationError"
+          _tag: "@effect-stack/router/RouterConfigurationError"
         })
       }
     }))
@@ -471,7 +471,7 @@ describe("Router", () => {
       if (Exit.isFailure(settled)) {
         const failure = Cause.findErrorOption(settled.cause)
         expect(Option.isSome(failure) && failure.value).toMatchObject({
-          _tag: "@effect-web/router/RouteDecodeError",
+          _tag: "@effect-stack/router/RouteDecodeError",
           part
         })
       } else {

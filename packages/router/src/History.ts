@@ -42,7 +42,7 @@ export interface Destination {
  * @since 0.1.0
  * @category errors
  */
-export class HistoryError extends Schema.TaggedError<HistoryError>()("@effect-web/router/HistoryError", {
+export class HistoryError extends Schema.TaggedError<HistoryError>()("@effect-stack/router/HistoryError", {
   operation: Schema.Literals(["current", "push", "replace", "go"]),
   message: Schema.String,
   cause: Schema.Defect()
@@ -71,7 +71,7 @@ export interface Interface {
  * @since 0.1.0
  * @category services
  */
-export class Service extends Context.Service<Service, Interface>()("@effect-web/router/History") {}
+export class Service extends Context.Service<Service, Interface>()("@effect-stack/router/History") {}
 
 /**
  * Converts a destination to a relative href.
@@ -89,7 +89,7 @@ export const toHref = (location: Pick<Location | Destination, "pathname" | "sear
  * @category utilities
  */
 export const destinationFromHref = (href: string, state?: unknown): Destination => {
-  const url = new URL(href, "https://effect-web.invalid")
+  const url = new URL(href, "https://effect-stack.invalid")
   return {
     pathname: url.pathname,
     search: url.search,

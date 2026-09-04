@@ -1,16 +1,19 @@
-# Effect Web
+# Effect Stack
 
-Effect-native, renderer-independent application infrastructure for the web.
+Independently adoptable application infrastructure built natively on Effect, including universal core modules and
+optional platform and renderer integrations.
 
-The project currently ships [`@effect-web/router`](packages/router), providing typed bidirectional routes, Schema
+> Effect Stack is an independent community project built on Effect. It is not maintained by the Effect organization.
+
+The project currently ships [`@effect-stack/router`](packages/router), providing typed bidirectional routes, Schema
 validation, browser and memory history, lazy route modules, interruption-safe navigation, and reactive state through
 Effect Atom.
 
 ```sh
-pnpm add @effect-web/router effect@rc
+pnpm add @effect-stack/router effect@rc
 ```
 
-> Effect Web currently targets Effect `4.0.0-rc.112`. Use the explicit `effect@rc` tag while Effect v4 remains a release
+> Effect Stack currently targets Effect `4.0.0-rc.112`. Use the explicit `effect@rc` tag while Effect v4 remains a release
 > candidate.
 
 The same headless route definitions power the included [React](examples/router-react),

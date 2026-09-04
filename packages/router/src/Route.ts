@@ -157,7 +157,7 @@ export type UrlPart = typeof UrlPart.Type
  * @since 0.1.0
  * @category errors
  */
-export class RouteDecodeError extends Schema.TaggedError<RouteDecodeError>()("@effect-web/router/RouteDecodeError", {
+export class RouteDecodeError extends Schema.TaggedError<RouteDecodeError>()("@effect-stack/router/RouteDecodeError", {
   routeId: Schema.String,
   part: UrlPart,
   input: Schema.String,
@@ -170,7 +170,7 @@ export class RouteDecodeError extends Schema.TaggedError<RouteDecodeError>()("@e
  * @since 0.1.0
  * @category errors
  */
-export class RouteEncodeError extends Schema.TaggedError<RouteEncodeError>()("@effect-web/router/RouteEncodeError", {
+export class RouteEncodeError extends Schema.TaggedError<RouteEncodeError>()("@effect-stack/router/RouteEncodeError", {
   routeId: Schema.String,
   part: UrlPart,
   message: Schema.String
@@ -183,7 +183,7 @@ export class RouteEncodeError extends Schema.TaggedError<RouteEncodeError>()("@e
  * @category errors
  */
 export class RouteDefinitionError extends Schema.TaggedError<RouteDefinitionError>()(
-  "@effect-web/router/RouteDefinitionError",
+  "@effect-stack/router/RouteDefinitionError",
   {
     routeId: Schema.String,
     message: Schema.String

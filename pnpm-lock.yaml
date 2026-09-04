@@ -92,10 +92,10 @@ importers:
 
   examples/router-react:
     dependencies:
-      '@effect-web-example/router-shared':
+      '@effect-stack-example/router-shared':
         specifier: workspace:*
         version: link:../router-shared
-      '@effect-web/router':
+      '@effect-stack/router':
         specifier: workspace:*
         version: link:../../packages/router
       '@effect/atom-react':
@@ -132,7 +132,7 @@ importers:
 
   examples/router-shared:
     dependencies:
-      '@effect-web/router':
+      '@effect-stack/router':
         specifier: workspace:*
         version: link:../../packages/router
       effect:
@@ -141,10 +141,10 @@ importers:
 
   examples/router-solid:
     dependencies:
-      '@effect-web-example/router-shared':
+      '@effect-stack-example/router-shared':
         specifier: workspace:*
         version: link:../router-shared
-      '@effect-web/router':
+      '@effect-stack/router':
         specifier: workspace:*
         version: link:../../packages/router
       '@effect/atom-solid':
@@ -166,10 +166,10 @@ importers:
 
   examples/router-vue:
     dependencies:
-      '@effect-web-example/router-shared':
+      '@effect-stack-example/router-shared':
         specifier: workspace:*
         version: link:../router-shared
-      '@effect-web/router':
+      '@effect-stack/router':
         specifier: workspace:*
         version: link:../../packages/router
       '@effect/atom-vue':

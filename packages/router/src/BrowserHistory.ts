@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as History from "./History.ts"
 
-const StateKey = "@effect-web/router/history-state"
+const StateKey = "@effect-stack/router/history-state"
 
 const BrowserMetadata = Schema.Struct({
   version: Schema.Literal(1),

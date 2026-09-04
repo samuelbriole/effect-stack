@@ -1,17 +1,17 @@
 {
-  "name": "@effect-web/router",
+  "name": "@effect-stack/router",
   "version": "0.0.0",
   "type": "module",
   "license": "MIT",
   "description": "Effect-native, renderer-independent routing for the web",
-  "homepage": "https://github.com/wewelll/effect-web#readme",
+  "homepage": "https://github.com/wewelll/effect-stack#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wewelll/effect-web.git",
+    "url": "https://github.com/wewelll/effect-stack.git",
     "directory": "packages/router"
   },
   "bugs": {
-    "url": "https://github.com/wewelll/effect-web/issues"
+    "url": "https://github.com/wewelll/effect-stack/issues"
   },
   "sideEffects": false,
   "exports": {

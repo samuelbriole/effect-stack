@@ -1,19 +1,19 @@
 # Adoption
 
-Effect Web packages are incremental. Installing Router does not require adopting future Query, Form, or DB packages.
+Effect Stack packages are incremental. Installing Router does not require adopting future Query, Form, or DB packages.
 
 ## Install
 
 While Effect v4 is under the release-candidate tag:
 
 ```sh
-pnpm add @effect-web/router effect@rc
+pnpm add @effect-stack/router effect@rc
 ```
 
 Define routes once with `Route.make`, then create a facade with a History Layer:
 
 ```ts
-import { BrowserHistory, Route, Router } from "@effect-web/router"
+import { BrowserHistory, Route, Router } from "@effect-stack/router"
 import { Schema } from "effect"
 
 const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
@@ -34,7 +34,7 @@ Use `MemoryHistory.layer("/initial")` in tests, SSR-like environments, and hosts
 The public facade is ordinary Effect Atom state and an action Atom:
 
 ```ts
-import { Router } from "@effect-web/router"
+import { Router } from "@effect-stack/router"
 import { Effect } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
 

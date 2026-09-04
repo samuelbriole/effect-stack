@@ -1,4 +1,4 @@
-import * as Route from "@effect-web/router/Route"
+import * as Route from "@effect-stack/router/Route"
 import { describe, expect, it } from "@effect/vitest"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
@@ -141,7 +141,7 @@ describe("Route", () => {
     const invalid = Route.match(project, new URL("https://example.test/projects/not-a-number"))
     expect(Result.isFailure(invalid)).toBe(true)
     if (Result.isFailure(invalid)) {
-      expect(invalid.failure._tag).toBe("@effect-web/router/RouteDecodeError")
+      expect(invalid.failure._tag).toBe("@effect-stack/router/RouteDecodeError")
       expect(invalid.failure.part).toBe("path")
     }
   })
