@@ -40,6 +40,7 @@ describe.sequential("BrowserHistory", () => {
       const pushed = yield* history.push(History.destinationFromHref("/projects/42?tab=activity#details", { ok: true }))
       expect(History.toHref(pushed)).toBe("/projects/42?tab=activity#details")
       expect(pushed.state).toEqual({ ok: true })
+      expect(pushed.key).not.toBe(initial.key)
 
       const replaced = yield* history.replace(History.destinationFromHref("/projects/43"))
       expect(replaced.pathname).toBe("/projects/43")

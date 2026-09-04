@@ -44,5 +44,8 @@ produce `RouteDecodeError` rather than falling through. This release supports ex
 segments only; trailing and repeated slashes remain significant. `Route.make` rejects invalid untyped definitions with
 `RouteDefinitionError`, while URL matching and construction return typed `Result` failures.
 
+Repeated search fields preserve ordered values. Empty arrays are not representable in a URL, and singleton arrays are
+rejected when the field's Schema also accepts a scalar because that URL would be ambiguous.
+
 See the repository [adoption guide](../../docs/adoption.md) and the shared [React](../../examples/router-react) and
 [Solid](../../examples/router-solid) tracers.

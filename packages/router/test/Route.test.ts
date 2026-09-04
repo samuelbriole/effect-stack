@@ -55,6 +55,19 @@ describe("Route", () => {
 
     const empty = Route.href(route, { params: {}, search: { tag: [] }, hash: "" })
     expect(Result.isFailure(empty) && empty.failure.part).toBe("search")
+
+    const ambiguous = Route.make({
+      id: "ambiguous-query",
+      path: "/ambiguous-query",
+      params: {},
+      search: { value: Schema.Union([Schema.String, Schema.Array(Schema.String)]) }
+    })
+    const singletonArray = Route.href(ambiguous, {
+      params: {},
+      search: { value: ["one"] },
+      hash: ""
+    })
+    expect(Result.isFailure(singletonArray) && singletonArray.failure.part).toBe("search")
   })
 
   it("percent-encodes a path exactly once", () => {
@@ -146,6 +159,19 @@ describe("Route", () => {
       hash: ""
     })
     expect(Result.isFailure(searchEncodeFailure) && searchEncodeFailure.failure.part).toBe("search")
+
+    const textSearch = Route.make({
+      id: "text-search",
+      path: "/text-search",
+      params: {},
+      search: { query: Schema.String }
+    })
+    const invalidUnicodeSearch = Route.href(textSearch, {
+      params: {},
+      search: { query: "\uD800" },
+      hash: ""
+    })
+    expect(Result.isFailure(invalidUnicodeSearch) && invalidUnicodeSearch.failure.part).toBe("search")
 
     const hashEncodeFailure = Route.href(project, {
       params: { projectId: 1 },

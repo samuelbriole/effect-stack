@@ -81,7 +81,8 @@ export const make = Effect.fn("MemoryHistory.make")(function*(initialHref = "/")
 
   const go = Effect.fn("MemoryHistory.go")(function*(delta: number) {
     const changed = yield* Ref.modify(state, (value) => {
-      const index = Math.max(0, Math.min(value.entries.length - 1, value.index + Math.trunc(delta)))
+      const offset = Number.isFinite(delta) ? Math.trunc(delta) : 0
+      const index = Math.max(0, Math.min(value.entries.length - 1, value.index + offset))
       if (index === value.index) {
         return [undefined, value] as const
       }

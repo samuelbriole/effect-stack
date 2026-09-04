@@ -14,7 +14,9 @@ const StateKey = "@effect-web/router/history-state"
 
 const BrowserMetadata = Schema.Struct({
   version: Schema.Literal(1),
-  key: Schema.String.check(Schema.isPattern(/^browser-(?:initial|\d+)$/)),
+  key: Schema.String.check(
+    Schema.isPattern(/^browser-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  ),
   index: Schema.Int,
   value: Schema.Unknown
 })
@@ -26,14 +28,14 @@ const BrowserState = Schema.Struct({
 type BrowserMetadata = typeof BrowserMetadata.Type
 type BrowserState = typeof BrowserState.Type
 
-let nextKey = 0
-
 const browserState = (value: unknown): BrowserMetadata | undefined =>
   Option.getOrUndefined(Schema.decodeUnknownOption(BrowserState)(value))?.[StateKey]
 
 const makeState = (key: string, index: number, value: unknown): BrowserState => ({
   [StateKey]: { version: 1, key, index, value }
 })
+
+const makeKey = (browser: Window): string => `browser-${browser.crypto.randomUUID()}`
 
 const historyError = (operation: History.HistoryError["operation"]) => (cause: unknown): History.HistoryError =>
   new History.HistoryError({
@@ -65,14 +67,14 @@ export const make = Effect.fn("BrowserHistory.make")(function*() {
       search: browser.location.search,
       hash: browser.location.hash,
       state: metadata === undefined ? browser.history.state : metadata.value,
-      key: metadata?.key ?? "browser-initial",
+      key: metadata?.key ?? makeKey(browser),
       index: metadata?.index ?? 0
     }
   }
 
   if (browserState(browser.history.state) === undefined) {
     yield* Effect.try({
-      try: () => browser.history.replaceState(makeState("browser-initial", 0, browser.history.state), ""),
+      try: () => browser.history.replaceState(makeState(makeKey(browser), 0, browser.history.state), ""),
       catch: historyError("replace")
     })
   }
@@ -81,7 +83,7 @@ export const make = Effect.fn("BrowserHistory.make")(function*() {
 
   const push = Effect.fn("BrowserHistory.push")(function*(destination: History.Destination) {
     const previous = yield* current
-    const key = `browser-${++nextKey}`
+    const key = makeKey(browser)
     yield* Effect.try({
       try: () =>
         browser.history.pushState(
@@ -110,7 +112,7 @@ export const make = Effect.fn("BrowserHistory.make")(function*() {
 
   const go = Effect.fn("BrowserHistory.go")(function*(delta: number) {
     yield* Effect.try({
-      try: () => browser.history.go(Math.trunc(delta)),
+      try: () => browser.history.go(Number.isFinite(delta) ? Math.trunc(delta) : 0),
       catch: historyError("go")
     })
   })

@@ -310,10 +310,15 @@ export function make(options: {
   unknown,
   unknown
 > {
+  if (!options.path.startsWith("/")) {
+    throw new RouteDefinitionError({
+      routeId: options.id,
+      message: "Path must start with /"
+    })
+  }
   const expectedParameters = [...pathParameterNames(options.path)].sort()
   const actualParameters = Object.keys(options.params).sort()
   if (
-    !options.path.startsWith("/") ||
     expectedParameters.length !== actualParameters.length ||
     expectedParameters.some((parameter, index) => parameter !== actualParameters[index])
   ) {
@@ -486,6 +491,7 @@ export const match = <
 
 const encodeSearch = (
   routeId: string,
+  fields: UrlFields,
   value: unknown
 ): Result.Result<string, RouteEncodeError> => {
   if (!Predicate.isObject(value)) {
@@ -499,11 +505,29 @@ const encodeSearch = (
   }
   const params: Array<readonly [string, string]> = []
   for (const key of Object.keys(value).sort()) {
+    if (Result.isFailure(encodeUriPart(routeId, "search", key))) {
+      return Result.fail(
+        new RouteEncodeError({
+          routeId,
+          part: "search",
+          message: "Search field name contains invalid Unicode"
+        })
+      )
+    }
     const item = value[key]
     if (item === undefined) {
       continue
     }
     if (typeof item === "string") {
+      if (Result.isFailure(encodeUriPart(routeId, "search", item))) {
+        return Result.fail(
+          new RouteEncodeError({
+            routeId,
+            part: "search",
+            message: `Search field ${key} contains invalid Unicode`
+          })
+        )
+      }
       params.push([key, item])
       continue
     }
@@ -517,7 +541,25 @@ const encodeSearch = (
           })
         )
       }
+      if (item.length === 1 && Result.isSuccess(Schema.decodeUnknownResult(fields[key])(item[0]))) {
+        return Result.fail(
+          new RouteEncodeError({
+            routeId,
+            part: "search",
+            message: `Search field ${key} cannot distinguish a singleton array from a scalar value`
+          })
+        )
+      }
       for (const entry of item) {
+        if (Result.isFailure(encodeUriPart(routeId, "search", entry))) {
+          return Result.fail(
+            new RouteEncodeError({
+              routeId,
+              part: "search",
+              message: `Search field ${key} contains invalid Unicode`
+            })
+          )
+        }
         params.push([key, entry])
       }
       continue
@@ -604,7 +646,7 @@ export const href = <R extends Any>(
       })
     )
   }
-  const search = encodeSearch(route.id, searchValue.success)
+  const search = encodeSearch(route.id, route.searchSchema.fields, searchValue.success)
   if (Result.isFailure(search)) {
     return search
   }

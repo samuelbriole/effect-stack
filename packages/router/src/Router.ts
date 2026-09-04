@@ -164,23 +164,6 @@ const validateRoutes = (routes: ReadonlyArray<Route.Any>): Result.Result<void, R
   const ids = new Set<string>()
   const paths = new Set<string>()
   for (const route of routes) {
-    if (!route.path.startsWith("/")) {
-      return Result.fail(new RouterConfigurationError({ message: `Route ${route.id} path must start with /` }))
-    }
-    const pathParameters = [...Route.pathParameterNames(route.path)].sort()
-    const schemaParameters = Object.keys(route.paramsSchema.fields).sort()
-    if (
-      pathParameters.length !== schemaParameters.length ||
-      pathParameters.some((parameter, index) => parameter !== schemaParameters[index])
-    ) {
-      return Result.fail(
-        new RouterConfigurationError({
-          message: `Route ${route.id} path parameters (${pathParameters.join(", ")}) do not match its Schema fields (${
-            schemaParameters.join(", ")
-          })`
-        })
-      )
-    }
     if (ids.has(route.id)) {
       return Result.fail(new RouterConfigurationError({ message: `Duplicate route id: ${route.id}` }))
     }

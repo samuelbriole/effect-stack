@@ -71,4 +71,15 @@ describe("MemoryHistory", () => {
       const change = yield* Stream.runHead(history.changes)
       expect(Option.isNone(change)).toBe(true)
     }))
+
+  it.effect("ignores non-finite traversal deltas", () =>
+    Effect.gen(function*() {
+      const history = yield* MemoryHistory.make("/one")
+      yield* history.push({ pathname: "/two", search: "", hash: "" })
+
+      yield* history.go(Number.NaN)
+      expect((yield* history.current).pathname).toBe("/two")
+      yield* history.go(Number.POSITIVE_INFINITY)
+      expect((yield* history.current).pathname).toBe("/two")
+    }))
 })

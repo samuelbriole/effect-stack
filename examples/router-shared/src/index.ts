@@ -71,19 +71,21 @@ export const subscribeToSlowLoader = (listener: (event: SlowLoaderEvent) => void
   return () => slowLoaderListeners.delete(listener)
 }
 
+const loadSlowRoute = Effect.fn("RouterExample.loadSlowRoute")(function*() {
+  yield* Effect.acquireRelease(
+    Effect.sync(() => publishSlowLoaderEvent("started")),
+    () => Effect.sync(() => publishSlowLoaderEvent("finalized"))
+  )
+  yield* Effect.sleep("3 seconds")
+  return yield* importModule("slow", () => import("./pages/slow.ts"))
+})
+
 export const slowRoute = Route.make({
   id: "slow",
   path: "/slow",
   params: {},
   search: {},
-  load: () =>
-    Effect.acquireRelease(
-      Effect.sync(() => publishSlowLoaderEvent("started")),
-      () => Effect.sync(() => publishSlowLoaderEvent("finalized"))
-    ).pipe(
-      Effect.andThen(Effect.sleep("3 seconds")),
-      Effect.andThen(importModule("slow", () => import("./pages/slow.ts")))
-    )
+  load: loadSlowRoute
 })
 
 export const routes = [homeRoute, projectRoute, lazyRoute, slowRoute] as const
