@@ -22,6 +22,7 @@
     "./BrowserHistory": "./src/BrowserHistory.ts",
     "./MemoryHistory": "./src/MemoryHistory.ts",
     "./Router": "./src/Router.ts",
+    "./RouteTree": "./src/RouteTree.ts",
     "./internal/*": null
   },
   "files": [
@@ -44,6 +45,7 @@
       "./BrowserHistory": "./dist/BrowserHistory.js",
       "./MemoryHistory": "./dist/MemoryHistory.js",
       "./Router": "./dist/Router.js",
+      "./RouteTree": "./dist/RouteTree.js",
       "./internal/*": null
     }
   },

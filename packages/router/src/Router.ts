@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import type * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -19,6 +20,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import * as Atom from "effect/unstable/reactivity/Atom"
 import * as History from "./History.ts"
 import * as Route from "./Route.ts"
+import * as RouteTree from "./RouteTree.ts"
 
 /**
  * No configured route matched a location.
@@ -64,6 +66,22 @@ export class RouteLoadError<Id extends string, Error> extends RouteLoadErrorBase
   declare readonly error: Error
 }
 
+class RouteLoaderErrorBase extends Schema.TaggedError<RouteLoaderErrorBase>()(
+  "@effect-stack/router/RouteLoaderError",
+  { routeId: Schema.String, error: Schema.Unknown }
+) {}
+
+/**
+ * A route's data loader failed. Defects and interruption remain in Cause.
+ *
+ * @since 0.2.0
+ * @category errors
+ */
+export class RouteLoaderError<Id extends string, Error> extends RouteLoaderErrorBase {
+  declare readonly routeId: Id
+  declare readonly error: Error
+}
+
 /**
  * A route resolved from the current location.
  *
@@ -73,6 +91,19 @@ export class RouteLoadError<Id extends string, Error> extends RouteLoadErrorBase
 export interface ResolvedRoute<R extends Route.Any> extends Route.Match<R> {
   readonly location: History.Location
   readonly module: Route.Route.Module<R>
+  readonly loaderData: Route.Route.LoaderData<R>
+}
+
+/** A route's current loading or rendering input. @since 0.2.0 */
+export interface MatchState {
+  readonly route: Route.Any
+  readonly result: AsyncResult.AsyncResult<ResolvedRoute<Route.Any>, unknown>
+}
+
+/** Incoming match state. Only the current navigation may publish into it. @since 0.2.0 */
+export interface Branch {
+  readonly matches: ReadonlyArray<MatchState>
+  readonly notFound: boolean
 }
 
 type RouteUnion<Routes extends ReadonlyArray<Route.Any>> = Routes[number]
@@ -91,6 +122,9 @@ export type Resolved<Routes extends ReadonlyArray<Route.Any>> = RouteUnion<Route
 type LoadFailure<R extends Route.Any> = Route.Route.LoadError<R> extends never ? never
   : RouteLoadError<R["id"], Route.Route.LoadError<R>>
 
+type LoaderFailure<R extends Route.Any> = Route.Route.LoaderError<R> extends never ? never
+  : RouteLoaderError<R["id"], Route.Route.LoaderError<R>>
+
 /**
  * Failures that can occur after a navigation command has been accepted.
  *
@@ -103,7 +137,7 @@ export type NavigationError<Routes extends ReadonlyArray<Route.Any>> =
   | Route.RouteEncodeError
   | RouteNotFound
   | RouterConfigurationError
-  | (RouteUnion<Routes> extends infer R ? R extends Route.Any ? LoadFailure<R> : never : never)
+  | (RouteUnion<Routes> extends infer R ? R extends Route.Any ? LoadFailure<R> | LoaderFailure<R> : never : never)
 
 /**
  * A typed push or replace target for one route.
@@ -146,6 +180,7 @@ export interface Router<Routes extends ReadonlyArray<Route.Any>, LayerError> {
   readonly routes: Routes
   readonly state: Atom.Atom<AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes> | LayerError>>
   readonly navigate: Atom.AtomResultFn<Command<Routes>, void, NavigationError<Routes> | LayerError>
+  readonly branch: Atom.Atom<Branch>
   readonly href: <R extends RouteUnion<Routes>>(
     route: R,
     input: Route.Route.Input<R>
@@ -155,6 +190,7 @@ export interface Router<Routes extends ReadonlyArray<Route.Any>, LayerError> {
 interface Engine<Routes extends ReadonlyArray<Route.Any>> {
   readonly state: SubscriptionRef.SubscriptionRef<AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes>>>
   readonly dispatch: (command: Command<Routes>) => Effect.Effect<void, NavigationError<Routes>>
+  readonly branch: SubscriptionRef.SubscriptionRef<Branch>
 }
 
 const routeLoadError = <R extends Route.Any>(route: R, error: Route.Route.LoadError<R>): LoadFailure<R> =>
@@ -176,45 +212,60 @@ const validateRoutes = (routes: ReadonlyArray<Route.Any>): Result.Result<void, R
   return Result.succeed(undefined)
 }
 
-const resolve = Effect.fn("Router.resolve")(function*<Routes extends ReadonlyArray<Route.Any>>(
-  routes: Routes,
+const loadMatch = Effect.fn("Router.loadMatch")(function*<Routes extends ReadonlyArray<Route.Any>>(
+  matched: Route.Match<RouteUnion<Routes>>,
   location: History.Location
 ): Effect.fn.Return<
   Resolved<Routes>,
   NavigationError<Routes>,
-  Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
+  Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
 > {
-  for (const route of routes) {
-    const result = Route.match(route, location)
-    if (Result.isFailure(result)) {
-      return yield* result.failure
-    }
-    if (Option.isNone(result.success)) {
-      continue
-    }
-
-    const matched = result.success.value
-    if (route.load === undefined) {
-      return {
-        ...matched,
-        location,
-        module: undefined
-      } as Resolved<Routes>
-    }
-
-    const load = route.load as () => Effect.Effect<
+  const route = matched.route
+  const load = route.load as
+    | undefined
+    | (() => Effect.Effect<
       Route.Route.Module<RouteUnion<Routes>>,
       Route.Route.LoadError<RouteUnion<Routes>>,
       Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
-    >
-    const module = yield* load().pipe(
-      Effect.mapError((error) => routeLoadError(route, error) as NavigationError<Routes>)
-    )
-    return {
-      ...matched,
-      location,
-      module
-    } as Resolved<Routes>
+    >)
+  // The match was decoded with this exact route's schemas. Erasing the route
+  // tuple for iteration must not erase the loader's data/error/service union.
+  const loader = route.loader as
+    | undefined
+    | ((
+      input: Route.LoaderInput<
+        Route.Route.Params<RouteUnion<Routes>>,
+        Route.Route.Search<RouteUnion<Routes>>,
+        Route.Route.Hash<RouteUnion<Routes>>
+      >
+    ) => Effect.Effect<
+      Route.Route.LoaderData<RouteUnion<Routes>>,
+      Route.Route.LoaderError<RouteUnion<Routes>>,
+      Scope.Scope | Route.Route.LoaderServices<RouteUnion<Routes>>
+    >)
+  const moduleEffect = load === undefined ? Effect.void : Effect.suspend(load).pipe(
+    Effect.mapError((error) => routeLoadError(route, error) as NavigationError<Routes>)
+  )
+  const dataEffect = loader === undefined ? Effect.void : Effect.suspend(() => loader({ ...matched, location })).pipe(
+    Effect.mapError((error) => new RouteLoaderError({ routeId: route.id, error }) as NavigationError<Routes>)
+  )
+  const [module, loaderData] = yield* Effect.all([moduleEffect, dataEffect], { concurrency: "unbounded" })
+  return {
+    ...matched,
+    location,
+    module,
+    loaderData
+  } as Resolved<Routes>
+})
+
+const resolve = Effect.fn("Router.resolve")(function*<Routes extends ReadonlyArray<Route.Any>>(
+  routes: Routes,
+  location: History.Location
+): Effect.fn.Return<Resolved<Routes>, NavigationError<Routes>, Scope.Scope | Route.Route.Services<RouteUnion<Routes>>> {
+  for (const route of routes) {
+    const result = Route.match(route, location)
+    if (Result.isFailure(result)) return yield* result.failure
+    if (Option.isSome(result.success)) return yield* loadMatch<Routes>(result.success.value, location)
   }
 
   return yield* new RouteNotFound({
@@ -225,20 +276,70 @@ const resolve = Effect.fn("Router.resolve")(function*<Routes extends ReadonlyArr
 })
 
 const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends ReadonlyArray<Route.Any>>(
-  routes: Routes
+  routes: Routes,
+  treeRoutes?: ReadonlyArray<RouteTree.Any>
 ): Effect.fn.Return<
   Engine<Routes>,
   RouterConfigurationError | History.HistoryError,
-  History.Service | Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
+  History.Service | Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
 > {
-  yield* Effect.fromResult(validateRoutes(routes))
+  if (treeRoutes === undefined) yield* Effect.fromResult(validateRoutes(routes))
   const history = yield* History.Service
-  const services = yield* Effect.context<History.Service | Route.Route.LoadServices<RouteUnion<Routes>>>()
+  const services = yield* Effect.context<History.Service | Route.Route.Services<RouteUnion<Routes>>>()
   const state = yield* SubscriptionRef.make<AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes>>>(
     AsyncResult.initial(true)
   )
   const generation = yield* Ref.make(0)
+  const branch = yield* SubscriptionRef.make<Branch>({ matches: [], notFound: false })
   const transitions = yield* FiberMap.make<"navigation", Resolved<Routes>, NavigationError<Routes>>()
+
+  const resolveLocation = Effect.fn("Router.resolveLocation")(
+    function*(
+      location: History.Location
+    ): Effect.fn.Return<
+      Resolved<Routes>,
+      NavigationError<Routes>,
+      Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
+    > {
+      if (treeRoutes === undefined) return yield* resolve(routes, location)
+      const token = yield* Ref.get(generation)
+      const planned = RouteTree.plan(treeRoutes, location)
+      const previous = yield* SubscriptionRef.get(branch)
+      yield* SubscriptionRef.set(branch, {
+        matches: planned.entries.map(({ route }) => ({
+          route,
+          result: AsyncResult.waitingFrom(
+            Option.fromUndefinedOr(previous.matches.find((entry) => entry.route.id === route.id)?.result)
+          )
+        })),
+        notFound: planned.notFound
+      })
+      const results = yield* Effect.forEach(planned.entries, ({ route, match }, index) => {
+        // The planner only returns members of this validated route tree.
+        const work = Result.isFailure(match) ? Effect.fail(match.failure) : loadMatch<Routes>(match.success, location)
+        return work.pipe(
+          Effect.scoped,
+          Effect.onExit((exit) =>
+            Effect.gen(function*() {
+              if (token !== (yield* Ref.get(generation))) return
+              if (exit._tag === "Failure" && Cause.hasInterruptsOnly(exit.cause)) return
+              yield* SubscriptionRef.update(
+                branch,
+                (current) => ({
+                  ...current,
+                  matches: current.matches.map((entry, i) =>
+                    i === index ? { route, result: AsyncResult.fromExit(exit) } : entry
+                  )
+                })
+              )
+            })
+          )
+        )
+      })
+      if (planned.notFound || results.length === 0) return yield* new RouteNotFound(location)
+      return results[results.length - 1]
+    }
+  )
 
   const publish = Effect.fn("Router.publish")(function*(
     token: number,
@@ -259,7 +360,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     transition: Effect.Effect<
       Resolved<Routes>,
       NavigationError<Routes>,
-      Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
+      Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
     >
   ) {
     const token = yield* Ref.updateAndGet(generation, (value) => value + 1)
@@ -278,7 +379,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     transition: Effect.Effect<
       Resolved<Routes>,
       NavigationError<Routes>,
-      Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
+      Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
     >
   ) {
     const fiber = yield* start(transition)
@@ -291,7 +392,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
         const href = yield* Effect.fromResult(Route.href(command.route, command.input))
         const destination = History.destinationFromHref(href, command.state)
         const updateHistory = command.replace ? history.replace(destination) : history.push(destination)
-        yield* startAndWait(updateHistory.pipe(Effect.flatMap((location) => resolve(routes, location))))
+        yield* startAndWait(updateHistory.pipe(Effect.flatMap(resolveLocation)))
         return
       }
       case "Back":
@@ -304,14 +405,14 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
         yield* history.go(command.delta)
         return
       case "Refresh": {
-        yield* startAndWait(history.current.pipe(Effect.flatMap((location) => resolve(routes, location))))
+        yield* startAndWait(history.current.pipe(Effect.flatMap(resolveLocation)))
         return
       }
     }
   })
 
   yield* history.changes.pipe(
-    Stream.runForEach((location) => start(resolve(routes, location)).pipe(Effect.asVoid)),
+    Stream.runForEach((location) => start(resolveLocation(location)).pipe(Effect.asVoid)),
     Effect.catch((error) =>
       SubscriptionRef.get(state).pipe(
         Effect.flatMap((previous) =>
@@ -323,9 +424,9 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
   )
 
   const initial = yield* history.current
-  yield* start(resolve(routes, initial))
+  yield* start(resolveLocation(initial))
 
-  return { state, dispatch }
+  return { state, dispatch, branch }
 })
 
 const flattenState = <A, E, LayerError>(
@@ -344,20 +445,21 @@ const flattenState = <A, E, LayerError>(
 /**
  * Creates a renderer-neutral router whose scoped dependencies are supplied by
  * a Layer. The layer must provide History and every service required by lazy
- * route modules.
+ * route modules and data loaders.
  *
  * @since 0.1.0
  * @category constructors
  */
-export const make = <
+const makeRuntime = <
   const Routes extends ReadonlyArray<Route.Any>,
   LayerError
 >(options: {
   readonly routes: Routes
-  readonly layer: Layer.Layer<History.Service | Route.Route.LoadServices<RouteUnion<Routes>>, LayerError>
+  readonly layer: Layer.Layer<History.Service | Route.Route.Services<RouteUnion<Routes>>, LayerError>
+  readonly treeRoutes?: ReadonlyArray<RouteTree.Any>
 }): Router<Routes, LayerError> => {
   const runtime = Atom.runtime(options.layer)
-  const engine = runtime.atom(makeEngine(options.routes))
+  const engine = runtime.atom(makeEngine(options.routes, options.treeRoutes))
   const stateRef = Atom.subscriptionRef((get) =>
     get.result(engine).pipe(
       Effect.map((value) => value.state)
@@ -369,13 +471,34 @@ export const make = <
       Effect.flatMap((value) => value.dispatch(command))
     )
   )
+  const branchRef = Atom.subscriptionRef((get) => get.result(engine).pipe(Effect.map((value) => value.branch)))
+  const branch = Atom.make((get): Branch => {
+    const result = get(branchRef)
+    return result._tag === "Success" ? result.value : { matches: [], notFound: false }
+  })
 
   return {
     routes: options.routes,
     state,
     navigate,
+    branch,
     href: Route.href
   }
+}
+
+/** Creates a flat router. @since 0.1.0 */
+export const make = <const Routes extends ReadonlyArray<Route.Any>, LayerError>(options: {
+  readonly routes: Routes
+  readonly layer: Layer.Layer<History.Service | Route.Route.Services<Routes[number]>, LayerError>
+}): Router<Routes, LayerError> => makeRuntime(options)
+
+/** Creates a nested router with ranked branches. @since 0.2.0 */
+export const fromTree = <T extends RouteTree.Any, LayerError>(options: {
+  readonly routeTree: T
+  readonly layer: Layer.Layer<History.Service | Route.Route.Services<RouteTree.All<T>>, LayerError>
+}): Router<ReadonlyArray<RouteTree.All<T>>, LayerError> => {
+  const routes = RouteTree.flatten(options.routeTree)
+  return makeRuntime({ routes, layer: options.layer, treeRoutes: routes })
 }
 
 /**
