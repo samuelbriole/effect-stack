@@ -49,5 +49,47 @@ segments only; trailing and repeated slashes remain significant. `Route.make` re
 Repeated search fields preserve ordered values. Empty arrays are not representable in a URL, and singleton arrays are
 rejected when the field's Schema also accepts a scalar because that URL would be ambiguous.
 
-See the repository [adoption guide](../../docs/adoption.md) and the shared [React](../../examples/router-react),
-[Solid](../../examples/router-solid), and [Vue](../../examples/router-vue) tracers.
+See the repository [adoption guide](../../docs/adoption.md), the [React adapter example](../router-react/examples/basic),
+and the [Solid](examples/solid) and [Vue](examples/vue) tracers.
+
+## Effect data loaders
+
+Use `loader` to prepare data from the decoded URL. Its result is inferred as `loaderData` on the resolved route;
+`load` independently imports route code and exposes its result as `module`.
+
+```ts
+import { MemoryHistory, Route, Router } from "@effect-stack/router"
+import { Context, Effect, Layer, Schema } from "effect"
+
+class Projects extends Context.Service<Projects, {
+  readonly get: (id: number) => Effect.Effect<{ readonly id: number; readonly title: string }>
+}>()("Projects") {}
+
+const project = Route.make({
+  id: "project",
+  path: "/projects/:id",
+  params: { id: Schema.FiniteFromString },
+  search: {},
+  loader: ({ params }) => Projects.use((projects) => projects.get(params.id))
+})
+
+const router = Router.make({
+  routes: [project],
+  layer: Layer.merge(
+    MemoryHistory.layer("/projects/42"),
+    Layer.succeed(Projects, {
+      get: (id) => Effect.succeed({ id, title: `Project ${id}` })
+    })
+  )
+})
+```
+
+Loaders receive `{ params, search, hash, location }` after URL validation. The router Layer must supply every service
+required by code loading and data loading. Both execute concurrently; the router publishes a resolved route after both
+succeed. Expected data failures become `Router.RouteLoaderError` with the original `error` and `routeId`.
+Defects and interruption remain in `Cause`.
+
+Data loaders run on every matched resolution, including refresh and history navigation. Superseding navigation or
+disposing the registry interrupts pending work. Loader scopes close when the transition finishes, so returned data must
+not depend on resources kept open by that scope. The active match retains the result; resource caching and reuse can be
+provided by the application's services or a future Query integration.

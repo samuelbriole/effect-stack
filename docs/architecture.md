@@ -31,6 +31,12 @@ Core packages must never import a renderer. A future renderer adapter must depen
 Such a package is created only after it earns an interface with substantive behavior such as accessible links, outlets,
 active state, lazy views, or SSR hydration. Renaming or re-exporting Atom hooks is too shallow.
 
+The React adapter now owns view declarations, provider context, route hooks, anchors, outlets, and render boundaries.
+The core `RouteTree` owns tree validation, inherited URL schemas, static-before-dynamic matching, and branch planning.
+`Router.fromTree` resolves ancestors before descendants and exposes per-match state through Atom. Code and data loading
+within one match remain concurrent. Pending/error/not-found views replace their declaring route and descendants, preserving
+layouts above that boundary. SSR and hydration remain deferred.
+
 ## Lifecycle and cancellation
 
 Each Atom registry builds one Router runtime from its Layer. A `SubscriptionRef` is authoritative state, a scoped
@@ -45,6 +51,13 @@ their identity, including the failing URL part and lazy route ID. Defects and in
 
 A lazy route module is renderer-neutral code splitting. Native dynamic import caching is allowed, but Router does not own
 preloading, eviction, request deduplication, or remote cache policy. Those resource concerns belong to Query.
+
+Route `loader` effects prepare data from decoded params, search, hash, and the current location. Router coordinates their
+execution alongside lazy code loading and retains `loaderData` on the resolved match. Both effects run concurrently in
+the transition scope; either failure interrupts unfinished sibling work. The scope closes before resolution is published,
+so loader results must not depend on transition-scoped resources remaining open. Refresh and history navigation run the
+loaders again. Applications can supply resource caching through Layer services without transferring cache ownership to
+Router. Expected data-loader failures preserve route identity separately from lazy-module failures.
 
 Routes are matched in declaration order. Duplicate IDs and exact path templates are rejected; otherwise the first
 structural match wins. This deterministic rule remains until an explicit route-ranking design replaces it.

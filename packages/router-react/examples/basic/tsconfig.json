@@ -1,16 +1,17 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../../../tsconfig.base.json",
   "include": ["src"],
   "references": [
-    { "path": "../router-shared" },
-    { "path": "../../packages/router" }
+    { "path": "../../../router/examples/shared" },
+    { "path": "../../../router" },
+    { "path": "../.." }
   ],
   "compilerOptions": {
     "noEmit": true,
-    "rewriteRelativeImportExtensions": false,
     "rootDir": ".",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "types": ["vite/client"]
   }
 }

@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.tsx"],
+  "references": [{ "path": "../router" }],
+  "compilerOptions": { "jsx": "react-jsx", "lib": ["ES2022", "DOM"] }
+}

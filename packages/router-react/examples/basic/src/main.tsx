@@ -1,4 +1,3 @@
-import { RegistryProvider } from "@effect/atom-react"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { App } from "./App.tsx"
@@ -12,8 +11,6 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    <RegistryProvider>
-      <App />
-    </RegistryProvider>
+    <App />
   </StrictMode>
 )

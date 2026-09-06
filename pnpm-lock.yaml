@@ -90,14 +90,41 @@ importers:
         specifier: 3.3.11
         version: 3.3.11(typescript@7.0.2)
 
-  examples/router-react:
+  packages/router:
+    devDependencies:
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+
+  packages/router-react:
+    devDependencies:
+      '@effect-stack/router':
+        specifier: workspace:*
+        version: link:../router
+      '@effect/atom-react':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(react@19.2.8)(scheduler@0.27.0)
+      '@types/react':
+        specifier: 19.2.18
+        version: 19.2.18
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+
+  packages/router-react/examples/basic:
     dependencies:
       '@effect-stack-example/router-shared':
         specifier: workspace:*
-        version: link:../router-shared
+        version: link:../../../router/examples/shared
       '@effect-stack/router':
         specifier: workspace:*
-        version: link:../../packages/router
+        version: link:../../../router
+      '@effect-stack/router-react':
+        specifier: workspace:*
+        version: link:../..
       '@effect/atom-react':
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112(effect@4.0.0-rc.112)(react@19.2.8)(scheduler@0.27.0)
@@ -130,23 +157,23 @@ importers:
         specifier: 8.2.2
         version: 8.2.2(@types/node@26.4.0)(yaml@2.9.0)
 
-  examples/router-shared:
+  packages/router/examples/shared:
     dependencies:
       '@effect-stack/router':
         specifier: workspace:*
-        version: link:../../packages/router
+        version: link:../..
       effect:
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112
 
-  examples/router-solid:
+  packages/router/examples/solid:
     dependencies:
       '@effect-stack-example/router-shared':
         specifier: workspace:*
-        version: link:../router-shared
+        version: link:../shared
       '@effect-stack/router':
         specifier: workspace:*
-        version: link:../../packages/router
+        version: link:../..
       '@effect/atom-solid':
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112(effect@4.0.0-rc.112)(solid-js@1.9.15)
@@ -164,14 +191,14 @@ importers:
         specifier: 2.11.14
         version: 2.11.14(solid-js@1.9.15)(vite@8.2.2(@types/node@26.4.0)(yaml@2.9.0))
 
-  examples/router-vue:
+  packages/router/examples/vue:
     dependencies:
       '@effect-stack-example/router-shared':
         specifier: workspace:*
-        version: link:../router-shared
+        version: link:../shared
       '@effect-stack/router':
         specifier: workspace:*
-        version: link:../../packages/router
+        version: link:../..
       '@effect/atom-vue':
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112(effect@4.0.0-rc.112)(vue@3.5.42(typescript@6.0.3))
@@ -194,12 +221,6 @@ importers:
       vue-tsc:
         specifier: 3.3.11
         version: 3.3.11(typescript@6.0.3)
-
-  packages/router:
-    devDependencies:
-      effect:
-        specifier: 4.0.0-rc.112
-        version: 4.0.0-rc.112
 
 packages:
 

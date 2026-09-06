@@ -32,14 +32,14 @@
   },
   "overrides": [
     {
-      "files": ["examples/**/*", "packages/*/test/**/*", "packages/*/typetest/**/*"],
+      "files": ["packages/*/examples/**/*", "packages/*/test/**/*", "packages/*/typetest/**/*"],
       "rules": {
         "eslint/no-console": "off",
         "import/no-unassigned-import": "off"
       }
     },
     {
-      "files": ["packages/**/*"],
+      "files": ["packages/router/src/**/*", "packages/router/test/**/*", "packages/router/typetest/**/*"],
       "rules": {
         "eslint/no-restricted-imports": [
           "error",

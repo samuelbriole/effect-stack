@@ -51,7 +51,12 @@ const state = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
 
 ## React
 
-Install `@effect/atom-react@rc`, mount `RegistryProvider`, then use the official hooks directly:
+For code-based nested routing, use the [first-party React adapter](../packages/router-react). It provides typed links,
+route-local hooks, layouts, lazy views, and route boundaries, with a provider-owned Atom registry. See the
+[React example](../packages/router-react/examples/basic/src/App.tsx) for a complete application.
+
+For direct integration with the flat core router above, install `@effect/atom-react@rc`, mount `RegistryProvider`, and use
+the official hooks:
 
 ```tsx
 import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react"
@@ -106,6 +111,5 @@ app.onUnmount(() => registry.dispose())
 app.mount("#root")
 ```
 
-See the complete [React](../examples/router-react), [Solid](../examples/router-solid), and
-[Vue](../examples/router-vue) tracers, all of which consume the same
-[renderer-neutral definitions](../examples/router-shared).
+The [Solid](../packages/router/examples/solid) and [Vue](../packages/router/examples/vue) tracers consume the same
+[renderer-neutral definitions](../packages/router/examples/shared). The React example exercises the first-party adapter.
