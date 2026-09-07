@@ -1,6 +1,14 @@
 // @vitest-environment happy-dom
 import { MemoryHistory, Router } from "@effect-stack/router"
-import { createRootRoute, createRoute, createRouter, Link, Outlet, RouterProvider } from "@effect-stack/router-react"
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Link,
+  Navigate,
+  Outlet,
+  RouterProvider
+} from "@effect-stack/router-react"
 import { Deferred, Effect } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
 import * as React from "react"
@@ -14,6 +22,66 @@ afterEach(async () => {
 })
 
 describe.sequential("React router", () => {
+  it("does not repeat redirects when a root pending fallback remounts the layout", async () => {
+    const started = Effect.runSync(Deferred.make<void>())
+    const ready = Effect.runSync(Deferred.make<void>())
+    let visits = 0
+    const rootRoute = createRootRoute({
+      component: () => (
+        <>
+          <Navigate to="/child" />
+          <Outlet />
+        </>
+      )
+    })
+    const home = createRoute({ getParentRoute: () => rootRoute, path: "/" })
+    const child = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "child",
+      loader: () =>
+        Effect.gen(function*() {
+          visits++
+          yield* Deferred.succeed(started, undefined)
+          yield* Deferred.await(ready)
+        }),
+      component: () => <p>Arrived</p>
+    })
+    const router = createRouter({ routeTree: rootRoute.addChildren([home, child]), history: MemoryHistory.layer() })
+    const registry = AtomRegistry.make()
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    cleanups.push(async () => {
+      await React.act(async () => root.unmount())
+      registry.dispose()
+    })
+    await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
+    await Effect.runPromise(Deferred.await(started))
+    expect(container.textContent).toBe("Loading…")
+    await React.act(async () => {
+      Effect.runSync(Deferred.succeed(ready, undefined))
+      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+    })
+    expect(container.textContent).toBe("Arrived")
+    expect(visits).toBe(1)
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.index).toBe(1)
+  })
+
+  it("preserves explicit state in same-URL declarative replacement", async () => {
+    const state = { acknowledged: true }
+    const rootRoute = createRootRoute({ component: () => <Navigate to="/" replace state={state} /> })
+    const router = createRouter({ routeTree: rootRoute, history: MemoryHistory.layer() })
+    const registry = AtomRegistry.make()
+    const root = createRoot(document.createElement("div"))
+    cleanups.push(async () => {
+      await React.act(async () => root.unmount())
+      registry.dispose()
+    })
+    await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
+    const match = await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
+    expect(match.location.state).toEqual(state)
+    expect(match.location.index).toBe(0)
+  })
+
   it("disposes provider-owned loader scopes after StrictMode unmount", async () => {
     const finalized = Effect.runSync(Deferred.make<void>())
     const started = Effect.runSync(Deferred.make<void>())

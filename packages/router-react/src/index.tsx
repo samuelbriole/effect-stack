@@ -397,16 +397,25 @@ export function Link(
 export function Navigate(props: Destination) {
   const navigate = useNavigate()
   const router = useRuntime()
+  const registry = React.useContext(RegistryContext)
   const latest = React.useRef(props)
   latest.current = props
   const href = router.href(props)
   if (Result.isFailure(href)) throw href.failure
-  const key = `${props.replace === true ? "replace" : "push"}:${href.success}`
+  const url = href.success
+  const key = `${props.replace === true ? "replace" : "push"}:${url}`
   const previous = React.useRef<{ readonly key: string; readonly navigate: typeof navigate } | undefined>(undefined)
   React.useEffect(() => {
     if (previous.current?.key === key && previous.current.navigate === navigate) return
     previous.current = { key, navigate }
+    // A pending fallback can remount the redirect after its URL is satisfied.
+    // Explicit history-state updates still execute on the same URL.
+    const state = registry.get(router.core.state)
+    if (latest.current.state === undefined && state._tag === "Success") {
+      const location = state.value.location
+      if (`${location.pathname}${location.search}${location.hash}` === url) return
+    }
     navigate(latest.current)
-  }, [navigate, key])
+  }, [navigate, key, registry, router, url])
   return null
 }

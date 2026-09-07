@@ -34,6 +34,41 @@ const mount = <T extends RouteTree.Any, E>(router: ClientRouter<T, E>) => {
 }
 
 describe.sequential("Solid router", () => {
+  it("does not repeat redirects when a root pending fallback remounts the layout", async () => {
+    const started = Effect.runSync(Deferred.make<void>())
+    const ready = Effect.runSync(Deferred.make<void>())
+    let visits = 0
+    const root = createRootRoute({
+      component: () => (
+        <>
+          <Navigate to="/child" />
+          <Outlet />
+        </>
+      )
+    })
+    const home = createRoute({ getParentRoute: () => root, path: "/" })
+    const child = createRoute({
+      getParentRoute: () => root,
+      path: "child",
+      loader: () =>
+        Effect.gen(function*() {
+          visits++
+          yield* Deferred.succeed(started, undefined)
+          yield* Deferred.await(ready)
+        }),
+      component: () => <p>Arrived</p>
+    })
+    const router = createRouter({ routeTree: root.addChildren([home, child]), history: MemoryHistory.layer() })
+    const { container, registry } = mount(router)
+    await Effect.runPromise(Deferred.await(started))
+    expect(container.textContent).toBe("Loading…")
+    Effect.runSync(Deferred.succeed(ready, undefined))
+    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+    expect(container.textContent).toBe("Arrived")
+    expect(visits).toBe(1)
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.index).toBe(1)
+  })
+
   it("applies explicit state during same-URL declarative replacement", async () => {
     const state = { acknowledged: true }
     const root = createRootRoute({ component: () => <Navigate to="/" replace state={state} /> })

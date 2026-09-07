@@ -542,6 +542,7 @@ export function Link(props: LinkProps): JSX.Element {
 export function Navigate(props: Destination): JSX.Element {
   const router = useRuntime()
   const navigate = useNavigate()
+  const branch = useContext(BranchContext)
   let previous: string | undefined
   createEffect(() => {
     const result = router.href(props)
@@ -549,7 +550,18 @@ export function Navigate(props: Destination): JSX.Element {
     const key = `${props.replace === true ? "replace" : "push"}:${result.success}`
     if (key === previous) return
     previous = key
-    untrack(() => navigate(props))
+    untrack(() => {
+      // Pending views can remount this component after its URL is satisfied.
+      // Keep explicit same-URL history-state updates observable.
+      // Solid renders synchronously from the branch publication, before the
+      // derived leaf-state Atom necessarily publishes its new value.
+      const match = branch().matches.find((entry) => entry.result._tag === "Success")?.result
+      if (props.state === undefined && match?._tag === "Success") {
+        const location = match.value.location
+        if (`${location.pathname}${location.search}${location.hash}` === result.success) return
+      }
+      navigate(props)
+    })
   })
   return undefined
 }
