@@ -52,7 +52,7 @@
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "check": "tsc -b tsconfig.json",
-    "pack:check": "pnpm build && node ../../scripts/check-package.mjs"
+    "pack:check": "pnpm --workspace-root pack:check"
   },
   "peerDependencies": {
     "effect": "^4.0.0-rc.112"
