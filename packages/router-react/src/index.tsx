@@ -145,39 +145,8 @@ export interface Register {}
 /** @since 0.1.0 */
 export type RegisteredRouter = Register extends { readonly router: infer R } ? R : ClientRouter<RouteTree.Any, unknown>
 type RegisteredTree = RegisteredRouter extends { readonly routeTree: infer T extends RouteTree.Any } ? T : RouteTree.Any
-type OptionalInput<K extends string, A> = {} extends A ? { readonly [P in K]?: A } : { readonly [P in K]: A }
 /** @since 0.1.0 */
-export type Destination<T extends RouteTree.Any = RegisteredTree> = RouteTree.All<T> extends infer R
-  ? R extends RouteTree.Any ? RankedLeaf<R> extends infer L ? L extends RouteTree.Any ?
-          & { readonly to: L["path"]; readonly replace?: boolean; readonly state?: unknown }
-          & OptionalInput<"params", Route.Route.Params<L>>
-          & OptionalInput<"search", Route.Route.Search<L>>
-          & ("" extends Route.Route.Hash<L> ? { readonly hash?: Route.Route.Hash<L> }
-            : { readonly hash: Route.Route.Hash<L> })
-      : never
-    : never
-  : never :
-  never
-
-type IndexNode = { readonly kind: "index" }
-type LayoutNode = { readonly kind: "layout" }
-
-/**
- * The unique index route sharing this node's exact URL, reached directly or through pathless layouts.
- * `RouteTree.flatten` rejects two indexes on one template, so at most one exists.
- */
-type SameUrlIndex<N extends RouteTree.Any> =
-  | Extract<N["children"][number], IndexNode>
-  | (Extract<N["children"][number], LayoutNode> extends infer L ? L extends RouteTree.Any ? SameUrlIndex<L> : never
-    : never)
-
-/**
- * The route an exact match on this URL resolves to, mirroring `RouteTree.plan` ranking: pathless layouts
- * never end a branch, and a same-URL index outranks its ancestors.
- */
-type RankedLeaf<N extends RouteTree.Any> = N extends LayoutNode ? never
-  : SameUrlIndex<N> extends infer I ? [I] extends [never] ? N : I
-  : never
+export type Destination<T extends RouteTree.Any = RegisteredTree> = RouteTree.Destination<T>
 
 /** @since 0.1.0 */
 export interface ClientRouter<T extends RouteTree.Any, E> {
@@ -204,7 +173,7 @@ export function createRouter<T extends RouteTree.Any, E = never, HE = never>(
     routeTree: options.routeTree,
     core,
     href: (destination) => {
-      const { route, input } = target(core.routes, destination)
+      const { route, input } = RouteTree.target(core.routes, destination)
       return Route.href(route, input)
     }
   }
@@ -241,38 +210,12 @@ function useMatch<R extends Route.Any>(route: R): Router.ResolvedRoute<R> {
   return match.result.value as Router.ResolvedRoute<R>
 }
 
-interface RuntimeDestination {
-  readonly to: string
-  readonly params?: unknown
-  readonly search?: unknown
-  readonly hash?: unknown
-  readonly replace?: boolean
-  readonly state?: unknown
-}
-const target = (routes: ReadonlyArray<RouteTree.Any>, destination: RuntimeDestination) => {
-  // Mirror `RouteTree.plan` exact-match ranking for this path template: pathless layouts never resolve
-  // on their own, and a same-URL index outranks its ancestors.
-  let route: RouteTree.Any | undefined
-  for (const entry of routes) {
-    if (entry.kind === "layout" || entry.path !== destination.to) continue
-    if (route === undefined || route.kind !== "index") route = entry
-  }
-  if (route === undefined) throw new Error(`Unknown route destination: ${destination.to}`)
-  return {
-    route,
-    input: {
-      params: destination.params ?? {},
-      search: destination.search ?? {},
-      hash: destination.hash ?? ""
-    } as Route.Route.Input<Route.Any>
-  }
-}
 /** @since 0.1.0 */
 export function useNavigate(): (destination: Destination) => void {
   const { core } = useRuntime()
   const registry = React.useContext(RegistryContext)
   return React.useCallback((destination: Destination) => {
-    const { route, input } = target(core.routes, destination)
+    const { route, input } = RouteTree.target(core.routes, destination)
     const href = Route.href(route, input)
     if (Result.isFailure(href)) throw href.failure
     registry.set(
@@ -423,7 +366,7 @@ export function Link(
   const navigate = useNavigate()
   const current = useRouterState()
   const destination = { to, params, search, hash, replace, state } as Destination
-  const { route, input } = target(router.core.routes, destination)
+  const { route, input } = RouteTree.target(router.core.routes, destination)
   const href = Route.href(route, input)
   if (Result.isFailure(href)) throw href.failure
   const pathname = href.success.split(/[?#]/)[0]

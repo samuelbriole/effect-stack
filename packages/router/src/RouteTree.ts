@@ -290,6 +290,67 @@ const makeRoute = (
   return { ...base, ...(options.loader === undefined ? {} : { loader: options.loader }) }
 }
 
+type OptionalInput<K extends string, A> = {} extends A ? { readonly [P in K]?: A } : { readonly [P in K]: A }
+type IndexNode = { readonly kind: "index" }
+type LayoutNode = { readonly kind: "layout" }
+
+// Flattening rejects competing indexes, so an exact URL has at most one index
+// reached through any intervening pathless layouts.
+type SameUrlIndex<N extends Any> =
+  | Extract<N["children"][number], IndexNode>
+  | (Extract<N["children"][number], LayoutNode> extends infer L ? L extends Any ? SameUrlIndex<L> : never : never)
+type RankedLeaf<N extends Any> = N extends LayoutNode ? never
+  : SameUrlIndex<N> extends infer I ? [I] extends [never] ? N : I
+  : never
+
+/** A typed URL destination using the ranked endpoint's inherited Schema inputs. @since 0.2.0 */
+export type Destination<T extends Any> = All<T> extends infer R
+  ? R extends Any ? RankedLeaf<R> extends infer L ? L extends Any ?
+          & { readonly to: L["path"]; readonly replace?: boolean; readonly state?: unknown }
+          & OptionalInput<"params", Route.Route.Params<L>>
+          & OptionalInput<"search", Route.Route.Search<L>>
+          & ("" extends Route.Route.Hash<L> ? { readonly hash?: Route.Route.Hash<L> }
+            : { readonly hash: Route.Route.Hash<L> })
+      : never :
+    never :
+  never :
+  never
+
+/** Erased destination input for renderer adapters; URL encoding validates its values. @since 0.2.0 */
+export interface DestinationInput {
+  readonly to: string
+  readonly params?: unknown
+  readonly search?: unknown
+  readonly hash?: unknown
+  readonly replace?: boolean
+  readonly state?: unknown
+}
+
+/**
+ * Selects the same endpoint as exact route matching and supplies omitted empty inputs.
+ * Pass the result to Route.href for Schema validation and encoding before navigation.
+ * @since 0.2.0
+ */
+export const target = (routes: ReadonlyArray<Any>, destination: DestinationInput): {
+  readonly route: Any
+  readonly input: Route.Route.Input<Route.Any>
+} => {
+  let route: Any | undefined
+  for (const entry of routes) {
+    if (entry.kind === "layout" || entry.path !== destination.to) continue
+    if (route === undefined || route.kind !== "index") route = entry
+  }
+  if (route === undefined) throw new Error(`Unknown route destination: ${destination.to}`)
+  return {
+    route,
+    input: {
+      params: destination.params ?? {},
+      search: destination.search ?? {},
+      hash: destination.hash ?? ""
+    } as Route.Route.Input<Route.Any>
+  }
+}
+
 /** Validates and flattens a tree in preorder. @since 0.2.0 */
 export const flatten = <T extends Any>(tree: T): ReadonlyArray<All<T>> => {
   const output: Array<Any> = []
