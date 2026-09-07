@@ -1,0 +1,35 @@
+{
+  "name": "@effect-stack/router-vue",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "First-party Vue adapter for EffectStack Router",
+  "homepage": "https://github.com/samuelbriole/effect-stack#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samuelbriole/effect-stack.git",
+    "directory": "packages/router-vue"
+  },
+  "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
+  "sideEffects": false,
+  "exports": { ".": "./src/index.ts", "./package.json": "./package.json" },
+  "files": ["src/**/*.ts", "dist/**", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
+  },
+  "peerDependencies": {
+    "@effect-stack/router": "^0.1.0",
+    "@effect/atom-vue": "^4.0.0-rc.112",
+    "effect": "^4.0.0-rc.112",
+    "vue": "^3.5.42"
+  },
+  "devDependencies": {
+    "@effect-stack/router": "workspace:*",
+    "@effect/atom-vue": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112",
+    "vue": "3.5.42"
+  },
+  "scripts": { "build": "tsc -b tsconfig.json", "check": "tsc -b tsconfig.json" }
+}

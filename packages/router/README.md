@@ -49,8 +49,9 @@ segments only; trailing and repeated slashes remain significant. `Route.make` re
 Repeated search fields preserve ordered values. Empty arrays are not representable in a URL, and singleton arrays are
 rejected when the field's Schema also accepts a scalar because that URL would be ambiguous.
 
-See the repository [adoption guide](../../docs/adoption.md), the [React](../router-react/examples/basic) and
-[Solid](../router-solid/examples/basic) adapter examples, and the [Vue tracer](examples/vue).
+See the repository [adoption guide](../../docs/adoption.md), and the
+[React](../router-react/examples/basic), [Solid](../router-solid/examples/basic), and [Vue](../router-vue/examples/basic)
+adapter examples.
 
 ## Nested trees and shared destinations
 

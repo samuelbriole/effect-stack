@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url"
 await Promise.all([
   ["router", ["index", "Route", "RouteTree", "History", "BrowserHistory", "MemoryHistory", "Router"]],
   ["router-react", ["index"]],
-  ["router-solid", ["index"]]
+  ["router-solid", ["index"]],
+  ["router-vue", ["index"]]
 ].map(async ([name, publicModules]) => {
 const packageRoot = resolve(import.meta.dirname, `../packages/${name}`)
 const root = resolve(packageRoot, "dist")
@@ -42,11 +43,12 @@ const source = (await Promise.all(
   files.filter((file) => file.endsWith(".js")).map((file) => readFile(resolve(root, file), "utf8"))
 )).join("\n")
 
-const forbidden = name === "router"
-  ? ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"]
-  : name === "router-react"
-  ? ["solid-js", "vue", "@effect/atom-solid", "@effect/atom-vue", "@tanstack/"]
-  : ["react", "vue", "@effect/atom-react", "@effect/atom-vue", "@tanstack/"]
+const forbidden = {
+  router: ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"],
+  "router-react": ["solid-js", "vue", "@effect/atom-solid", "@effect/atom-vue", "@tanstack/"],
+  "router-solid": ["react", "vue", "@effect/atom-react", "@effect/atom-vue", "@tanstack/"],
+  "router-vue": ["react", "solid-js", "@effect/atom-react", "@effect/atom-solid", "@tanstack/"]
+}[name]
 for (const dependency of forbidden) {
   if (source.includes(`from "${dependency}`) || source.includes(`from '${dependency}`)) {
     throw new Error(`Renderer dependency found in ${name} output: ${dependency}`)

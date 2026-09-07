@@ -197,21 +197,27 @@ importers:
         specifier: 2.11.14
         version: 2.11.14(solid-js@1.9.15)(vite@8.2.2(@types/node@26.4.0)(yaml@2.9.0))
 
-  packages/router/examples/shared:
-    dependencies:
+  packages/router-vue:
+    devDependencies:
       '@effect-stack/router':
         specifier: workspace:*
-        version: link:../..
+        version: link:../router
+      '@effect/atom-vue':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(vue@3.5.42(typescript@7.0.2))
       effect:
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112
+      vue:
+        specifier: 3.5.42
+        version: 3.5.42(typescript@7.0.2)
 
-  packages/router/examples/vue:
+  packages/router-vue/examples/basic:
     dependencies:
-      '@effect-stack-example/router-shared':
-        specifier: workspace:*
-        version: link:../shared
       '@effect-stack/router':
+        specifier: workspace:*
+        version: link:../../../router
+      '@effect-stack/router-vue':
         specifier: workspace:*
         version: link:../..
       '@effect/atom-vue':
@@ -236,6 +242,15 @@ importers:
       vue-tsc:
         specifier: 3.3.11
         version: 3.3.11(typescript@6.0.3)
+
+  packages/router/examples/shared:
+    dependencies:
+      '@effect-stack/router':
+        specifier: workspace:*
+        version: link:../..
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
 
 packages:
 

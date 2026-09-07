@@ -18,7 +18,7 @@ pnpm add @effect-stack/router effect@rc
 | [`@effect-stack/router`](packages/router)             | 🟢 Available       |
 | [`@effect-stack/router-react`](packages/router-react) | 🧪 Initial adapter |
 | [`@effect-stack/router-solid`](packages/router-solid) | 🧪 Initial adapter |
-| `@effect-stack/router-vue`                            | 🧪 Private tracer  |
+| [`@effect-stack/router-vue`](packages/router-vue)     | 🧪 Initial adapter |
 | `@effect-stack/query`                                 | 🟡 Planned         |
 | `@effect-stack/form`                                  | 🟡 Planned         |
 | `@effect-stack/db`                                    | 🔭 Exploring       |

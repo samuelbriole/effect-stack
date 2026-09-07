@@ -94,7 +94,13 @@ const View = () => {
 
 ## Vue
 
-Install `@effect/atom-vue@rc`, provide an Atom registry at the application boundary, and use its Ref-based composables:
+For code-based nested routing, use the [first-party Vue adapter](../packages/router-vue). Its route composables return
+computed refs that templates auto-unwrap, with a provider-owned Atom registry. The
+[Vue example](../packages/router-vue/examples/basic/src/ProjectLayout.vue) demonstrates nested layouts, typed links,
+injected Effect services, and a lazy view.
+
+For direct integration with the flat core router above, install `@effect/atom-vue@rc`, provide an Atom registry at the
+application boundary, and use its Ref-based composables:
 
 ```ts
 import { AtomRegistry, registryKey, useAtomSet, useAtomValue } from "@effect/atom-vue"
@@ -115,6 +121,5 @@ app.onUnmount(() => registry.dispose())
 app.mount("#root")
 ```
 
-The [Vue tracer](../packages/router/examples/vue) consumes the
-[renderer-neutral definitions](../packages/router/examples/shared). React and Solid examples exercise their first-party
-adapters.
+The React, Solid, and Vue examples exercise their first-party adapters; the
+[renderer-neutral definitions](../packages/router/examples/shared) remain a shared core fixture.
