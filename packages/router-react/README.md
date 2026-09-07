@@ -53,6 +53,39 @@ export const App = () => <RouterProvider router={router} />
 
 ## Loading and boundaries
 
+### Native Effect dependency injection
+
+Application dependencies are `Context.Service` values. Loaders request those services directly, and `createRouter` requires
+an application `layer` whenever the route tree has unsatisfied service requirements. Compose implementations with Effect's
+`Layer.provide` and `Layer.merge` at the application entry point:
+
+```ts
+const project = createRoute({
+  getParentRoute: () => root,
+  path: "projects/:id",
+  params: { id: Schema.FiniteFromString },
+  loader: ({ params }) => Projects.use((projects) => projects.get(params.id))
+})
+
+const router = createRouter({
+  routeTree: root.addChildren([project]),
+  layer: Projects.layer.pipe(Layer.provide(ApiClient.layer))
+})
+```
+
+Here `Projects.layer` consumes `ApiClient` and exposes `Projects`. Tests can supply
+`Layer.succeed(Projects, Projects.of(testImplementation))` to substitute the implementation. History is also an Effect
+service; pass `MemoryHistory.layer()` as the `history` option in tests.
+
+Application Layers live in the registry-owned runtime. Their services are shared across route loaders and refreshes while
+that runtime remains mounted. After its last subscriber unmounts, Atom may evict the runtime and release its scoped
+resources according to the registry's idle policy; a later mount can construct fresh services. Registry disposal also
+releases the runtime. Resources acquired by an individual loader instead belong to its transition scope. Reuse the same
+Layer value when composing shared dependencies so Effect can memoize its construction. The
+[Projects example service](examples/basic/src/Projects.ts) demonstrates an injectable implementation.
+
+### Execution and rendering
+
 `loader` returns an Effect using decoded URL inputs. Supply its services through `createRouter({ layer })`.
 `history` is a separate Layer option, defaulting to BrowserHistory; MemoryHistory is useful in tests.
 `load` imports a lazy view module with a `default` or `component` export. An explicit `component` takes precedence.

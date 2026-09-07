@@ -39,6 +39,11 @@ layouts above that boundary. SSR and hydration remain deferred.
 
 ## Lifecycle and cancellation
 
+Dependencies use Effect's native `Context.Service` and `Layer` mechanism. Route loaders declare their service requirements
+in their Effect types; router construction requires a Layer providing those services. Applications compose implementations
+at their entry point and can substitute test Layers without changing routes. Renderer context carries the router and Atom
+registry; application service construction, sharing, and finalization belong to Effect.
+
 Each Atom registry builds one Router runtime from its Layer. A `SubscriptionRef` is authoritative state, a scoped
 `FiberMap` owns the current transition, and a generation token prevents stale publication. Starting navigation interrupts
 the previous loader; its finalizers run, and even a non-cancelable Promise completion cannot overwrite newer state.
@@ -59,5 +64,6 @@ so loader results must not depend on transition-scoped resources remaining open.
 loaders again. Applications can supply resource caching through Layer services without transferring cache ownership to
 Router. Expected data-loader failures preserve route identity separately from lazy-module failures.
 
-Routes are matched in declaration order. Duplicate IDs and exact path templates are rejected; otherwise the first
-structural match wins. This deterministic rule remains until an explicit route-ranking design replaces it.
+Flat `Router.make` routes are matched in declaration order. Duplicate IDs and exact path templates are rejected; otherwise
+the first structural match wins. Nested `Router.fromTree` branches use static-before-dynamic ranking and reject ambiguous
+templates.

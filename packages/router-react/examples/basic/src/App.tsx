@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter, Link, Outlet, RouterProvider } from "@effect-stack/router-react"
 import { Effect, Schema } from "effect"
 import { useState } from "react"
+import { demoLayer, Projects } from "./Projects.ts"
 
 const rootRoute = createRootRoute({
   component: Layout,
@@ -35,7 +36,7 @@ const projectRoute = createRoute({
   path: "projects/:projectId",
   params: { projectId: Schema.FiniteFromString },
   search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
-  loader: ({ params }) => Effect.succeed({ id: params.projectId, title: `Project ${params.projectId}` }),
+  loader: ({ params }) => Projects.use((projects) => projects.get(params.projectId)),
   component: ProjectLayout
 })
 const projectIndex = createRoute({
@@ -50,7 +51,8 @@ const detailsRoute = createRoute({
   pendingComponent: () => <p role="status">Loading details…</p>
 })
 export const router = createRouter({
-  routeTree: rootRoute.addChildren([homeRoute, projectRoute.addChildren([projectIndex, detailsRoute])])
+  routeTree: rootRoute.addChildren([homeRoute, projectRoute.addChildren([projectIndex, detailsRoute])]),
+  layer: demoLayer
 })
 declare module "@effect-stack/router-react" {
   interface Register {
