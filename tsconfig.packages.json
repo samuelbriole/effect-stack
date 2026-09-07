@@ -2,5 +2,9 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "./tsconfig.base.json",
   "include": [],
-  "references": [{ "path": "packages/router" }, { "path": "packages/router-react" }]
+  "references": [
+    { "path": "packages/router" },
+    { "path": "packages/router-react" },
+    { "path": "packages/router-solid" }
+  ]
 }

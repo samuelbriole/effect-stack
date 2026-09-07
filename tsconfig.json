@@ -4,6 +4,7 @@
   "references": [
     { "path": "tsconfig.packages.json" },
     { "path": "tsconfig.examples.json" },
-    { "path": "tsconfig.tests.json" }
+    { "path": "tsconfig.tests.json" },
+    { "path": "packages/router-solid/tsconfig.test.json" }
   ]
 }

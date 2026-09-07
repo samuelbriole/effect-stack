@@ -49,8 +49,22 @@ segments only; trailing and repeated slashes remain significant. `Route.make` re
 Repeated search fields preserve ordered values. Empty arrays are not representable in a URL, and singleton arrays are
 rejected when the field's Schema also accepts a scalar because that URL would be ambiguous.
 
-See the repository [adoption guide](../../docs/adoption.md), the [React adapter example](../router-react/examples/basic),
-and the [Solid](examples/solid) and [Vue](examples/vue) tracers.
+See the repository [adoption guide](../../docs/adoption.md), the [React](../router-react/examples/basic) and
+[Solid](../router-solid/examples/basic) adapter examples, and the [Vue tracer](examples/vue).
+
+## Nested trees and shared destinations
+
+`RouteTree.root` and `RouteTree.make` define renderer-independent root, nested, index, and pathless routes. Connect them with
+`addChildren`, then use `Router.fromTree` to build the Atom runtime. Nested matching ranks static segments ahead of dynamic
+segments, and indexes ahead of the ancestors sharing their URL.
+
+`RouteTree.Destination<typeof tree>` supplies the common typed destination model for renderer adapters. It includes the
+ranked endpoint's inherited params, search, and hash, requiring inputs only when their Schemas require them. An index's
+requirements cannot be bypassed by targeting an ancestor at the same URL.
+
+`RouteTree.target(router.routes, destination)` selects that endpoint and fills omitted empty inputs. Adapters then pass its
+`route` and `input` to `Route.href` for Schema validation and encoding before dispatching a navigation command. This keeps
+destination interpretation shared across React, Solid, and future adapters.
 
 ## Effect data loaders
 

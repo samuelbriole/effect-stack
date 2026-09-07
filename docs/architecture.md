@@ -31,8 +31,9 @@ Core packages must never import a renderer. A future renderer adapter must depen
 Such a package is created only after it earns an interface with substantive behavior such as accessible links, outlets,
 active state, lazy views, or SSR hydration. Renaming or re-exporting Atom hooks is too shallow.
 
-The React adapter now owns view declarations, provider context, route hooks, anchors, outlets, and render boundaries.
-The core `RouteTree` owns tree validation, inherited URL schemas, static-before-dynamic matching, and branch planning.
+The React and Solid adapters own view declarations, provider context, route hooks, anchors, outlets, and render boundaries.
+The core `RouteTree` owns tree validation, inherited URL schemas, static-before-dynamic matching, branch planning, and the
+shared typed destination model and endpoint selection.
 `Router.fromTree` resolves ancestors before descendants and exposes per-match state through Atom. Code and data loading
 within one match remain concurrent. Pending/error/not-found views replace their declaring route and descendants, preserving
 layouts above that boundary. SSR and hydration remain deferred.

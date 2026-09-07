@@ -5,7 +5,8 @@ import { pathToFileURL } from "node:url"
 
 await Promise.all([
   ["router", ["index", "Route", "RouteTree", "History", "BrowserHistory", "MemoryHistory", "Router"]],
-  ["router-react", ["index"]]
+  ["router-react", ["index"]],
+  ["router-solid", ["index"]]
 ].map(async ([name, publicModules]) => {
 const packageRoot = resolve(import.meta.dirname, `../packages/${name}`)
 const root = resolve(packageRoot, "dist")
@@ -15,6 +16,11 @@ const pack = JSON.parse(execFileSync("pnpm", ["pack", "--dry-run", "--json"], {
   encoding: "utf8"
 }))
 const packedFiles = new Set(pack.files.map((file) => file.path))
+for (const file of packedFiles) {
+  if (file.startsWith("examples/") || file.startsWith("test/") || file.startsWith("typetest/")) {
+    throw new Error(`Development file included in ${name} package: ${file}`)
+  }
+}
 const requiredFiles = [
   "package.json",
   "README.md",
@@ -36,7 +42,11 @@ const source = (await Promise.all(
   files.filter((file) => file.endsWith(".js")).map((file) => readFile(resolve(root, file), "utf8"))
 )).join("\n")
 
-const forbidden = name === "router" ? ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"] : ["solid-js", "vue", "@tanstack/"]
+const forbidden = name === "router"
+  ? ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"]
+  : name === "router-react"
+  ? ["solid-js", "vue", "@effect/atom-solid", "@effect/atom-vue", "@tanstack/"]
+  : ["react", "vue", "@effect/atom-react", "@effect/atom-vue", "@tanstack/"]
 for (const dependency of forbidden) {
   if (source.includes(`from "${dependency}`) || source.includes(`from '${dependency}`)) {
     throw new Error(`Renderer dependency found in ${name} output: ${dependency}`)

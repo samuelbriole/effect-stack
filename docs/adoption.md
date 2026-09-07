@@ -76,7 +76,11 @@ const App = () => (
 
 ## Solid
 
-Install `@effect/atom-solid@rc` and use its accessor-based hooks:
+For code-based nested routing, use the [first-party Solid adapter](../packages/router-solid). Its route-local hooks return
+accessors, preserving Solid's fine-grained updates. The [Solid example](../packages/router-solid/examples/basic/src/App.tsx)
+demonstrates nested layouts, typed links, injected Effect services, and a lazy view.
+
+For direct integration with the flat core router above, install `@effect/atom-solid@rc` and use its accessor-based hooks:
 
 ```tsx
 import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-solid"
@@ -111,5 +115,6 @@ app.onUnmount(() => registry.dispose())
 app.mount("#root")
 ```
 
-The [Solid](../packages/router/examples/solid) and [Vue](../packages/router/examples/vue) tracers consume the same
-[renderer-neutral definitions](../packages/router/examples/shared). The React example exercises the first-party adapter.
+The [Vue tracer](../packages/router/examples/vue) consumes the
+[renderer-neutral definitions](../packages/router/examples/shared). React and Solid examples exercise their first-party
+adapters.

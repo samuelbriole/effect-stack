@@ -8,7 +8,7 @@
     "packages/*/typetest/**/*.ts",
     "packages/*/typetest/**/*.tsx"
   ],
-  "exclude": ["**/node_modules/**", "**/dist/**"],
+  "exclude": ["**/node_modules/**", "**/dist/**", "packages/router-solid/**"],
   "references": [{ "path": "packages/router" }, { "path": "packages/router-react" }],
   "compilerOptions": {
     "rootDir": ".",

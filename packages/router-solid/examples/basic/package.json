@@ -7,8 +7,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@effect-stack-example/router-shared": "workspace:*",
     "@effect-stack/router": "workspace:*",
+    "@effect-stack/router-solid": "workspace:*",
     "@effect/atom-solid": "4.0.0-rc.112",
     "effect": "4.0.0-rc.112",
     "solid-js": "1.9.15"
