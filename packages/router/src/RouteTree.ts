@@ -24,12 +24,16 @@ export type Any = Route.Any & {
 }
 
 /** @since 0.2.0 */
-export type Node<R extends Route.Any, Children extends ReadonlyArray<Any> = readonly []> = R & {
+export type Node<
+  R extends Route.Any,
+  Children extends ReadonlyArray<Any> = readonly [],
+  K extends Kind = Kind
+> = R & {
   readonly parentId: string | undefined
-  readonly kind: Kind
+  readonly kind: K
   readonly to: R["path"]
   readonly children: Children
-  readonly addChildren: <const C extends ReadonlyArray<Any>>(children: C) => Node<R, C>
+  readonly addChildren: <const C extends ReadonlyArray<Any>>(children: C) => Node<R, C, K>
 }
 
 /** @since 0.2.0 */
@@ -102,12 +106,12 @@ export type Child<
   R
 >
 
-const node = <R extends Route.Any, const C extends ReadonlyArray<Any>>(
+const node = <R extends Route.Any, const C extends ReadonlyArray<Any>, const K extends Kind>(
   route: R,
   parentId: string | undefined,
-  kind: Kind,
+  kind: K,
   children: C
-): Node<R, C> => ({
+): Node<R, C, K> => ({
   ...route,
   parentId,
   kind,
@@ -128,7 +132,7 @@ export function root<
   R = never
 >(
   options?: { readonly search?: S; readonly hash?: H } & Loading<{}, S, H, M, ME, MR, D, E, R>
-): Node<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>>
+): Node<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>, readonly [], "root">
 export function root(options: RuntimeOptions = {}): Any {
   return node(
     makeRoute("__root__", "/", {}, options.search ?? {}, options.hash ?? Schema.String, options),
@@ -171,7 +175,9 @@ export function make<
     D,
     E,
     R
-  >
+  >,
+  readonly [],
+  "layout"
 >
 export function make<
   Parent extends Any,
@@ -187,7 +193,7 @@ export function make<
   R = never
 >(
   options: Options<Parent, Path, P, S, H, M, ME, MR, D, E, R>
-): Node<Child<Parent, Path, P, S, H, M, ME, MR, D, E, R>>
+): Node<Child<Parent, Path, P, S, H, M, ME, MR, D, E, R>, readonly [], Path extends "/" ? "index" : "route">
 export function make(
   options: RuntimeOptions & {
     readonly getParentRoute: () => Any
@@ -289,7 +295,7 @@ export const flatten = <T extends Any>(tree: T): ReadonlyArray<All<T>> => {
   const output: Array<Any> = []
   const ids = new Set<string>()
   const templates = new Map<string, Any>()
-  const visit = (route: Any, parent: Any | undefined) => {
+  const visit = (route: Any, parent: Any | undefined, pathParent: Any | undefined) => {
     const invalid = (message: string): never => {
       throw new Route.RouteDefinitionError({ routeId: route.id, message })
     }
@@ -301,15 +307,15 @@ export const flatten = <T extends Any>(tree: T): ReadonlyArray<All<T>> => {
     if (route.kind === "route" || route.kind === "index") {
       const template = route.path.replace(/:[^/]+/g, ":")
       const other = templates.get(template)
-      if (other !== undefined && !(route.kind === "index" && other.id === parent?.id)) {
+      if (other !== undefined && !(route.kind === "index" && other.kind === "route" && other.id === pathParent?.id)) {
         invalid(`Ambiguous route template: ${route.path}`)
       }
       templates.set(template, route)
     }
     output.push(route)
-    for (const child of route.children) visit(child, route)
+    for (const child of route.children) visit(child, route, route.kind === "layout" ? pathParent : route)
   }
-  visit(tree, undefined)
+  visit(tree, undefined, undefined)
   // Preorder traversal only emits the tree and its recursively declared children.
   return output as unknown as ReadonlyArray<All<T>>
 }

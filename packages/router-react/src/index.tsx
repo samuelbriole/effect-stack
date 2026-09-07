@@ -18,23 +18,27 @@ export interface Views {
   readonly notFoundComponent?: React.ComponentType
 }
 /** @since 0.1.0 */
-export type ReactRoute<R extends Route.Any, C extends ReadonlyArray<RouteTree.Any> = readonly []> =
-  & Omit<RouteTree.Node<R, C>, "addChildren">
+export type ReactRoute<
+  R extends Route.Any,
+  C extends ReadonlyArray<RouteTree.Any> = readonly [],
+  K extends RouteTree.Kind = RouteTree.Kind
+> =
+  & Omit<RouteTree.Node<R, C, K>, "addChildren">
   & Views
   & {
     readonly addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(
       children: Children
-    ) => ReactRoute<R, Children>
+    ) => ReactRoute<R, Children, K>
     readonly useParams: () => Route.Route.Params<R>
     readonly useSearch: () => Route.Route.Search<R>
     readonly useLoaderData: () => Route.Route.LoaderData<R>
     readonly useMatch: () => Router.ResolvedRoute<R>
   }
 
-const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>>(
-  route: RouteTree.Node<R, C>,
+const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K extends RouteTree.Kind>(
+  route: RouteTree.Node<R, C, K>,
   views: Views
-): ReactRoute<R, C> => ({
+): ReactRoute<R, C, K> => ({
   ...route,
   ...(views.component === undefined ? {} : { component: views.component }),
   ...(views.pendingComponent === undefined ? {} : { pendingComponent: views.pendingComponent }),
@@ -45,7 +49,7 @@ const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>>(
   useParams: () => useMatch<R>(route).params,
   useSearch: () => useMatch<R>(route).search,
   useLoaderData: () => useMatch<R>(route).loaderData
-} as ReactRoute<R, C>)
+} as ReactRoute<R, C, K>)
 
 /** @since 0.1.0 */
 export function createRootRoute<
@@ -59,7 +63,7 @@ export function createRootRoute<
   R = never
 >(
   options: Views & { readonly search?: S; readonly hash?: H } & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R> = {}
-): ReactRoute<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>> {
+): ReactRoute<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>, readonly [], "root"> {
   return decorate(RouteTree.root(options), options)
 }
 
@@ -96,7 +100,9 @@ export function createRoute<
     D,
     E,
     R
-  >
+  >,
+  readonly [],
+  "layout"
 >
 export function createRoute<
   Parent extends RouteTree.Any,
@@ -112,7 +118,11 @@ export function createRoute<
   R = never
 >(
   options: Views & RouteTree.Options<Parent, Path, P, S, H, M, ME, MR, D, E, R>
-): ReactRoute<RouteTree.Child<Parent, Path, P, S, H, M, ME, MR, D, E, R>>
+): ReactRoute<
+  RouteTree.Child<Parent, Path, P, S, H, M, ME, MR, D, E, R>,
+  readonly [],
+  Path extends "/" ? "index" : "route"
+>
 export function createRoute(
   options: Views & {
     readonly getParentRoute: () => RouteTree.Any
@@ -138,14 +148,36 @@ type RegisteredTree = RegisteredRouter extends { readonly routeTree: infer T ext
 type OptionalInput<K extends string, A> = {} extends A ? { readonly [P in K]?: A } : { readonly [P in K]: A }
 /** @since 0.1.0 */
 export type Destination<T extends RouteTree.Any = RegisteredTree> = RouteTree.All<T> extends infer R
-  ? R extends RouteTree.Any ?
-      & { readonly to: R["path"]; readonly replace?: boolean; readonly state?: unknown }
-      & OptionalInput<"params", Route.Route.Params<R>>
-      & OptionalInput<"search", Route.Route.Search<R>>
-      & ("" extends Route.Route.Hash<R> ? { readonly hash?: Route.Route.Hash<R> }
-        : { readonly hash: Route.Route.Hash<R> })
+  ? R extends RouteTree.Any ? RankedLeaf<R> extends infer L ? L extends RouteTree.Any ?
+          & { readonly to: L["path"]; readonly replace?: boolean; readonly state?: unknown }
+          & OptionalInput<"params", Route.Route.Params<L>>
+          & OptionalInput<"search", Route.Route.Search<L>>
+          & ("" extends Route.Route.Hash<L> ? { readonly hash?: Route.Route.Hash<L> }
+            : { readonly hash: Route.Route.Hash<L> })
+      : never
+    : never
   : never :
   never
+
+type IndexNode = { readonly kind: "index" }
+type LayoutNode = { readonly kind: "layout" }
+
+/**
+ * The unique index route sharing this node's exact URL, reached directly or through pathless layouts.
+ * `RouteTree.flatten` rejects two indexes on one template, so at most one exists.
+ */
+type SameUrlIndex<N extends RouteTree.Any> =
+  | Extract<N["children"][number], IndexNode>
+  | (Extract<N["children"][number], LayoutNode> extends infer L ? L extends RouteTree.Any ? SameUrlIndex<L> : never
+    : never)
+
+/**
+ * The route an exact match on this URL resolves to, mirroring `RouteTree.plan` ranking: pathless layouts
+ * never end a branch, and a same-URL index outranks its ancestors.
+ */
+type RankedLeaf<N extends RouteTree.Any> = N extends LayoutNode ? never
+  : SameUrlIndex<N> extends infer I ? [I] extends [never] ? N : I
+  : never
 
 /** @since 0.1.0 */
 export interface ClientRouter<T extends RouteTree.Any, E> {
@@ -218,10 +250,13 @@ interface RuntimeDestination {
   readonly state?: unknown
 }
 const target = (routes: ReadonlyArray<RouteTree.Any>, destination: RuntimeDestination) => {
-  const route = routes.reduce<RouteTree.Any | undefined>(
-    (found, entry) => entry.path === destination.to ? entry : found,
-    undefined
-  )
+  // Mirror `RouteTree.plan` exact-match ranking for this path template: pathless layouts never resolve
+  // on their own, and a same-URL index outranks its ancestors.
+  let route: RouteTree.Any | undefined
+  for (const entry of routes) {
+    if (entry.kind === "layout" || entry.path !== destination.to) continue
+    if (route === undefined || route.kind !== "index") route = entry
+  }
   if (route === undefined) throw new Error(`Unknown route destination: ${destination.to}`)
   return {
     route,
