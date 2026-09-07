@@ -71,6 +71,12 @@ route composables avoid this entirely.
 
 ## Routes, loading, and boundaries
 
+Route hooks accept selectors, such as `project.useLoaderData((data) => data.title)`. Params/search in pending/error views
+read decoded incoming inputs; ordinary views retain the inputs associated with their resolved data. `useNavigate()`
+returns a Promise completing with its own navigation, and `useNavigateEffect()` exposes typed Effect composition bound
+to the provider's registry. Recovery waits for successfully refreshed data before clearing a latched render error;
+startup Retry rebuilds failed initialization. See [navigation and match snapshots](../../docs/router-navigation.md).
+
 Views are ordinary Vue components: SFCs, `defineComponent` results, or functional render functions. A root owns the
 application layout. Child paths are relative; `/` defines an index route, and an `id` in place of `path` defines a pathless
 layout. Params and search Schemas are inherited. Static segments outrank dynamic segments. `route.to` is the full literal

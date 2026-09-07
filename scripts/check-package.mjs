@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 await Promise.all([
-  ["router", ["index", "Route", "RouteTree", "History", "BrowserHistory", "MemoryHistory", "Router"]],
+  ["router", ["index", "Route", "RouteTree", "RenderPolicy", "History", "BrowserHistory", "MemoryHistory", "Router"]],
   ["router-react", ["index"]],
   ["router-solid", ["index"]],
   ["router-vue", ["index"]]

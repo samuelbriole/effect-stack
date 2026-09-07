@@ -1,8 +1,8 @@
 /** First-party client-side Vue routing. @since 0.1.0 */
-import { BrowserHistory, type History, Route, Router, RouteTree } from "@effect-stack/router"
+import { BrowserHistory, type History, RenderPolicy, Route, Router, RouteTree } from "@effect-stack/router"
 import { injectRegistry, registryKey, useAtomValue } from "@effect/atom-vue"
-import { Cause, type Effect, Layer, Result, type Schema } from "effect"
-import { type Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Cause, Effect, Equal, Layer, Option, Result, type Schema } from "effect"
+import { Atom, AtomRegistry } from "effect/unstable/reactivity"
 import {
   type AnchorHTMLAttributes,
   type Component,
@@ -37,6 +37,33 @@ export interface Views {
   readonly errorComponent?: Component<ErrorProps>
   readonly notFoundComponent?: Component
 }
+/** @since 0.2.0 */
+export interface SelectorOptions<A> {
+  readonly equals?: (left: A, right: A) => boolean
+}
+/** @since 0.2.0 */
+export interface VueRouteHook<A> {
+  <B>(select: (value: A) => B, options?: SelectorOptions<B>): ComputedRef<B>
+  (): ComputedRef<A>
+}
+
+type VueModuleView = NonNullable<Views["component"]>
+
+// Exclude only omits `undefined`, so present `null` exports stay invalid while optional
+// undefined exports keep the Outlet fallback. Arrays match Vue's all-optional options
+// interfaces structurally, so they are rejected ahead of the component check. Distribution
+// keeps union module types honest: one invalid member poisons the check even when other
+// members are renderer-neutral.
+type InvalidLazyModuleValue<V> = [V] extends [ReadonlyArray<unknown>] ? true
+  : ([V] extends [VueModuleView] ? never : true)
+type InvalidLazyModuleExport<M> = M extends unknown ?
+    | ("default" extends keyof M ? InvalidLazyModuleValue<Exclude<M["default"], undefined>> : never)
+    | ("component" extends keyof M ? InvalidLazyModuleValue<Exclude<M["component"], undefined>> : never)
+  : never
+
+// A lazy module may carry renderer-neutral data, but a present view export must be a Vue component.
+// Modules without `default`/`component` keep the Outlet fallback.
+type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown : { readonly load?: never }
 /** @since 0.1.0 */
 export type VueRoute<
   R extends Route.Any,
@@ -49,11 +76,18 @@ export type VueRoute<
     readonly addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(
       children: Children
     ) => VueRoute<R, Children, K>
-    readonly useParams: () => ComputedRef<Route.Route.Params<R>>
-    readonly useSearch: () => ComputedRef<Route.Route.Search<R>>
-    readonly useLoaderData: () => ComputedRef<Route.Route.LoaderData<R>>
-    readonly useMatch: () => ComputedRef<Router.ResolvedRoute<R>>
+    readonly useParams: VueRouteHook<Route.Route.Params<R>>
+    readonly useSearch: VueRouteHook<Route.Route.Search<R>>
+    readonly useLoaderData: VueRouteHook<Route.Route.LoaderData<R>>
+    readonly useMatch: VueRouteHook<Router.ResolvedRoute<R>>
   }
+
+type RouteValues<R extends Route.Any> = {
+  readonly match: Router.ResolvedRoute<R>
+  readonly params: Route.Route.Params<R>
+  readonly search: Route.Route.Search<R>
+  readonly loaderData: Route.Route.LoaderData<R>
+}
 
 const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K extends RouteTree.Kind>(
   route: RouteTree.Node<R, C, K>,
@@ -64,21 +98,19 @@ const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K
   ...(views.pendingComponent === undefined ? {} : { pendingComponent: views.pendingComponent }),
   ...(views.errorComponent === undefined ? {} : { errorComponent: views.errorComponent }),
   ...(views.notFoundComponent === undefined ? {} : { notFoundComponent: views.notFoundComponent }),
-  addChildren: (children) => decorate(route.addChildren(children), views),
-  useMatch: () => useMatch<R>(route),
-  useParams: () => {
-    const match = useMatch<R>(route)
-    return computed(() => match.value.params)
-  },
-  useSearch: () => {
-    const match = useMatch<R>(route)
-    return computed(() => match.value.search)
-  },
-  useLoaderData: () => {
-    const match = useMatch<R>(route)
-    return computed(() => match.value.loaderData)
-  }
+  addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(children: Children) =>
+    decorate(route.addChildren(children), views),
+  useMatch: routeHook(route, "match"),
+  useParams: routeHook(route, "params"),
+  useSearch: routeHook(route, "search"),
+  useLoaderData: routeHook(route, "loaderData")
 } as VueRoute<R, C, K>)
+
+const routeHook = <R extends Route.Any, K extends keyof RouteValues<R>>(route: R, key: K) =>
+(
+  select?: (value: RouteValues<R>[K]) => unknown,
+  options?: SelectorOptions<unknown>
+): ComputedRef<unknown> => useRouteValue(route, key, select, options)
 
 /** @since 0.1.0 */
 export function createRootRoute<
@@ -91,7 +123,11 @@ export function createRootRoute<
   E = never,
   R = never
 >(
-  options: Views & { readonly search?: S; readonly hash?: H } & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R> = {}
+  options:
+    & Views
+    & { readonly search?: S; readonly hash?: H }
+    & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R>
+    & CheckedLazyModule<M> = {}
 ): VueRoute<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>, readonly [], "root"> {
   return decorate(RouteTree.root(options), options)
 }
@@ -109,13 +145,17 @@ export function createRoute<
   E = never,
   R = never
 >(
-  options: Views & {
-    readonly getParentRoute: () => Parent
-    readonly id: Id
-    readonly path?: never
-    readonly search?: S
-    readonly hash?: H
-  } & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
+  options:
+    & Views
+    & {
+      readonly getParentRoute: () => Parent
+      readonly id: Id
+      readonly path?: never
+      readonly search?: S
+      readonly hash?: H
+    }
+    & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
+    & CheckedLazyModule<M>
 ): VueRoute<
   Route.Route<
     `${Parent["id"]}/${Id}`,
@@ -146,7 +186,7 @@ export function createRoute<
   E = never,
   R = never
 >(
-  options: Views & RouteTree.Options<Parent, Path, P, S, H, M, ME, MR, D, E, R>
+  options: Views & RouteTree.Options<Parent, Path, P, S, H, M, ME, MR, D, E, R> & CheckedLazyModule<M>
 ): VueRoute<
   RouteTree.Child<Parent, Path, P, S, H, M, ME, MR, D, E, R>,
   readonly [],
@@ -178,6 +218,8 @@ export type Destination<T extends RouteTree.Any = RegisteredTree> = RouteTree.De
 /** @since 0.1.0 */
 export interface ClientRouter<T extends RouteTree.Any, E> {
   readonly routeTree: T
+  /** Compiled lookups shared with the core planner, prepared once per route tree. @since 0.2.0 */
+  readonly compiled: RouteTree.Compiled<RouteTree.All<T>>
   readonly core: Router.Router<ReadonlyArray<RouteTree.All<T>>, E>
   readonly href: (destination: Destination<T>) => Result.Result<string, Route.RouteEncodeError>
 }
@@ -195,12 +237,15 @@ export function createRouter<T extends RouteTree.Any, E = never, HE = never>(
   const history: Layer.Layer<History.Service, HE | History.HistoryError> = options.history ?? BrowserHistory.layer
   // Public options require a Layer whenever the route tree requests services.
   const application = (options.layer ?? Layer.empty) as Layer.Layer<Route.Route.Services<RouteTree.All<T>>, E>
+  // Compiled lookups are cached by root identity, so `fromTree` reuses this object.
+  const compiled = RouteTree.compile(options.routeTree)
   const core = Router.fromTree({ routeTree: options.routeTree, layer: Layer.merge(history, application) })
   return markRaw({
     routeTree: options.routeTree,
+    compiled,
     core,
     href: (destination: Destination<T>) => {
-      const { route, input } = RouteTree.target(core.routes, destination)
+      const { route, input } = compiled.target(destination)
       return Route.href(route, input)
     }
   })
@@ -210,10 +255,22 @@ type RuntimeRouter = ClientRouter<RouteTree.Any, unknown>
 const routerKey: InjectionKey<RuntimeRouter> = Symbol("effect-stack/router")
 const branchKey: InjectionKey<Readonly<Ref<Router.Branch>>> = Symbol("effect-stack/branch")
 const depthKey: InjectionKey<number> = Symbol("effect-stack/depth")
+const snapshotKey: InjectionKey<"resolved" | "incoming"> = Symbol("effect-stack/snapshot")
 const DefaultPending = () => h("div", { role: "status" }, "Loading…")
 const DefaultNotFound = () => h("div", { role: "status" }, "Page not found")
 const DefaultError = (props: ErrorProps) =>
   h("div", { role: "alert" }, ["Unable to display this route. ", h("button", { onClick: props.reset }, "Retry")])
+
+// Fallback views describe the incoming navigation's decoded inputs, while ordinary
+// views keep the resolved input paired with the data it loaded.
+const FallbackSnapshot = defineComponent({
+  name: "RouteFallbackSnapshot",
+  inheritAttrs: false,
+  setup(_props, { slots }) {
+    provide(snapshotKey, "incoming")
+    return () => slots.default?.()
+  }
+})
 
 /** @since 0.1.0 */
 export function useRouter(): RegisteredRouter {
@@ -223,39 +280,95 @@ export function useRouter(): RegisteredRouter {
 }
 const useRuntime = (): RuntimeRouter => useRouter() as RuntimeRouter
 /** @since 0.1.0 */
-export function useRouterState(): Readonly<Ref<Atom.Type<RegisteredRouter["core"]["state"]>>> {
+export function useRouterState<A>(
+  select: (value: Atom.Type<RegisteredRouter["core"]["state"]>) => A,
+  options?: SelectorOptions<A>
+): ComputedRef<A>
+export function useRouterState(): Readonly<Ref<Atom.Type<RegisteredRouter["core"]["state"]>>>
+export function useRouterState<A>(
+  select?: (value: Atom.Type<RegisteredRouter["core"]["state"]>) => A,
+  options?: SelectorOptions<A>
+): Readonly<Ref<Atom.Type<RegisteredRouter["core"]["state"]>>> | ComputedRef<A> {
   const { core } = useRuntime()
-  return useAtomValue(() => core.state) as Readonly<Ref<Atom.Type<RegisteredRouter["core"]["state"]>>>
+  if (select === undefined) {
+    return useAtomValue(() => core.state) as Readonly<Ref<Atom.Type<RegisteredRouter["core"]["state"]>>>
+  }
+  const selected = Atom.map(core.state, select).pipe(Atom.withEquality(options?.equals ?? Object.is))
+  return useAtomValue(() => selected) as ComputedRef<A>
 }
-function useMatch<R extends Route.Any>(route: R): ComputedRef<Router.ResolvedRoute<R>> {
-  useRuntime()
-  const branch = inject(branchKey)
-  const initial = branch?.value.matches.find((entry) => entry.route.id === route.id)
-  if (initial?.result._tag !== "Success") throw new Error(`Route ${route.id} has no resolved match in this branch`)
-  let previous = initial.result.value
+function useRouteValue<R extends Route.Any, K extends keyof RouteValues<R>, A = RouteValues<R>[K]>(
+  route: R,
+  key: K,
+  select?: (value: RouteValues<R>[K]) => A,
+  options?: SelectorOptions<A>
+): ComputedRef<A> {
+  const { core } = useRuntime()
+  const mode = inject(snapshotKey, "resolved")
+  // Decorated route nodes carry the compiled tree's identity fields; the erased
+  // runtime router types routes structurally.
+  const atoms = core.routeAtoms(route as unknown as RouteTree.Any)
+  const equals = options?.equals
+    ?? (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
+  const selected = Atom.make((get: Atom.AtomContext) => {
+    const resolved = get(atoms.resolved)
+    const incoming = mode === "incoming" && (key === "params" || key === "search") ? get(atoms.incoming) : Option.none()
+    // A failed incoming decode means no decoded input exists; falling back to retained
+    // data would pair fresh views with stale params. Ordinary views keep resolved snapshots.
+    const snapshot = Option.isSome(incoming)
+      ? Result.isSuccess(incoming.value) ? incoming.value.success : undefined
+      : Option.isSome(resolved)
+      ? resolved.value
+      : undefined
+    if (snapshot === undefined) return Option.none<A>()
+    const value = (key === "match" ? snapshot : (snapshot as unknown as RouteValues<R>)[key]) as RouteValues<R>[K]
+    return Option.some(select === undefined ? (value as A) : select(value))
+  }).pipe(Atom.withEquality((left: Option.Option<A>, right: Option.Option<A>) =>
+    Option.isSome(left)
+      ? Option.isSome(right) && equals(left.value, right.value)
+      : Option.isNone(right)
+  ))
+  const value = useAtomValue(() => selected)
+  let retained: A | undefined
+  let settled = false
   return computed(() => {
-    const match = branch?.value.matches.find((entry) => entry.route.id === route.id)
-    // Exiting components can read their input until Vue finishes their unmount.
-    if (match?.result._tag === "Success") previous = match.result.value
-    return previous as Router.ResolvedRoute<R>
+    const current = value.value
+    if (Option.isSome(current)) {
+      retained = current.value
+      settled = true
+    }
+    // Exiting components can read their last snapshot until Vue finishes their unmount.
+    if (settled) return retained as A
+    throw new Error(
+      `Route ${route.id} has no ${key === "params" || key === "search" ? "decoded" : "resolved"} match in this branch`
+    )
   })
 }
 
-/** @since 0.1.0 */
-export function useNavigate(): (destination: Destination) => void {
-  const { core } = useRuntime()
+/** Failures accepted by the registered router's awaitable and Effect navigation operations. @since 0.2.0 */
+export type NavigationError = Effect.Error<ReturnType<RegisteredRouter["core"]["execute"]>>
+/** The provider's registry is supplied; interruption cancels this operation's transition. @since 0.2.0 */
+export function useNavigateEffect(): (destination: Destination) => Effect.Effect<void, NavigationError> {
+  const { compiled, core } = useRuntime()
   const registry = injectRegistry()
-  return (destination) => {
-    const { route, input } = RouteTree.target(core.routes, destination)
-    const href = Route.href(route, input)
-    if (Result.isFailure(href)) throw href.failure
-    registry.set(
-      core.navigate,
-      destination.replace
-        ? Router.replace<RouteTree.Any>(route, input, destination.state)
-        : Router.push<RouteTree.Any>(route, input, destination.state)
-    )
-  }
+  return (destination) =>
+    Effect.suspend(() => {
+      const { route, input } = compiled.target(destination)
+      return core.execute(
+        destination.replace
+          ? Router.replace<RouteTree.Any>(route, input, destination.state)
+          : Router.push<RouteTree.Any>(route, input, destination.state)
+      ).pipe(
+        Effect.provideService(AtomRegistry.AtomRegistry, registry)
+      ) as Effect.Effect<void, NavigationError>
+    })
+}
+/** Awaits this transition's resolution and scoped cleanup; encode failures stay typed. @since 0.1.0 */
+export function useNavigate(): (
+  destination: Destination,
+  options?: { readonly signal?: AbortSignal }
+) => Promise<void> {
+  const navigate = useNavigateEffect()
+  return (destination, options) => Effect.runPromise(navigate(destination), options)
 }
 
 const routerProps = { router: { type: Object as PropType<RuntimeRouter>, required: true as const } }
@@ -310,68 +423,64 @@ const RouterView = defineComponent({
   setup(props) {
     const { core } = props.router
     provide(routerKey, props.router)
+    provide(snapshotKey, "resolved")
     const registry = injectRegistry()
     onScopeDispose(registry.mount(core.navigate))
     const branch = useAtomValue(() => core.branch)
-    const state = useAtomValue(() => core.state)
     provide(branchKey, branch)
     provide(depthKey, 0)
     const root = core.routes[0] as Route.Any & Views
-    const reset = () => registry.set(core.navigate, Router.refresh)
-    return () =>
-      branch.value.matches.length > 0 ? h(Outlet) : state.value._tag === "Failure"
-        ? h(root.errorComponent ?? DefaultError, { error: Cause.squash(state.value.cause), reset })
-        : h(root.pendingComponent ?? DefaultPending)
+    // The provider's core and registry are already resolved; a hook would re-inject
+    // from this same component, where Vue only walks the parent chain.
+    const retry = () => {
+      void Effect.runPromise(core.retry.pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))).catch(
+        () => {}
+      )
+    }
+    const startup = Atom.map(core.branch, (value) =>
+      value.matches.length > 0
+        ? undefined
+        : value.result._tag === "Failure"
+        ? Cause.squash(value.result.cause)
+        : null)
+    const startupError = useAtomValue(() => startup)
+    return () => {
+      const error = startupError.value
+      if (error === undefined) return h(Outlet)
+      if (error !== null) {
+        return h(FallbackSnapshot, null, {
+          default: () => h(root.errorComponent ?? DefaultError, { error, reset: retry })
+        })
+      }
+      return h(root.pendingComponent ?? DefaultPending)
+    }
   }
 })
 
-type BoundaryKind = "errorComponent" | "pendingComponent" | "notFoundComponent"
-interface Selection {
-  readonly route: Route.Any & Views
-  readonly component: Component
-  readonly kind: "view" | BoundaryKind
-  readonly error: unknown
-}
-const select = (branch: Router.Branch, depth: number): Selection | undefined => {
-  const entries = branch.matches
-  let problem = entries.findIndex((entry) => entry.result._tag === "Failure")
-  let kind: BoundaryKind = "errorComponent"
-  if (problem < 0) {
-    problem = entries.findIndex((entry) => entry.result._tag === "Initial")
-    kind = "pendingComponent"
+// A Vue component is a function or options object; primitives and arrays cannot render.
+const isVueView = (value: unknown): value is Component =>
+  typeof value === "function" || (typeof value === "object" && value !== null && !Array.isArray(value))
+// Selection stays total; the actionable failure surfaces inside the render boundary so the
+// nearest errorComponent catches it with the route ID in the message.
+const invalidVueView = (routeId: string, value: unknown): Component =>
+  function InvalidLazyVueView(): VNode {
+    throw new Error(
+      `Route "${routeId}" selected a lazy module view that is not a Vue component (received ${
+        value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+      }). Export the page as the module 'default' or 'component' view.`
+    )
   }
-  if (problem < 0 && branch.notFound) {
-    problem = entries.length - 1
-    kind = "notFoundComponent"
-  }
-  let boundary = problem
-  while (boundary > 0 && (entries[boundary].route as Views)[kind] === undefined) boundary--
-  if (problem >= 0 && boundary === depth) {
-    const route = entries[boundary].route as Route.Any & Views
-    const failure = entries[problem].result
-    return {
-      route,
-      kind,
-      component: kind === "errorComponent"
-        ? route.errorComponent ?? DefaultError
-        : kind === "pendingComponent"
-        ? route.pendingComponent ?? DefaultPending
-        : route.notFoundComponent ?? DefaultNotFound,
-      error: failure._tag === "Failure" ? Cause.squash(failure.cause) : undefined
-    }
-  }
-  const entry = entries[depth]
-  if (entry?.result._tag !== "Success") return undefined
-  const route = entry.route as Route.Any & Views
-  const module = entry.result.value.module as
-    | { readonly component?: Component; readonly default?: Component }
-    | undefined
-  return {
-    route,
-    kind: "view",
-    component: route.component ?? module?.component ?? module?.default ?? Outlet,
-    error: undefined
-  }
+
+const declaresFallback = (route: Route.Any, kind: RenderPolicy.BoundaryKind): boolean =>
+  (route as Views)[kind] !== undefined
+
+// `??` would also skip present-but-null exports; only undefined keeps the next fallback.
+const selectVueView = (route: Route.Any & Views, module: unknown): unknown => {
+  const lazy = module as { readonly component?: Component; readonly default?: Component } | undefined
+  if (route.component !== undefined) return route.component
+  if (lazy?.component !== undefined) return lazy.component
+  if (lazy?.default !== undefined) return lazy.default
+  return Outlet
 }
 
 const RenderBoundary = defineComponent({
@@ -379,26 +488,30 @@ const RenderBoundary = defineComponent({
   inheritAttrs: false,
   props: {
     route: { type: Object as PropType<Route.Any & Views>, required: true },
-    locationKey: String,
     refresh: { type: Function as PropType<() => void>, required: true }
   },
   setup(props, { slots }) {
+    const branch = inject(branchKey)
+    if (branch === undefined) throw new Error("Route render boundaries require an active route branch")
     const failure = shallowRef<{ readonly error: unknown }>()
     onErrorCaptured((error) => {
       failure.value = { error }
       return false
     })
-    watch(() => props.locationKey, () => {
+    // A latched render error releases only when a completed successful transition
+    // covers this route, never the moment Retry dispatches its refresh.
+    const recovery = computed(() => RenderPolicy.recoveryKey(branch.value, props.route.id))
+    watch(recovery, () => {
       failure.value = undefined
     }, { flush: "sync" })
-    const reset = () => {
-      failure.value = undefined
-      props.refresh()
+    const reset = () => props.refresh()
+    return () => {
+      const latched = failure.value
+      if (latched === undefined) return slots.default?.()
+      return h(FallbackSnapshot, null, {
+        default: () => h(props.route.errorComponent ?? DefaultError, { error: latched.error, reset })
+      })
     }
-    return () =>
-      failure.value === undefined
-        ? slots.default?.()
-        : h(props.route.errorComponent ?? DefaultError, { error: failure.value.error, reset })
   }
 })
 
@@ -413,26 +526,37 @@ export const Outlet = defineComponent({
     if (branch === undefined) throw new Error("Outlet requires an active route branch")
     const depth = inject(depthKey, 0)
     provide(depthKey, depth + 1)
-    const selection = computed(() => select(branch.value, depth))
+    let cached: RenderPolicy.Selection | undefined
+    // Selected presentation subscriptions observe their selection, not every branch publication.
+    const selection = computed(() => {
+      const next = RenderPolicy.select(branch.value, depth, declaresFallback)
+      if (cached !== undefined && RenderPolicy.sameSelection(cached, next)) return cached
+      cached = next
+      return next
+    })
     const refresh = () => registry.set(core.navigate, Router.refresh)
     return () => {
       const selected = selection.value
-      if (selected === undefined) return null
-      const view = () =>
-        h(
-          selected.component,
-          selected.kind === "view"
-            ? { key: selected.route.id }
-            : { key: `${selected.route.id}:${selected.kind}`, error: selected.error, reset: refresh }
-        )
-      if (selected.kind !== "view" || (selected.route.errorComponent === undefined && depth !== 0)) return view()
-      const match = branch.value.matches[depth]?.result
-      return h(RenderBoundary, {
-        key: selected.route.id,
-        route: selected.route,
-        ...(match?._tag === "Success" ? { locationKey: match.value.location.key } : {}),
-        refresh
-      }, { default: view })
+      if (selected._tag === "Empty") return null
+      const route = branch.value.matches[depth]?.route as Route.Any & Views | undefined
+      if (route === undefined) return null
+      if (selected._tag === "Boundary") {
+        const view = selected.kind === "errorComponent"
+          ? route.errorComponent ?? DefaultError
+          : selected.kind === "pendingComponent"
+          ? route.pendingComponent ?? DefaultPending
+          : route.notFoundComponent ?? DefaultNotFound
+        return h(FallbackSnapshot, { key: `${route.id}:${selected.kind}` }, {
+          default: () => h(view, selected.kind === "errorComponent" ? { error: selected.error, reset: refresh } : {})
+        })
+      }
+      const entry = branch.value.matches[depth]
+      const module = entry?.result._tag === "Success" ? entry.result.value.module : undefined
+      const selectedView = selectVueView(route, module)
+      const component = isVueView(selectedView) ? selectedView : invalidVueView(route.id, selectedView)
+      const view = () => h(component, { key: route.id })
+      if (route.errorComponent === undefined && depth !== 0) return view()
+      return h(RenderBoundary, { key: route.id, route, refresh }, { default: view })
     }
   }
 })
@@ -459,7 +583,9 @@ export const Link = defineComponent({
   setup(props, { attrs, slots }) {
     const router = useRuntime()
     const navigate = useNavigate()
-    const current = useRouterState()
+    // Active state tracks the selected location projection rather than full router state.
+    const locationAtom = Atom.map(router.core.branch, (branch) => branch.location)
+    const location = useAtomValue(() => locationAtom)
     const destination = () => props as Destination
     const href = computed(() => {
       const encoded = router.href(destination())
@@ -473,14 +599,15 @@ export const Link = defineComponent({
         event.altKey || (anchor.target !== "" && anchor.target !== "_self") || anchor.hasAttribute("download")
       ) return
       event.preventDefault()
-      navigate(destination())
+      // Router state already publishes failures to route boundaries; the bridge consumes them.
+      navigate(destination()).catch(() => {})
     }
     return () => {
-      const state = current.value
+      const current = location.value
       const pathname = href.value.split(/[?#]/)[0]
-      const active = state._tag === "Success" &&
-        (state.value.location.pathname === pathname ||
-          (!props.exact && pathname !== "/" && state.value.location.pathname.startsWith(`${pathname}/`)))
+      const active = Option.isSome(current) &&
+        (current.value.pathname === pathname ||
+          (!props.exact && pathname !== "/" && current.value.pathname.startsWith(`${pathname}/`)))
       // Vue dispatches event arrays with its native error handling and
       // stopImmediatePropagation semantics; interception runs last.
       const handlers = attrs.onClick === undefined
@@ -497,7 +624,7 @@ export const Link = defineComponent({
   }
 }) as unknown as FunctionalComponent<LinkProps>
 
-/** Navigates on mount or when the encoded destination changes. @since 0.1.0 */
+/** Navigates on mount or whenever its structural intent (href, replace, state) changes. @since 0.1.0 */
 export const Navigate = defineComponent({
   name: "RouterNavigate",
   inheritAttrs: false,
@@ -505,23 +632,27 @@ export const Navigate = defineComponent({
   setup(props) {
     const router = useRuntime()
     const navigate = useNavigate()
-    const registry = injectRegistry()
-    let previous: string | undefined
+    const locationAtom = Atom.map(router.core.branch, (branch) => branch.location)
+    const location = useAtomValue(() => locationAtom)
+    let previous: RenderPolicy.NavigationIntent | undefined
     watchEffect(() => {
       const destination = props as Destination
-      const result = router.href(destination)
-      if (Result.isFailure(result)) throw result.failure
-      const key = `${props.replace ? "replace" : "push"}:${result.success}`
-      if (key === previous) return
-      previous = key
-      // Pending boundaries can unmount and remount a declarative redirect. An
-      // already satisfied URL without an explicit state update is a no-op.
-      const state = registry.get(router.core.state)
-      if (props.state === undefined && state._tag === "Success") {
-        const location = state.value.location
-        if (`${location.pathname}${location.search}${location.hash}` === result.success) return
+      const encoded = router.href(destination)
+      if (Result.isFailure(encoded)) throw encoded.failure
+      // State is read reactively here, so structural changes retrigger this effect even
+      // when the URL is unchanged.
+      const intent: RenderPolicy.NavigationIntent = {
+        href: encoded.success,
+        replace: props.replace === true,
+        state: props.state
       }
-      navigate(destination)
+      if (RenderPolicy.sameIntent(previous, intent)) return
+      previous = intent
+      // Pending boundaries can unmount and remount a declarative redirect. An
+      // already-satisfied location, including explicit state, is a no-op.
+      if (RenderPolicy.isSatisfied(intent, location.value)) return
+      // Router state already publishes failures to route boundaries; the bridge consumes them.
+      navigate(destination).catch(() => {})
     }, { flush: "post" })
     return () => null
   }

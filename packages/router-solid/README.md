@@ -47,10 +47,17 @@ export const App = () => <RouterProvider router={router} />
 accessors. Create the accessor during component setup and read it inside reactive expressions. This lets an existing route
 component update when params, search, or loader data change while its local state remains mounted.
 
+Route hooks accept selectors, such as `project.useLoaderData((data) => data.title)`. Params/search in pending/error views
+read decoded incoming inputs; ordinary views retain the inputs associated with their resolved data.
+
 `useRouter()` returns the registered router. `useNavigate()` returns a function accepting the same typed destination as
 `Link` and `router.href`. `Navigate` performs declarative navigation. Links render real anchors with native modified-click,
 target, download, and prevented-click behavior. Active links expose `aria-current="page"` and `data-active="true"`;
 `exact` disables descendant-path active matching.
+
+The navigation function returns a Promise completing with its own navigation. `useNavigateEffect()` exposes typed Effect
+composition bound to the provider's registry. See [navigation and match snapshots](../../docs/router-navigation.md) for
+completion, cancellation, and retained-data semantics.
 
 ## Routes, loading, and boundaries
 
@@ -64,7 +71,8 @@ code and data load concurrently within each route. Superseding navigation interr
 
 `pendingComponent`, `errorComponent`, and `notFoundComponent` bubble to the nearest declaring ancestor, replacing its view
 and descendants while preserving layouts above it. Error views receive `{ error, reset }`; `reset()` refreshes the URL.
-Solid render errors use native error boundaries.
+Solid render errors use native error boundaries. Recovery waits for successfully refreshed data before clearing a latched
+render error. Startup Retry rebuilds failed initialization.
 
 ## Effect service injection and lifetimes
 

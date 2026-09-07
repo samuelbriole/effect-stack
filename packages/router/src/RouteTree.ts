@@ -4,6 +4,7 @@
  */
 import type * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Pipeable from "effect/Pipeable"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
@@ -23,6 +24,14 @@ export type Any = Route.Any & {
   readonly to: string
 }
 
+/**
+ * Stable identity of native `RouteTree` nodes. It is an enumerable own
+ * property, so renderer adapter spreads that decorate nodes preserve it and
+ * `isNode` keeps recognizing the result.
+ * @since 0.2.0
+ */
+export const NodeId: unique symbol = Symbol.for("@effect-stack/router/RouteTree/Node")
+
 /** @since 0.2.0 */
 export type Node<
   R extends Route.Any,
@@ -34,7 +43,8 @@ export type Node<
   readonly to: R["path"]
   readonly children: Children
   readonly addChildren: <const C extends ReadonlyArray<Any>>(children: C) => Node<R, C, K>
-}
+  readonly [NodeId]: true
+} & Pipeable.Pipeable
 
 /** @since 0.2.0 */
 export type All<T extends Any> = [T] extends [never] ? never : T | (Any extends T ? never : All<T["children"][number]>)
@@ -117,8 +127,19 @@ const node = <R extends Route.Any, const C extends ReadonlyArray<Any>, const K e
   kind,
   to: route.path,
   children,
-  addChildren: (next) => node(route, parentId, kind, next)
+  addChildren: (next) => node(route, parentId, kind, next),
+  // `pipe` is an own property, so adapter decoration spreads carry the
+  // `this`-bound composition from Pipeable.Prototype onto decorated nodes.
+  pipe: Pipeable.Prototype.pipe,
+  [NodeId]: true
 })
+
+/**
+ * True when a value is a native node or an adapter decoration that spread one.
+ * @since 0.2.0
+ */
+export const isNode = (value: unknown): value is Node<Route.Any> =>
+  typeof value === "object" && value !== null && NodeId in value
 
 /** Defines the root layout. @since 0.2.0 */
 export function root<
@@ -329,27 +350,13 @@ export interface DestinationInput {
 /**
  * Selects the same endpoint as exact route matching and supplies omitted empty inputs.
  * Pass the result to Route.href for Schema validation and encoding before navigation.
+ * Endpoint selection is cached per route array identity, and arrays are treated as immutable.
  * @since 0.2.0
  */
 export const target = (routes: ReadonlyArray<Any>, destination: DestinationInput): {
   readonly route: Any
   readonly input: Route.Route.Input<Route.Any>
-} => {
-  let route: Any | undefined
-  for (const entry of routes) {
-    if (entry.kind === "layout" || entry.path !== destination.to) continue
-    if (route === undefined || route.kind !== "index") route = entry
-  }
-  if (route === undefined) throw new Error(`Unknown route destination: ${destination.to}`)
-  return {
-    route,
-    input: {
-      params: destination.params ?? {},
-      search: destination.search ?? {},
-      hash: destination.hash ?? ""
-    } as Route.Route.Input<Route.Any>
-  }
-}
+} => targetFor(indexFor(routes), destination)
 
 /** Validates and flattens a tree in preorder. @since 0.2.0 */
 export const flatten = <T extends Any>(tree: T): ReadonlyArray<All<T>> => {
@@ -389,10 +396,71 @@ export interface Plan {
   readonly notFound: boolean
 }
 
+/** A ranked route with its path segments and ID depth precomputed. @since 0.2.0 */
+export interface Ranked<T extends Any = Any> {
+  readonly route: T
+  readonly segments: ReadonlyArray<string>
+  readonly depth: number
+}
+
 const segments = (path: string) => path === "/" ? [] : path.slice(1).split("/")
-const structural = (route: Any, pathname: string, exact: boolean) => {
-  const expected = segments(route.path)
-  const actual = segments(pathname)
+
+// Navigation lookups derived from a flattened route list: ranked routes with
+// precomputed segments, parent lookup by ID, and the destination endpoint per
+// path template. Flattening guarantees unique IDs, so endpoint selection and
+// ancestor walks never revisit a route.
+interface Index<T extends Any = Any> {
+  readonly ranked: ReadonlyArray<Ranked<T>>
+  readonly byId: ReadonlyMap<string, Ranked<T>>
+  readonly endpoints: ReadonlyMap<string, T>
+}
+
+const buildIndex = <T extends Any>(routes: ReadonlyArray<T>): Index<T> => {
+  const ranked: Array<Ranked<T>> = []
+  const byId = new Map<string, Ranked<T>>()
+  const endpoints = new Map<string, T>()
+  for (const route of routes) {
+    const entry: Ranked<T> = {
+      depth: route.id.split("/").length,
+      route,
+      segments: segments(route.path)
+    }
+    ranked.push(entry)
+    if (!byId.has(route.id)) byId.set(route.id, entry)
+    // Endpoints replay the original linear selection in array order: the
+    // first candidate wins unless a later one replaces a non-index route.
+    const current = endpoints.get(route.path)
+    if (route.kind !== "layout" && (current === undefined || current.kind !== "index")) {
+      endpoints.set(route.path, route)
+    }
+  }
+  ranked.sort((a, b) => {
+    const left = a.segments
+    const right = b.segments
+    for (let i = 0; i < Math.min(left.length, right.length); i++) {
+      const difference = Number(left[i].startsWith(":")) - Number(right[i].startsWith(":"))
+      if (difference !== 0) return difference
+    }
+    return right.length - left.length || b.depth - a.depth
+  })
+  return { byId, endpoints, ranked }
+}
+
+// Callers hold flattened route arrays or compiled trees across navigations,
+// and those arrays are treated as immutable, so caching by array identity is
+// safe without copying or freezing. A cached index was built from this exact
+// array, so re-typing its entries to the array's element type is sound.
+const indexes = new WeakMap<ReadonlyArray<Any>, Index>()
+
+const indexFor = <T extends Any>(routes: ReadonlyArray<T>): Index<T> => {
+  const cached = indexes.get(routes)
+  if (cached !== undefined) return cached as Index<T>
+  const built = buildIndex(routes)
+  indexes.set(routes, built)
+  return built
+}
+
+const structural = (expected: ReadonlyArray<string>, actual: ReadonlyArray<string>, exact: boolean) => {
   if (exact ? actual.length !== expected.length : actual.length < expected.length) return false
   return expected.every((part, index) => {
     if (part.startsWith(":")) return true
@@ -404,30 +472,27 @@ const structural = (route: Any, pathname: string, exact: boolean) => {
   })
 }
 
-/** Plans a static-before-dynamic branch and preserves ancestors for not-found handling. @since 0.2.0 */
-export const plan = (routes: ReadonlyArray<Any>, location: Route.UrlParts): Plan => {
-  const ranked = [...routes].sort((a, b) => {
-    const left = segments(a.path)
-    const right = segments(b.path)
-    for (let i = 0; i < Math.min(left.length, right.length); i++) {
-      const difference = Number(left[i].startsWith(":")) - Number(right[i].startsWith(":"))
-      if (difference !== 0) return difference
+const planFor = (index: Index, location: Route.UrlParts): Plan => {
+  const actual = segments(location.pathname)
+  const find = (accept: (route: Any) => boolean, exact: boolean) => {
+    for (const entry of index.ranked) {
+      if (accept(entry.route) && structural(entry.segments, actual, exact)) return entry
     }
-    return right.length - left.length || b.id.split("/").length - a.id.split("/").length
-  })
-  const exact = ranked.find((route) => route.kind !== "layout" && structural(route, location.pathname, true))
-  const leaf = exact ?? ranked.find((route) => route.kind !== "index" && structural(route, location.pathname, false))
-  const chain: Array<Any> = []
+    return undefined
+  }
+  const exact = find((route) => route.kind !== "layout", true)
+  const leaf = exact ?? find((route) => route.kind !== "index", false)
+  const chain: Array<Ranked> = []
   let current = leaf
   while (current !== undefined) {
     chain.unshift(current)
-    const parentId = current.parentId
-    current = routes.find((route) => route.id === parentId)
+    const parentId = current.route.parentId
+    current = parentId === undefined ? undefined : index.byId.get(parentId)
   }
   return {
     notFound: exact === undefined,
-    entries: chain.map((route) => {
-      const prefix = segments(location.pathname).slice(0, segments(route.path).length)
+    entries: chain.map(({ route, segments: expected }) => {
+      const prefix = actual.slice(0, expected.length)
       const matched = Route.match(route, { ...location, pathname: prefix.length === 0 ? "/" : `/${prefix.join("/")}` })
       return {
         route,
@@ -445,4 +510,72 @@ export const plan = (routes: ReadonlyArray<Any>, location: Route.UrlParts): Plan
       }
     })
   }
+}
+
+const targetFor = (index: Index, destination: DestinationInput): {
+  readonly route: Any
+  readonly input: Route.Route.Input<Route.Any>
+} => {
+  const route = index.endpoints.get(destination.to)
+  if (route === undefined) throw new Error(`Unknown route destination: ${destination.to}`)
+  return {
+    route,
+    input: {
+      params: destination.params ?? {},
+      search: destination.search ?? {},
+      hash: destination.hash ?? ""
+    } as Route.Route.Input<Route.Any>
+  }
+}
+
+/** Plans a static-before-dynamic branch and preserves ancestors for not-found handling.
+ * Rankings are cached per flattened route array identity, so repeated navigation does not re-sort.
+ * @since 0.2.0
+ */
+export const plan = (routes: ReadonlyArray<Any>, location: Route.UrlParts): Plan => planFor(indexFor(routes), location)
+
+/**
+ * A route tree validated once, with ranked routes, precomputed segments, parent lookup, and
+ * destination endpoint selection ready for repeated navigation. `compile` instantiates the
+ * route parameter with the tree's `All<T>` union; the default erases to `Any` so adapters
+ * can share compiled values without naming the source tree type.
+ * @since 0.2.0
+ */
+export interface Compiled<T extends Any = Any> {
+  readonly routes: ReadonlyArray<T>
+  readonly ranked: ReadonlyArray<Ranked<T>>
+  readonly byId: ReadonlyMap<string, Ranked<T>>
+  readonly endpoints: ReadonlyMap<string, T>
+  readonly plan: (location: Route.UrlParts) => Plan
+  readonly target: (destination: DestinationInput) => {
+    readonly route: Any
+    readonly input: Route.Route.Input<Route.Any>
+  }
+}
+
+const compiledTrees = new WeakMap<Any, Compiled>()
+
+/**
+ * Validates a static route tree once and returns its compiled navigation structures,
+ * typed with the tree's `All<T>` route union. Ranking, path segments, parent lookup, and
+ * endpoint selection are precomputed during setup: `target` is an indexed lookup, and
+ * `plan` walks the already-ranked routes without re-sorting per navigation.
+ * `Router.fromTree` calls this once; adapters can consume the compiled value directly.
+ * Results are cached by root node identity, and nodes are immutable because
+ * `addChildren` returns a new node.
+ * @since 0.2.0
+ */
+export const compile = <T extends Any>(tree: T): Compiled<All<T>> => {
+  const cached = compiledTrees.get(tree) as Compiled<All<T>> | undefined
+  if (cached !== undefined) return cached
+  const routes: ReadonlyArray<All<T>> = flatten(tree)
+  const index = indexFor(routes)
+  const value: Compiled<All<T>> = {
+    ...index,
+    routes,
+    plan: (location) => planFor(index, location),
+    target: (destination) => targetFor(index, destination)
+  }
+  compiledTrees.set(tree, value)
+  return value
 }

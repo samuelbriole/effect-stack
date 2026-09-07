@@ -41,6 +41,11 @@ export const router = Router.make({
 `router.navigate` is an action Atom accepting `Router.push`, `Router.replace`, `Router.back`, `Router.forward`,
 `Router.go`, and `Router.refresh` commands.
 
+`router.execute(command)` exposes the underlying operation as an Effect requiring `AtomRegistry.AtomRegistry`.
+Push/replace/refresh await their own navigation and scoped cleanup; superseding navigation interrupts the previous
+operation. Traversal commands acknowledge the history request. `router.retry` rebuilds failed initialization or refreshes
+a healthy runtime. See [navigation and match snapshots](../../docs/router-navigation.md) for the full contract.
+
 Routes are checked in declaration order. The first structurally matching route wins; malformed values on that route
 produce `RouteDecodeError` rather than falling through. This release supports exact static segments and required named
 segments only; trailing and repeated slashes remain significant. `Route.make` rejects invalid untyped definitions with
@@ -59,6 +64,9 @@ adapter examples.
 `addChildren`, then use `Router.fromTree` to build the Atom runtime. Nested matching ranks static segments ahead of dynamic
 segments, and indexes ahead of the ancestors sharing their URL.
 
+Route-tree builders support `.pipe(...)` and `RouteTree.isNode` identification. `RouteTree.compile(tree)` validates the
+static tree and precomputes ranking, path segments, ancestry, and destination endpoints for reuse across navigations.
+
 `RouteTree.Destination<typeof tree>` supplies the common typed destination model for renderer adapters. It includes the
 ranked endpoint's inherited params, search, and hash, requiring inputs only when their Schemas require them. An index's
 requirements cannot be bypassed by targeting an ancestor at the same URL.
@@ -66,6 +74,15 @@ requirements cannot be bypassed by targeting an ancestor at the same URL.
 `RouteTree.target(router.routes, destination)` selects that endpoint and fills omitted empty inputs. Adapters then pass its
 `route` and `input` to `Route.href` for Schema validation and encoding before dispatching a navigation command. This keeps
 destination interpretation shared across React, Solid, and future adapters.
+
+Compiled trees and the flattened arrays passed to legacy `RouteTree.plan`/`RouteTree.target` are static, immutable
+definitions. Build a new tree with `addChildren` when changing definitions; identity-based setup caches then compile the
+new value independently.
+
+The typed `router.branch` preserves each route's inputs, module, data, and errors through a distributive match union.
+Discriminate entries by `routeId`. Incoming decoded matches, retained resolved matches, incoming location, transition
+identity, and the last complete successful branch are explicitly separate. Stable `router.routeAtoms(route)` projections
+allow custom adapters and application subscriptions to observe only their relevant matches.
 
 ## Effect data loaders
 

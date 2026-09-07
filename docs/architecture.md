@@ -34,7 +34,9 @@ active state, lazy views, or SSR hydration. Renaming or re-exporting Atom hooks 
 The React, Solid, and Vue adapters own view declarations, provider context, route hooks, anchors, outlets, and render
 boundaries.
 The core `RouteTree` owns tree validation, inherited URL schemas, static-before-dynamic matching, branch planning, and the
-shared typed destination model and endpoint selection.
+shared typed destination model and endpoint selection. A compiled tree validates and precomputes static ranking, path
+segments, ancestry, and destination endpoints once. `RenderPolicy` owns renderer-neutral fallback selection and declarative
+navigation comparison; native adapters own how the selected view is rendered.
 `Router.fromTree` resolves ancestors before descendants and exposes per-match state through Atom. Code and data loading
 within one match remain concurrent. Pending/error/not-found views replace their declaring route and descendants, preserving
 layouts above that boundary. SSR and hydration remain deferred.
@@ -47,12 +49,17 @@ at their entry point and can substitute test Layers without changing routes. Ren
 registry; application service construction, sharing, and finalization belong to Effect.
 
 Each Atom registry builds one Router runtime from its Layer. A `SubscriptionRef` is authoritative state, a scoped
-`FiberMap` owns the current transition, and a generation token prevents stale publication. Starting navigation interrupts
+`FiberMap` owns the current transition, and a transition token prevents stale publication. Starting navigation interrupts
 the previous loader; its finalizers run, and even a non-cancelable Promise completion cannot overwrite newer state.
 Disposing the registry closes the scope, interrupts work, and removes History listeners.
 
 Navigation exposes Effect `AsyncResult`: initial, waiting with previous state, success, and failure. Expected errors retain
 their identity, including the failing URL part and lazy route ID. Defects and interruption remain in `Cause`.
+
+The branch separates decoded incoming inputs, retained resolved data, and the last complete successful snapshot. Public
+match unions preserve route-specific types; stable route atoms support selected subscriptions. Effect navigation joins its
+own transition and renderer hooks expose an awaitable bridge. See [navigation and match snapshots](router-navigation.md)
+for completion, interruption, and recovery semantics.
 
 ## Route loading versus remote state
 

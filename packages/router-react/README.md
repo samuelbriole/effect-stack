@@ -49,7 +49,9 @@ export const App = () => <RouterProvider router={router} />
 - Static segments outrank dynamic segments. Ambiguous templates and misplaced children fail when the router is created.
 - `route.to` is the full literal route pattern. `Link`, `useNavigate`, and `router.href` share destination typing.
   Empty params/search and the default empty hash may be omitted.
-- Route-bound `useParams`, `useSearch`, `useLoaderData`, and `useMatch` read a resolved active match and fail clearly outside it.
+- Route-bound `useParams` and `useSearch` can read decoded incoming inputs in pending/error views. Ordinary views retain
+  inputs associated with their resolved data. `useLoaderData` and `useMatch` require a resolved snapshot.
+- Route hooks accept selectors, for example `project.useLoaderData((data) => data.title)`, to subscribe to selected values.
 
 ## Loading and boundaries
 
@@ -96,7 +98,12 @@ in a loader's scope close before its result is published. Remote-resource cachin
 
 `pendingComponent`, `errorComponent`, and `notFoundComponent` bubble to the nearest declaring ancestor, replacing that
 route's view and descendants. Layouts above the boundary remain mounted. Error components receive `{ error, reset }`;
-`reset()` refreshes the current URL. Render errors also use the nearest error boundary.
+`reset()` refreshes the current URL, or retries failed initialization. Render errors also use the nearest error boundary;
+recovery waits for successfully refreshed data before clearing a latched render error.
+
+`useNavigate()` returns a Promise that completes with its navigation. `useNavigateEffect()` preserves typed failures and
+Effect composition, using the provider's registry. See [navigation and match snapshots](../../docs/router-navigation.md)
+for completion, cancellation, incoming inputs, and retained data.
 
 The provider owns an Atom registry by default, including React StrictMode-safe disposal. Pass `registry` to integrate with
 a caller-owned registry. `Link` renders a real anchor and preserves modifiers, targets, downloads, and prevented clicks;

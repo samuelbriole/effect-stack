@@ -1,8 +1,8 @@
 /** First-party client-side React routing. @since 0.1.0 */
-import { BrowserHistory, type History, Route, Router, RouteTree } from "@effect-stack/router"
+import { BrowserHistory, type History, RenderPolicy, Route, Router, RouteTree } from "@effect-stack/router"
 import { RegistryContext, RegistryProvider, useAtomValue } from "@effect/atom-react"
-import { Cause, type Effect, Layer, Result, type Schema } from "effect"
-import type { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Cause, Effect, Equal, Layer, Option, Result, type Schema } from "effect"
+import { Atom, AtomRegistry } from "effect/unstable/reactivity"
 import * as React from "react"
 
 /** @since 0.1.0 */
@@ -17,6 +17,28 @@ export interface Views {
   readonly errorComponent?: React.ComponentType<ErrorProps>
   readonly notFoundComponent?: React.ComponentType
 }
+
+type ReactModuleView = NonNullable<Views["component"]>
+
+type InvalidLazyModuleExport<M> = M extends unknown ?
+    | ("default" extends keyof M ? ([Exclude<M["default"], undefined>] extends [ReactModuleView] ? never : true)
+      : never)
+    | ("component" extends keyof M ? ([Exclude<M["component"], undefined>] extends [ReactModuleView] ? never : true)
+      : never)
+  : never
+
+// A lazy module may carry renderer-neutral data, but a present view export must be a React component.
+// Modules without `default`/`component` keep the Outlet fallback.
+type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown : { readonly load?: never }
+/** @since 0.2.0 */
+export interface SelectorOptions<A> {
+  readonly equals?: (left: A, right: A) => boolean
+}
+/** @since 0.2.0 */
+export interface RouteHook<A> {
+  <B>(select: (value: A) => B, options?: SelectorOptions<B>): B
+  (): A
+}
 /** @since 0.1.0 */
 export type ReactRoute<
   R extends Route.Any,
@@ -29,10 +51,10 @@ export type ReactRoute<
     readonly addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(
       children: Children
     ) => ReactRoute<R, Children, K>
-    readonly useParams: () => Route.Route.Params<R>
-    readonly useSearch: () => Route.Route.Search<R>
-    readonly useLoaderData: () => Route.Route.LoaderData<R>
-    readonly useMatch: () => Router.ResolvedRoute<R>
+    readonly useParams: RouteHook<Route.Route.Params<R>>
+    readonly useSearch: RouteHook<Route.Route.Search<R>>
+    readonly useLoaderData: RouteHook<Route.Route.LoaderData<R>>
+    readonly useMatch: RouteHook<Router.ResolvedRoute<R>>
   }
 
 const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K extends RouteTree.Kind>(
@@ -44,11 +66,20 @@ const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K
   ...(views.pendingComponent === undefined ? {} : { pendingComponent: views.pendingComponent }),
   ...(views.errorComponent === undefined ? {} : { errorComponent: views.errorComponent }),
   ...(views.notFoundComponent === undefined ? {} : { notFoundComponent: views.notFoundComponent }),
-  addChildren: (children) => decorate(route.addChildren(children), views),
-  useMatch: () => useMatch<R>(route),
-  useParams: () => useMatch<R>(route).params,
-  useSearch: () => useMatch<R>(route).search,
-  useLoaderData: () => useMatch<R>(route).loaderData
+  addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(children: Children) =>
+    decorate(route.addChildren(children), views),
+  useMatch: <A = Router.ResolvedRoute<R>>(
+    select?: (value: Router.ResolvedRoute<R>) => A,
+    options?: SelectorOptions<A>
+  ) => useRouteValue(route, "match", select, options),
+  useParams: <A = Route.Route.Params<R>>(select?: (value: Route.Route.Params<R>) => A, options?: SelectorOptions<A>) =>
+    useRouteValue(route, "params", select, options),
+  useSearch: <A = Route.Route.Search<R>>(select?: (value: Route.Route.Search<R>) => A, options?: SelectorOptions<A>) =>
+    useRouteValue(route, "search", select, options),
+  useLoaderData: <A = Route.Route.LoaderData<R>>(
+    select?: (value: Route.Route.LoaderData<R>) => A,
+    options?: SelectorOptions<A>
+  ) => useRouteValue(route, "loaderData", select, options)
 } as ReactRoute<R, C, K>)
 
 /** @since 0.1.0 */
@@ -62,7 +93,11 @@ export function createRootRoute<
   E = never,
   R = never
 >(
-  options: Views & { readonly search?: S; readonly hash?: H } & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R> = {}
+  options:
+    & Views
+    & { readonly search?: S; readonly hash?: H }
+    & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R>
+    & CheckedLazyModule<M> = {}
 ): ReactRoute<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>, readonly [], "root"> {
   return decorate(RouteTree.root(options), options)
 }
@@ -80,13 +115,17 @@ export function createRoute<
   E = never,
   R = never
 >(
-  options: Views & {
-    readonly getParentRoute: () => Parent
-    readonly id: Id
-    readonly path?: never
-    readonly search?: S
-    readonly hash?: H
-  } & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
+  options:
+    & Views
+    & {
+      readonly getParentRoute: () => Parent
+      readonly id: Id
+      readonly path?: never
+      readonly search?: S
+      readonly hash?: H
+    }
+    & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
+    & CheckedLazyModule<M>
 ): ReactRoute<
   Route.Route<
     `${Parent["id"]}/${Id}`,
@@ -117,7 +156,7 @@ export function createRoute<
   E = never,
   R = never
 >(
-  options: Views & RouteTree.Options<Parent, Path, P, S, H, M, ME, MR, D, E, R>
+  options: Views & RouteTree.Options<Parent, Path, P, S, H, M, ME, MR, D, E, R> & CheckedLazyModule<M>
 ): ReactRoute<
   RouteTree.Child<Parent, Path, P, S, H, M, ME, MR, D, E, R>,
   readonly [],
@@ -151,6 +190,7 @@ export type Destination<T extends RouteTree.Any = RegisteredTree> = RouteTree.De
 /** @since 0.1.0 */
 export interface ClientRouter<T extends RouteTree.Any, E> {
   readonly routeTree: T
+  readonly compiled: RouteTree.Compiled<RouteTree.All<T>>
   readonly core: Router.Router<ReadonlyArray<RouteTree.All<T>>, E>
   readonly href: (destination: Destination<T>) => Result.Result<string, Route.RouteEncodeError>
 }
@@ -169,11 +209,13 @@ export function createRouter<T extends RouteTree.Any, E = never, HE = never>(
   // The conditional options require this layer whenever the tree has requirements.
   const application = (options.layer ?? Layer.empty) as Layer.Layer<Route.Route.Services<RouteTree.All<T>>, E>
   const core = Router.fromTree({ routeTree: options.routeTree, layer: Layer.merge(history, application) })
+  const compiled = RouteTree.compile(options.routeTree)
   return {
     routeTree: options.routeTree,
+    compiled,
     core,
     href: (destination) => {
-      const { route, input } = RouteTree.target(core.routes, destination)
+      const { route, input } = compiled.target(destination)
       return Route.href(route, input)
     }
   }
@@ -181,7 +223,7 @@ export function createRouter<T extends RouteTree.Any, E = never, HE = never>(
 
 type RuntimeRouter = ClientRouter<RouteTree.Any, unknown>
 const RouterContext = React.createContext<RuntimeRouter | null>(null)
-const BranchContext = React.createContext<Router.Branch>({ matches: [], notFound: false })
+const SnapshotContext = React.createContext<"resolved" | "incoming">("resolved")
 const DepthContext = React.createContext(0)
 const DefaultPending = () => <div role="status">Loading…</div>
 const DefaultNotFound = () => <div role="status">Page not found</div>
@@ -200,30 +242,103 @@ function useRuntime(): RuntimeRouter {
   return useRouter() as RuntimeRouter
 }
 /** @since 0.1.0 */
-export function useRouterState(): Atom.Type<RegisteredRouter["core"]["state"]> {
-  return useAtomValue(useRuntime().core.state) as Atom.Type<RegisteredRouter["core"]["state"]>
+export function useRouterState<A>(
+  select: (state: Atom.Type<RegisteredRouter["core"]["state"]>) => A,
+  options?: SelectorOptions<A>
+): A
+export function useRouterState(): Atom.Type<RegisteredRouter["core"]["state"]>
+export function useRouterState<A = Atom.Type<RegisteredRouter["core"]["state"]>>(
+  select?: (state: Atom.Type<RegisteredRouter["core"]["state"]>) => A,
+  options?: SelectorOptions<A>
+): A {
+  const { core } = useRuntime()
+  const equals = options?.equals ?? Object.is
+  const atom = React.useMemo(() =>
+    Atom.map(core.state, (value) =>
+      select === undefined
+        ? value as A :
+        select(value as Atom.Type<RegisteredRouter["core"]["state"]>)).pipe(Atom.withEquality<A>(equals)), [
+    core,
+    select,
+    equals
+  ])
+  return useAtomValue(atom)
 }
-function useMatch<R extends Route.Any>(route: R): Router.ResolvedRoute<R> {
-  const branch = React.useContext(BranchContext)
-  const match = branch.matches.find((entry) => entry.route.id === route.id)
-  if (match?.result._tag !== "Success") throw new Error(`Route ${route.id} has no resolved match in this branch`)
-  return match.result.value as Router.ResolvedRoute<R>
+type RouteValues<R extends Route.Any> = {
+  readonly match: Router.ResolvedRoute<R>
+  readonly params: Route.Route.Params<R>
+  readonly search: Route.Route.Search<R>
+  readonly loaderData: Route.Route.LoaderData<R>
+}
+function useRouteValue<R extends Route.Any, K extends keyof RouteValues<R>, A = RouteValues<R>[K]>(
+  route: R & RouteTree.Any,
+  key: K,
+  select?: (value: RouteValues<R>[K]) => A,
+  options?: SelectorOptions<A>
+): A {
+  const { core } = useRuntime()
+  const mode = React.useContext(SnapshotContext)
+  const atoms = core.routeAtoms(route)
+  const equals = options?.equals ??
+    (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
+  const selected = React.useMemo(() =>
+    Atom.make((get) => {
+      const resolved = get(atoms.resolved)
+      const useIncoming = mode === "incoming" && (key === "params" || key === "search")
+      const incoming = useIncoming
+        ? get(atoms.incoming)
+        : Option.none()
+      const snapshot = useIncoming
+        ? Option.isSome(incoming) && Result.isSuccess(incoming.value) ? incoming.value.success : undefined
+        : Option.isSome(resolved)
+        ? resolved.value
+        : undefined
+      if (snapshot === undefined) return Option.none<A>()
+      const value = (key === "match" ? snapshot : snapshot[key as keyof typeof snapshot]) as RouteValues<R>[K]
+      return Option.some(select === undefined ? value as A : select(value))
+    }).pipe(Atom.withEquality<Option.Option<A>>((left, right) =>
+      Option.isSome(left)
+        ? Option.isSome(right) && equals(left.value, right.value)
+        : Option.isNone(right)
+    )), [atoms, mode, key, select, equals])
+  const value = useAtomValue(selected)
+  if (Option.isNone(value)) {
+    throw new Error(
+      `Route ${route.id} has no ${key === "params" || key === "search" ? "decoded" : "resolved"} match in this branch`
+    )
+  }
+  return value.value
 }
 
-/** @since 0.1.0 */
-export function useNavigate(): (destination: Destination) => void {
+/** @since 0.2.0 */
+export type NavigationError = Effect.Error<ReturnType<RegisteredRouter["core"]["execute"]>>
+/** The provider's registry is supplied; interruption cancels this operation's transition. @since 0.2.0 */
+export function useNavigateEffect(): (destination: Destination) => Effect.Effect<void, NavigationError> {
+  const { core, compiled } = useRuntime()
+  const registry = React.useContext(RegistryContext)
+  return React.useCallback((destination: Destination) =>
+    Effect.suspend(() => {
+      const { route, input } = compiled.target(destination)
+      return core.execute(
+        destination.replace
+          ? Router.replace<RouteTree.Any>(route, input, destination.state)
+          : Router.push<RouteTree.Any>(route, input, destination.state)
+      ).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    }) as Effect.Effect<void, NavigationError>, [core, compiled, registry])
+}
+/** Awaits this transition's resolution and scoped cleanup. @since 0.1.0 */
+export function useNavigate(): (
+  destination: Destination,
+  options?: { readonly signal?: AbortSignal }
+) => Promise<void> {
+  const navigate = useNavigateEffect()
+  return React.useCallback((destination, options) => Effect.runPromise(navigate(destination), options), [navigate])
+}
+function useRetry(): () => void {
   const { core } = useRuntime()
   const registry = React.useContext(RegistryContext)
-  return React.useCallback((destination: Destination) => {
-    const { route, input } = RouteTree.target(core.routes, destination)
-    const href = Route.href(route, input)
-    if (Result.isFailure(href)) throw href.failure
-    registry.set(
-      core.navigate,
-      destination.replace
-        ? Router.replace<RouteTree.Any>(route, input, destination.state)
-        : Router.push<RouteTree.Any>(route, input, destination.state)
-    )
+  return React.useCallback(() => {
+    void Effect.runPromise(core.retry.pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))).catch(() => {})
   }, [core, registry])
 }
 
@@ -240,27 +355,42 @@ export function RouterProvider<T extends RouteTree.Any, E>(
     ? <RegistryProvider>{content}</RegistryProvider>
     : <RegistryContext.Provider value={registry}>{content}</RegistryContext.Provider>
 }
+type Startup = { readonly _tag: "Active" | "Pending" } | { readonly _tag: "Failure"; readonly error: unknown }
 function RouterView() {
   const { core } = useRuntime()
   const registry = React.useContext(RegistryContext)
   React.useEffect(() => registry.mount(core.navigate), [registry, core])
-  const branch = useAtomValue(core.branch)
-  const state = useAtomValue(core.state)
-  if (branch.matches.length === 0) {
+  const retry = useRetry()
+  const startup = React.useMemo(() =>
+    Atom.map(core.branch, (branch): Startup =>
+      branch.matches.length > 0
+        ? { _tag: "Active" } :
+        branch.result._tag === "Failure"
+        ? { _tag: "Failure", error: Cause.squash(branch.result.cause) }
+        : { _tag: "Pending" }).pipe(
+        Atom.withEquality<Startup>((left, right) =>
+          left._tag === right._tag &&
+          (left._tag !== "Failure" || (right._tag === "Failure" && Object.is(left.error, right.error)))
+        )
+      ), [core])
+  const state = useAtomValue(startup)
+  if (state._tag !== "Active") {
     const root = core.routes[0] as RouteTree.Any & Views
     if (state._tag === "Failure") {
       const ErrorView = root.errorComponent ?? DefaultError
-      return <ErrorView error={Cause.squash(state.cause)} reset={() => registry.set(core.navigate, Router.refresh)} />
+      return (
+        <SnapshotContext.Provider value="incoming">
+          <ErrorView error={state.error} reset={retry} />
+        </SnapshotContext.Provider>
+      )
     }
     const Pending = root.pendingComponent ?? DefaultPending
     return <Pending />
   }
   return (
-    <BranchContext.Provider value={branch}>
-      <DepthContext.Provider value={0}>
-        <Outlet />
-      </DepthContext.Provider>
-    </BranchContext.Provider>
+    <DepthContext.Provider value={0}>
+      <Outlet />
+    </DepthContext.Provider>
   )
 }
 
@@ -269,7 +399,7 @@ class RenderBoundary extends React.Component<
     readonly children: React.ReactNode
     readonly fallback: React.ComponentType<ErrorProps>
     readonly reset: () => void
-    readonly locationKey: string
+    readonly recoveryKey: object | undefined
   },
   { readonly failed: boolean; readonly error: unknown }
 > {
@@ -278,7 +408,7 @@ class RenderBoundary extends React.Component<
     return { failed: true, error }
   }
   override componentDidUpdate(previous: Readonly<typeof this.props>) {
-    if (this.state.failed && previous.locationKey !== this.props.locationKey) {
+    if (this.state.failed && previous.recoveryKey !== this.props.recoveryKey) {
       this.setState({ failed: false, error: undefined })
     }
   }
@@ -286,75 +416,120 @@ class RenderBoundary extends React.Component<
     const Fallback = this.props.fallback
     return this.state.failed
       ? (
-        <Fallback
-          error={this.state.error}
-          reset={() => {
-            this.setState({ failed: false, error: undefined })
-            this.props.reset()
-          }}
-        />
+        <SnapshotContext.Provider value="incoming">
+          <Fallback error={this.state.error} reset={this.props.reset} />
+        </SnapshotContext.Provider>
       )
       : this.props.children
   }
 }
 
+const ReactMemoType = Symbol.for("react.memo")
+const ReactLazyType = Symbol.for("react.lazy")
+const ReactForwardRefType = Symbol.for("react.forward_ref")
+const ReactBuiltinViews = new Set([
+  Symbol.for("react.fragment"),
+  Symbol.for("react.strict_mode"),
+  Symbol.for("react.profiler"),
+  Symbol.for("react.suspense"),
+  Symbol.for("react.activity")
+])
+const isReactView = (value: unknown): value is React.ComponentType => {
+  if (typeof value === "function") return true
+  if (typeof value === "symbol") return ReactBuiltinViews.has(value)
+  const exotic = typeof value === "object" && value !== null
+    ? (value as { readonly $$typeof?: symbol }).$$typeof
+    : undefined
+  return exotic === ReactMemoType || exotic === ReactLazyType || exotic === ReactForwardRefType
+}
+// Selection stays total; the actionable failure surfaces inside the render boundary so the
+// nearest errorComponent catches it with the route ID in the message.
+const invalidReactView = (routeId: string, value: unknown): React.ComponentType =>
+  function InvalidLazyReactView(): React.ReactNode {
+    throw new Error(
+      `Route "${routeId}" selected a lazy module view that is not a React component (received ${
+        value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+      }). Export the page as the module 'default' or 'component' view.`
+    )
+  }
+
+interface Presentation {
+  readonly selection: RenderPolicy.Selection
+  readonly route: Route.Any | undefined
+  readonly module: unknown
+  readonly recoveryKey: object | undefined
+}
+
 /** Renders the next route in the active branch. @since 0.1.0 */
 export function Outlet(): React.ReactNode {
-  const branch = React.useContext(BranchContext)
   const depth = React.useContext(DepthContext)
   const { core } = useRuntime()
-  const registry = React.useContext(RegistryContext)
-  const reset = () => registry.set(core.navigate, Router.refresh)
-  const entries = branch.matches
-  let problem = entries.findIndex((entry) => entry.result._tag === "Failure")
-  let kind: "errorComponent" | "pendingComponent" | "notFoundComponent" = "errorComponent"
-  if (problem < 0) {
-    problem = entries.findIndex((entry) => entry.result._tag === "Initial")
-    kind = "pendingComponent"
-  }
-  if (problem < 0 && branch.notFound) {
-    problem = entries.length - 1
-    kind = "notFoundComponent"
-  }
-  let boundary = problem
-  while (boundary > 0 && (entries[boundary].route as Views)[kind] === undefined) boundary--
-  if (problem >= 0 && depth === boundary) {
-    const views = entries[boundary].route as Views
-    if (kind === "errorComponent") {
-      const View = views.errorComponent ?? DefaultError
-      const failure = entries[problem].result
-      return <View error={failure._tag === "Failure" ? Cause.squash(failure.cause) : undefined} reset={reset} />
+  const reset = useRetry()
+  const presentation = React.useMemo(() =>
+    Atom.map(core.branch, (branch) => {
+      const selection = RenderPolicy.select(branch, depth, (route, kind) => (route as Views)[kind] !== undefined)
+      const entry = branch.matches[depth]
+      return {
+        selection,
+        route: entry?.route,
+        module: entry?.result._tag === "Success" ? entry.result.value.module : undefined,
+        recoveryKey: entry === undefined ? undefined : RenderPolicy.recoveryKey(branch, entry.route.id)
+      }
+    }).pipe(Atom.withEquality<Presentation>((a, b) =>
+      RenderPolicy.sameSelection(a.selection, b.selection) && a.route === b.route && a.module === b.module &&
+      a.recoveryKey === b.recoveryKey
+    )), [core, depth])
+  const { selection, route, module, recoveryKey } = useAtomValue(presentation)
+  const views = (route ?? {}) as Views
+  const View = React.useMemo(() => {
+    const lazy = module as { readonly default?: unknown; readonly component?: unknown } | undefined
+    const selected: unknown = views.component !== undefined ?
+      views.component
+      : lazy?.component !== undefined
+      ? lazy.component
+      : lazy?.default !== undefined
+      ? lazy.default
+      : Outlet
+    return isReactView(selected) ? selected : invalidReactView(route?.id ?? "unknown", selected)
+  }, [views.component, module, route?.id])
+  const content = React.useMemo(() => (
+    <SnapshotContext.Provider value="resolved">
+      <DepthContext.Provider value={depth + 1}>
+        <View />
+      </DepthContext.Provider>
+    </SnapshotContext.Provider>
+  ), [depth, View, route?.id])
+  if (selection._tag === "Empty") return null
+  if (selection._tag === "Boundary") {
+    if (selection.kind === "errorComponent") {
+      const ErrorView = views.errorComponent ?? DefaultError
+      return (
+        <SnapshotContext.Provider value="incoming">
+          <ErrorView error={selection.error} reset={reset} />
+        </SnapshotContext.Provider>
+      )
     }
-    const View = kind === "pendingComponent"
+    const Fallback = selection.kind === "pendingComponent"
       ? views.pendingComponent ?? DefaultPending
       : views.notFoundComponent ?? DefaultNotFound
-    return <View />
+    return (
+      <SnapshotContext.Provider value="incoming">
+        <Fallback />
+      </SnapshotContext.Provider>
+    )
   }
-  const entry = entries[depth]
-  if (entry === undefined || entry.result._tag !== "Success") return null
-  const views = entry.route as Views
-  const module = entry.result.value.module as {
-    readonly default?: React.ComponentType
-    readonly component?: React.ComponentType
-  } | undefined
-  const View = views.component ?? module?.component ?? module?.default ?? Outlet
-  const content = (
-    <DepthContext.Provider value={depth + 1}>
-      <View />
-    </DepthContext.Provider>
-  )
   return views.errorComponent !== undefined || depth === 0
     ? (
       <RenderBoundary
-        key={entry.route.id}
-        locationKey={entry.result.value.location.key}
+        key={selection.routeId}
+        recoveryKey={recoveryKey}
         fallback={views.errorComponent ?? DefaultError}
         reset={reset}
       >
         {content}
       </RenderBoundary>
     )
-    : <React.Fragment key={entry.route.id}>{content}</React.Fragment>
+    : <React.Fragment key={selection.routeId}>{content}</React.Fragment>
 }
 
 /** Real anchors with typed destinations and native modified-click behavior. @since 0.1.0 */
@@ -364,15 +539,21 @@ export function Link(
   const { to, params, search, hash, replace, state, exact = false, onClick, ...anchor } = props
   const router = useRuntime()
   const navigate = useNavigate()
-  const current = useRouterState()
   const destination = { to, params, search, hash, replace, state } as Destination
-  const { route, input } = RouteTree.target(router.core.routes, destination)
+  const { route, input } = router.compiled.target(destination)
   const href = Route.href(route, input)
   if (Result.isFailure(href)) throw href.failure
   const pathname = href.success.split(/[?#]/)[0]
-  const active = current._tag === "Success" &&
-    (current.value.location.pathname === pathname ||
-      (!exact && pathname !== "/" && current.value.location.pathname.startsWith(`${pathname}/`)))
+  const activeAtom = React.useMemo(() =>
+    Atom.map(router.core.branch, (branch) =>
+      Option.isSome(branch.location) &&
+      (branch.location.value.pathname === pathname ||
+        (!exact && pathname !== "/" && branch.location.value.pathname.startsWith(`${pathname}/`)))), [
+    router,
+    pathname,
+    exact
+  ])
+  const active = useAtomValue(activeAtom)
   return (
     <a
       {...anchor}
@@ -387,7 +568,7 @@ export function Link(
           (anchor.download !== undefined && anchor.download !== false)
         ) return
         event.preventDefault()
-        navigate(destination)
+        void navigate(destination).catch(() => {})
       }}
     />
   )
@@ -403,19 +584,15 @@ export function Navigate(props: Destination) {
   const href = router.href(props)
   if (Result.isFailure(href)) throw href.failure
   const url = href.success
-  const key = `${props.replace === true ? "replace" : "push"}:${url}`
-  const previous = React.useRef<{ readonly key: string; readonly navigate: typeof navigate } | undefined>(undefined)
+  const previous = React.useRef<
+    { readonly intent: RenderPolicy.NavigationIntent; readonly navigate: typeof navigate } | undefined
+  >(undefined)
   React.useEffect(() => {
-    if (previous.current?.key === key && previous.current.navigate === navigate) return
-    previous.current = { key, navigate }
-    // A pending fallback can remount the redirect after its URL is satisfied.
-    // Explicit history-state updates still execute on the same URL.
-    const state = registry.get(router.core.state)
-    if (latest.current.state === undefined && state._tag === "Success") {
-      const location = state.value.location
-      if (`${location.pathname}${location.search}${location.hash}` === url) return
-    }
-    navigate(latest.current)
-  }, [navigate, key, registry, router, url])
+    const intent = { href: url, replace: latest.current.replace === true, state: latest.current.state }
+    if (previous.current?.navigate === navigate && RenderPolicy.sameIntent(previous.current.intent, intent)) return
+    previous.current = { intent, navigate }
+    if (RenderPolicy.isSatisfied(intent, registry.get(router.core.branch).location)) return
+    void navigate(latest.current).catch(() => {})
+  }, [navigate, props.replace, props.state, registry, router, url])
   return null
 }

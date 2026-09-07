@@ -1,8 +1,8 @@
 /** First-party client-side Solid routing. @since 0.1.0 */
-import { BrowserHistory, type History, Route, Router, RouteTree } from "@effect-stack/router"
+import { BrowserHistory, type History, RenderPolicy, Route, Router, RouteTree } from "@effect-stack/router"
 import { RegistryContext, RegistryProvider, useAtomValue } from "@effect/atom-solid"
-import { Cause, type Effect, Layer, Result, type Schema } from "effect"
-import type { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Cause, Effect, Equal, Layer, Option, Result, type Schema } from "effect"
+import { Atom, AtomRegistry } from "effect/unstable/reactivity"
 import {
   type Accessor,
   type Component,
@@ -33,6 +33,30 @@ export interface Views {
   readonly errorComponent?: Component<ErrorProps>
   readonly notFoundComponent?: Component
 }
+
+type SolidModuleView = NonNullable<Views["component"]>
+
+// Distribute over module unions so one invalid view export member cannot hide
+// behind another member that merely lacks the view keys.
+type InvalidLazyModuleExport<M> = M extends unknown ?
+    | ("default" extends keyof M ? ([Exclude<M["default"], undefined>] extends [SolidModuleView] ? never : true)
+      : never)
+    | ("component" extends keyof M ? ([Exclude<M["component"], undefined>] extends [SolidModuleView] ? never : true)
+      : never)
+  : never
+
+// A lazy module may carry renderer-neutral data, but a present view export must be a Solid component.
+// Optional undefined exports stay absent; a present null is invalid.
+type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown : { readonly load?: never }
+/** @since 0.2.0 */
+export interface SelectorOptions<A> {
+  readonly equals?: (left: A, right: A) => boolean
+}
+/** A reactive subscription with an optional projection. @since 0.2.0 */
+export interface RouteHook<A> {
+  <B>(select: (value: A) => B, options?: SelectorOptions<B>): Accessor<B>
+  (): Accessor<A>
+}
 /** @since 0.1.0 */
 export type SolidRoute<
   R extends Route.Any,
@@ -45,10 +69,10 @@ export type SolidRoute<
     readonly addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(
       children: Children
     ) => SolidRoute<R, Children, K>
-    readonly useParams: () => Accessor<Route.Route.Params<R>>
-    readonly useSearch: () => Accessor<Route.Route.Search<R>>
-    readonly useLoaderData: () => Accessor<Route.Route.LoaderData<R>>
-    readonly useMatch: () => Accessor<Router.ResolvedRoute<R>>
+    readonly useParams: RouteHook<Route.Route.Params<R>>
+    readonly useSearch: RouteHook<Route.Route.Search<R>>
+    readonly useLoaderData: RouteHook<Route.Route.LoaderData<R>>
+    readonly useMatch: RouteHook<Router.ResolvedRoute<R>>
   }
 
 const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K extends RouteTree.Kind>(
@@ -60,20 +84,20 @@ const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K
   ...(views.pendingComponent === undefined ? {} : { pendingComponent: views.pendingComponent }),
   ...(views.errorComponent === undefined ? {} : { errorComponent: views.errorComponent }),
   ...(views.notFoundComponent === undefined ? {} : { notFoundComponent: views.notFoundComponent }),
-  addChildren: (children) => decorate(route.addChildren(children), views),
-  useMatch: () => useMatch<R>(route),
-  useParams: () => {
-    const match = useMatch<R>(route)
-    return () => match().params
-  },
-  useSearch: () => {
-    const match = useMatch<R>(route)
-    return () => match().search
-  },
-  useLoaderData: () => {
-    const match = useMatch<R>(route)
-    return () => match().loaderData
-  }
+  addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(children: Children) =>
+    decorate(route.addChildren(children), views),
+  useMatch: <A = Router.ResolvedRoute<R>>(
+    select?: (value: Router.ResolvedRoute<R>) => A,
+    options?: SelectorOptions<A>
+  ) => useRouteValue(route, "match", select, options),
+  useParams: <A = Route.Route.Params<R>>(select?: (value: Route.Route.Params<R>) => A, options?: SelectorOptions<A>) =>
+    useRouteValue(route, "params", select, options),
+  useSearch: <A = Route.Route.Search<R>>(select?: (value: Route.Route.Search<R>) => A, options?: SelectorOptions<A>) =>
+    useRouteValue(route, "search", select, options),
+  useLoaderData: <A = Route.Route.LoaderData<R>>(
+    select?: (value: Route.Route.LoaderData<R>) => A,
+    options?: SelectorOptions<A>
+  ) => useRouteValue(route, "loaderData", select, options)
 } as SolidRoute<R, C, K>)
 
 /** @since 0.1.0 */
@@ -87,7 +111,11 @@ export function createRootRoute<
   E = never,
   R = never
 >(
-  options: Views & { readonly search?: S; readonly hash?: H } & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R> = {}
+  options:
+    & Views
+    & { readonly search?: S; readonly hash?: H }
+    & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R>
+    & CheckedLazyModule<M> = {}
 ): SolidRoute<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>, readonly [], "root"> {
   return decorate(RouteTree.root(options), options)
 }
@@ -105,13 +133,17 @@ export function createRoute<
   E = never,
   R = never
 >(
-  options: Views & {
-    readonly getParentRoute: () => Parent
-    readonly id: Id
-    readonly path?: never
-    readonly search?: S
-    readonly hash?: H
-  } & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
+  options:
+    & Views
+    & {
+      readonly getParentRoute: () => Parent
+      readonly id: Id
+      readonly path?: never
+      readonly search?: S
+      readonly hash?: H
+    }
+    & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
+    & CheckedLazyModule<M>
 ): SolidRoute<
   Route.Route<
     `${Parent["id"]}/${Id}`,
@@ -142,7 +174,7 @@ export function createRoute<
   E = never,
   R = never
 >(
-  options: Views & RouteTree.Options<Parent, Path, P, S, H, M, ME, MR, D, E, R>
+  options: Views & RouteTree.Options<Parent, Path, P, S, H, M, ME, MR, D, E, R> & CheckedLazyModule<M>
 ): SolidRoute<
   RouteTree.Child<Parent, Path, P, S, H, M, ME, MR, D, E, R>,
   readonly [],
@@ -175,6 +207,8 @@ export type Destination<T extends RouteTree.Any = RegisteredTree> = RouteTree.De
 /** @since 0.1.0 */
 export interface ClientRouter<T extends RouteTree.Any, E> {
   readonly routeTree: T
+  /** The tree's shared compiled lookups, prepared once by root identity. @since 0.2.0 */
+  readonly compiled: RouteTree.Compiled<RouteTree.All<T>>
   readonly core: Router.Router<ReadonlyArray<RouteTree.All<T>>, E>
   readonly href: (destination: Destination<T>) => Result.Result<string, Route.RouteEncodeError>
 }
@@ -192,12 +226,15 @@ export function createRouter<T extends RouteTree.Any, E = never, HE = never>(
   const history: Layer.Layer<History.Service, HE | History.HistoryError> = options.history ?? BrowserHistory.layer
   // The options require an application Layer whenever the tree requires services.
   const application = (options.layer ?? Layer.empty) as Layer.Layer<Route.Route.Services<RouteTree.All<T>>, E>
+  // `Router.fromTree` compiles the same root; the WeakMap cache returns this object.
+  const compiled = RouteTree.compile(options.routeTree)
   const core = Router.fromTree({ routeTree: options.routeTree, layer: Layer.merge(history, application) })
   return {
     routeTree: options.routeTree,
+    compiled,
     core,
     href: (destination) => {
-      const { route, input } = RouteTree.target(core.routes, destination)
+      const { route, input } = compiled.target(destination)
       return Route.href(route, input)
     }
   }
@@ -225,7 +262,7 @@ function Keyed<T>(
   })
 }
 const RouterContext = createContext<RuntimeRouter>()
-const BranchContext = createContext<Accessor<Router.Branch>>(() => ({ matches: [], notFound: false }))
+const SnapshotContext = createContext<"resolved" | "incoming">("resolved")
 const DepthContext = createContext(0)
 const DefaultPending: Component = () =>
   createComponent(Dynamic, { component: "div", role: "status", children: "Loading…" })
@@ -250,40 +287,113 @@ export function useRouter(): RegisteredRouter {
   return router as RegisteredRouter
 }
 const useRuntime = (): RuntimeRouter => useRouter() as RuntimeRouter
-/** @since 0.1.0 */
-export function useRouterState(): Accessor<Atom.Type<RegisteredRouter["core"]["state"]>> {
+/** The selected navigation status, or a projection of it. @since 0.1.0 */
+export function useRouterState<A>(
+  select: (state: Atom.Type<RegisteredRouter["core"]["state"]>) => A,
+  options?: SelectorOptions<A>
+): Accessor<A>
+export function useRouterState(): Accessor<Atom.Type<RegisteredRouter["core"]["state"]>>
+export function useRouterState<A = Atom.Type<RegisteredRouter["core"]["state"]>>(
+  select?: (state: Atom.Type<RegisteredRouter["core"]["state"]>) => A,
+  options?: SelectorOptions<A>
+): Accessor<A> {
   const { core } = useRuntime()
-  return useAtomValue(() => core.state) as Accessor<Atom.Type<RegisteredRouter["core"]["state"]>>
+  const equals = options?.equals ?? Object.is
+  const atom = Atom.map(
+    core.state,
+    (value) => select === undefined ? value as A : select(value as Atom.Type<RegisteredRouter["core"]["state"]>)
+  ).pipe(Atom.withEquality<A>(equals))
+  return useAtomValue(() => atom) as Accessor<A>
 }
-function useMatch<R extends Route.Any>(route: R): Accessor<Router.ResolvedRoute<R>> {
-  useRuntime()
-  const branch = useContext(BranchContext)
-  const initial = untrack(branch).matches.find((entry) => entry.route.id === route.id)
-  if (initial?.result._tag !== "Success") throw new Error(`Route ${route.id} has no resolved match in this branch`)
-  let previous = initial.result.value
-  // Retain the last resolved input while an exiting owner is being disposed, or
-  // while this route refreshes. A newly mounted inactive route still fails above.
+type RouteValues<R extends RouteTree.Any> = {
+  readonly match: Router.ResolvedRoute<R>
+  readonly params: Route.Route.Params<R>
+  readonly search: Route.Route.Search<R>
+  readonly loaderData: Route.Route.LoaderData<R>
+}
+function useRouteValue<R extends RouteTree.Any, K extends keyof RouteValues<R>, A = RouteValues<R>[K]>(
+  route: R,
+  key: K,
+  select?: (value: RouteValues<R>[K]) => A,
+  options?: SelectorOptions<A>
+): Accessor<A> {
+  const { core } = useRuntime()
+  const mode = useContext(SnapshotContext)
+  const atoms = core.routeAtoms(route)
+  const equals = options?.equals ??
+    (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
+  const selected = Atom.make((get) => {
+    const resolved = get(atoms.resolved)
+    const incoming = mode === "incoming" && (key === "params" || key === "search")
+      ? get(atoms.incoming)
+      : Option.none()
+    // A failed incoming decode has no decoded input; it must not silently
+    // present retained data. Only ordinary resolved-mode owners keep the
+    // last snapshot (through the hold-last accessor below).
+    const snapshot = Option.isSome(incoming)
+      ? Result.isSuccess(incoming.value)
+        ? incoming.value.success
+        : undefined
+      : Option.isSome(resolved)
+      ? resolved.value
+      : undefined
+    if (snapshot === undefined) return Option.none<A>()
+    const value = (key === "match" ? snapshot : snapshot[key as keyof typeof snapshot]) as RouteValues<R>[K]
+    return Option.some(select === undefined ? value as A : select(value))
+  }).pipe(Atom.withEquality<Option.Option<A>>((left, right) =>
+    Option.isSome(left)
+      ? Option.isSome(right) && equals(left.value, right.value)
+      : Option.isNone(right)
+  ))
+  const value = useAtomValue(() => selected)
+  let latest: A | undefined
+  let settled = false
   return () => {
-    const match = branch().matches.find((entry) => entry.route.id === route.id)
-    if (match?.result._tag === "Success") previous = match.result.value
-    return previous as Router.ResolvedRoute<R>
+    const current = value()
+    if (Option.isSome(current)) {
+      latest = current.value
+      settled = true
+      return current.value
+    }
+    // Retain the last selected input while an exiting owner is being disposed, or
+    // while this route refreshes. A newly mounted inactive route still fails on read.
+    if (settled) return latest as A
+    throw new Error(
+      `Route ${route.id} has no ${key === "params" || key === "search" ? "decoded" : "resolved"} match in this branch`
+    )
   }
 }
 
-/** @since 0.1.0 */
-export function useNavigate(): (destination: Destination) => void {
+/** @since 0.2.0 */
+export type NavigationError = Effect.Error<ReturnType<RegisteredRouter["core"]["execute"]>>
+/** The provider's registry is supplied; interruption cancels this operation's transition. @since 0.2.0 */
+export function useNavigateEffect(): (destination: Destination) => Effect.Effect<void, NavigationError> {
+  const router = useRuntime()
+  const registry = useContext(RegistryContext)
+  return (destination: Destination) =>
+    Effect.suspend(() => {
+      const { route, input } = router.compiled.target(destination)
+      return router.core.execute(
+        destination.replace
+          ? Router.replace<RouteTree.Any>(route, input, destination.state)
+          : Router.push<RouteTree.Any>(route, input, destination.state)
+      ).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    }) as Effect.Effect<void, NavigationError>
+}
+/** Awaits this transition's resolution and scoped cleanup. @since 0.1.0 */
+export function useNavigate(): (
+  destination: Destination,
+  options?: { readonly signal?: AbortSignal }
+) => Promise<void> {
+  const navigate = useNavigateEffect()
+  return (destination, options) => Effect.runPromise(navigate(destination), options)
+}
+/** Rebuilds failed initialization, or refreshes a healthy runtime. @since 0.2.0 */
+function useRetry(): () => void {
   const { core } = useRuntime()
   const registry = useContext(RegistryContext)
-  return (destination) => {
-    const { route, input } = RouteTree.target(core.routes, destination)
-    const href = Route.href(route, input)
-    if (Result.isFailure(href)) throw href.failure
-    registry.set(
-      core.navigate,
-      destination.replace
-        ? Router.replace<RouteTree.Any>(route, input, destination.state)
-        : Router.push<RouteTree.Any>(route, input, destination.state)
-    )
+  return () => {
+    void Effect.runPromise(core.retry.pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))).catch(() => {})
   }
 }
 
@@ -325,124 +435,115 @@ export function RouterProvider<T extends RouteTree.Any, E>(
   })
 }
 
+type Startup = { readonly _tag: "Active" | "Pending" } | { readonly _tag: "Failure"; readonly error: unknown }
 function RouterView(): JSX.Element {
   const { core } = useRuntime()
   const registry = useContext(RegistryContext)
   onCleanup(registry.mount(core.navigate))
-  const branch = useAtomValue(() => core.branch)
-  const state = useAtomValue(() => core.state)
-  const root = core.routes[0] as RouteTree.Any & Views
-  const startup = () =>
-    createComponent(Dynamic, {
-      get component() {
-        return state()._tag === "Failure"
-          ? root.errorComponent ?? DefaultError
-          : root.pendingComponent ?? DefaultPending
-      },
-      get error() {
-        const result = state()
-        return result._tag === "Failure" ? Cause.squash(result.cause) : undefined
-      },
-      reset: () => registry.set(core.navigate, Router.refresh)
-    })
-  return createComponent(BranchContext.Provider, {
-    value: branch,
-    get children() {
-      return createComponent(Keyed<boolean>, {
-        get when() {
-          return branch().matches.length > 0
-        },
-        get fallback() {
-          return startup()
-        },
-        children: (_present: boolean) =>
-          createComponent(DepthContext.Provider, {
-            value: 0,
-            get children() {
-              return createComponent(Outlet, {})
-            }
-          })
-      })
+  const retry = useRetry()
+  const startup = Atom.map(core.branch, (branch): Startup =>
+    branch.matches.length > 0
+      ? { _tag: "Active" }
+      : branch.result._tag === "Failure"
+      ? { _tag: "Failure", error: Cause.squash(branch.result.cause) }
+      : { _tag: "Pending" }).pipe(
+      Atom.withEquality<Startup>((left, right) =>
+        left._tag === right._tag &&
+        (left._tag !== "Failure" || (right._tag === "Failure" && Object.is(left.error, right.error)))
+      )
+    )
+  const status = useAtomValue(() => startup)
+  return createComponent(Keyed<string>, {
+    get when() {
+      return status()._tag
+    },
+    children: (tag: string) => {
+      if (tag === "Active") {
+        return createComponent(DepthContext.Provider, {
+          value: 0,
+          get children() {
+            return createComponent(Outlet, {})
+          }
+        })
+      }
+      const root = core.routes[0] as RouteTree.Any & Views
+      if (tag === "Failure") {
+        const ErrorView = root.errorComponent ?? DefaultError
+        return createComponent(SnapshotContext.Provider, {
+          value: "incoming" as const,
+          get children() {
+            return createComponent(Dynamic, {
+              component: ErrorView,
+              get error() {
+                const current = status()
+                return current._tag === "Failure" ? current.error : undefined
+              },
+              reset: retry
+            })
+          }
+        })
+      }
+      const Pending = root.pendingComponent ?? DefaultPending
+      return createComponent(Pending, {})
     }
   })
 }
 
-type BoundaryKind = "errorComponent" | "pendingComponent" | "notFoundComponent"
-interface Selection {
-  readonly boundary: boolean
-  readonly route: Route.Any & Views
-  readonly component: Component<ErrorProps>
-  readonly error: unknown
-}
+const isSolidView = (value: unknown): value is Component => typeof value === "function"
+// Selection stays total; the actionable failure surfaces inside the render boundary so the
+// nearest errorComponent catches it with the route ID in the message.
+const invalidSolidView = (routeId: string, value: unknown): Component =>
+  function InvalidLazySolidView(): JSX.Element {
+    throw new Error(
+      `Route "${routeId}" selected a lazy module view that is not a Solid component (received ${
+        value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+      }). Export the page as the module 'default' or 'component' view.`
+    )
+  }
 
-const select = (branch: Router.Branch, depth: number): Selection | undefined => {
-  const entries = branch.matches
-  let problem = entries.findIndex((entry) => entry.result._tag === "Failure")
-  let kind: BoundaryKind = "errorComponent"
-  if (problem < 0) {
-    problem = entries.findIndex((entry) => entry.result._tag === "Initial")
-    kind = "pendingComponent"
-  }
-  if (problem < 0 && branch.notFound) {
-    problem = entries.length - 1
-    kind = "notFoundComponent"
-  }
-  let boundary = problem
-  while (boundary > 0 && (entries[boundary].route as Views)[kind] === undefined) boundary--
-  if (problem >= 0 && boundary === depth) {
-    const route = entries[boundary].route as Route.Any & Views
-    const failure = entries[problem].result
-    return {
-      boundary: true,
-      route,
-      component: kind === "errorComponent"
-        ? route.errorComponent ?? DefaultError
-        : kind === "pendingComponent"
-        ? route.pendingComponent ?? DefaultPending
-        : route.notFoundComponent ?? DefaultNotFound,
-      error: failure._tag === "Failure" ? Cause.squash(failure.cause) : undefined
-    }
-  }
-  const entry = entries[depth]
-  if (entry?.result._tag !== "Success") return undefined
-  const route = entry.route as Route.Any & Views
-  const module = entry.result.value.module as
-    | { readonly component?: Component; readonly default?: Component }
-    | undefined
-  return {
-    boundary: false,
-    route,
-    component: route.component ?? module?.component ?? module?.default ?? Outlet,
-    error: undefined
-  }
+const declaresView = (route: Route.Any, kind: RenderPolicy.BoundaryKind): boolean =>
+  (route as Views)[kind] !== undefined
+
+interface Presentation {
+  readonly selection: RenderPolicy.Selection
+  readonly route: (Route.Any & Views) | undefined
+  readonly module: unknown
+  readonly recoveryKey: object | undefined
 }
 
 /** Renders the next match with stable route owners and native Solid boundaries. @since 0.1.0 */
 export function Outlet(): JSX.Element {
-  const branch = useContext(BranchContext)
   const depth = useContext(DepthContext)
   const { core } = useRuntime()
-  const registry = useContext(RegistryContext)
-  const selection = createMemo(() => select(branch(), depth))
-  const refresh = () => registry.set(core.navigate, Router.refresh)
+  const reset = useRetry()
+  const presentation = Atom.map(core.branch, (branch): Presentation => {
+    const selection = RenderPolicy.select(branch, depth, declaresView)
+    const entry = branch.matches[depth]
+    return {
+      selection,
+      route: entry?.route as (Route.Any & Views) | undefined,
+      module: entry?.result._tag === "Success" ? entry.result.value.module : undefined,
+      recoveryKey: entry === undefined ? undefined : RenderPolicy.recoveryKey(branch, entry.route.id)
+    }
+  }).pipe(
+    Atom.withEquality<Presentation>((left, right) =>
+      RenderPolicy.sameSelection(left.selection, right.selection) &&
+      left.route === right.route && left.module === right.module && left.recoveryKey === right.recoveryKey
+    )
+  )
+  const current = useAtomValue(() => presentation)
+  const ownerKey = createMemo((): string | undefined => {
+    const selection = current().selection
+    if (selection._tag === "Empty") return undefined
+    return selection._tag === "View" ? `${selection.routeId}:view` : `${selection.routeId}:boundary:${selection.kind}`
+  })
   return createComponent(Keyed<string>, {
     get when() {
-      const selected = selection()
-      return selected === undefined ? undefined : `${selected.route.id}:${selected.boundary}`
+      return ownerKey()
     },
     children: (_key: string) => {
-      const initial = untrack(selection)
-      if (initial === undefined) return undefined
-      const view = () =>
-        createComponent(Dynamic, {
-          get component() {
-            return selection()?.component ?? initial.component
-          },
-          get error() {
-            return selection()?.error
-          },
-          reset: refresh
-        })
+      const initial = untrack(current)
+      const route = initial.route as Route.Any & Views
       const provideDepth = (children: () => JSX.Element) =>
         createComponent(DepthContext.Provider, {
           value: depth + 1,
@@ -450,33 +551,91 @@ export function Outlet(): JSX.Element {
             return children()
           }
         })
+      // Loader, pending, and not-found boundaries render their fallback directly,
+      // bypassing latched render errors through the shared presentation policy.
+      if (initial.selection._tag === "Boundary") {
+        const kind = initial.selection.kind
+        if (kind === "errorComponent") {
+          const ErrorView = route.errorComponent ?? DefaultError
+          return provideDepth(() =>
+            createComponent(SnapshotContext.Provider, {
+              value: "incoming" as const,
+              get children() {
+                return createComponent(Dynamic, {
+                  component: ErrorView,
+                  get error() {
+                    const selection = current().selection
+                    return selection._tag === "Boundary" ? selection.error : undefined
+                  },
+                  reset
+                })
+              }
+            })
+          )
+        }
+        const Fallback = kind === "pendingComponent"
+          ? route.pendingComponent ?? DefaultPending
+          : route.notFoundComponent ?? DefaultNotFound
+        return provideDepth(() =>
+          createComponent(SnapshotContext.Provider, {
+            value: "incoming" as const,
+            get children() {
+              return createComponent(Fallback, {})
+            }
+          })
+        )
+      }
+      const view = createMemo((): Component => {
+        const snapshot = current()
+        const lazy = snapshot.module as { readonly default?: unknown; readonly component?: unknown } | undefined
+        const selected: unknown = snapshot.route?.component !== undefined ?
+          snapshot.route.component
+          : lazy?.component !== undefined ?
+          lazy.component
+          : lazy?.default !== undefined ?
+          lazy.default
+          : Outlet
+        return isSolidView(selected) ? selected : invalidSolidView(snapshot.route?.id ?? "unknown", selected)
+      })
+      const contentView = () =>
+        createComponent(Dynamic, {
+          get component() {
+            return view()
+          }
+        })
+      const viewContent = () =>
+        createComponent(SnapshotContext.Provider, {
+          value: "resolved" as const,
+          get children() {
+            return contentView()
+          }
+        })
       // Branch boundaries replace a latched render error and bubble their own
       // rendering failures to an ancestor, just like ordinary route components.
-      if (initial.boundary || (initial.route.errorComponent === undefined && depth !== 0)) return provideDepth(view)
-      let resetBoundary: (() => void) | undefined
-      let locationKey: string | undefined
+      if (route.errorComponent === undefined && depth !== 0) return provideDepth(viewContent)
+      let clearLatch: (() => void) | undefined
+      let recovery = untrack(() => current().recoveryKey)
       createEffect(() => {
-        const match = branch().matches.find((entry) => entry.route.id === initial.route.id)?.result
-        if (match?._tag !== "Success") return
-        const next = match.value.location.key
-        const changed = locationKey !== undefined && next !== locationKey
-        locationKey = next
-        if (changed) untrack(() => resetBoundary?.())
+        const next = current().recoveryKey
+        if (next === recovery) return
+        recovery = next
+        // A latched render error clears only after a successful completed transition
+        // includes this boundary's route, never from the reset callback directly.
+        untrack(() => clearLatch?.())
       })
       return provideDepth(() =>
         createComponent(ErrorBoundary, {
-          fallback: (error: unknown, reset: () => void) => {
-            resetBoundary = reset
-            return createComponent(initial.route.errorComponent ?? DefaultError, {
-              error,
-              reset: () => {
-                reset()
-                refresh()
+          fallback: (error: unknown, clear: () => void) => {
+            clearLatch = clear
+            return createComponent(SnapshotContext.Provider, {
+              value: "incoming" as const,
+              get children() {
+                return createComponent(route.errorComponent ?? DefaultError, { error, reset })
               }
             })
           },
           get children() {
-            return view()
+            return viewContent()
           }
         })
       )
@@ -493,20 +652,21 @@ export type LinkProps = Destination & Omit<JSX.AnchorHTMLAttributes<HTMLAnchorEl
 export function Link(props: LinkProps): JSX.Element {
   const router = useRuntime()
   const navigate = useNavigate()
-  const current = useRouterState()
+  const locationAtom = Atom.map(router.core.branch, (branch) => branch.location)
+  const location = useAtomValue(() => locationAtom)
   const [local, anchor] = splitProps(props, ["to", "params", "search", "hash", "replace", "state", "exact", "onClick"])
   const href = createMemo(() => {
-    const { route, input } = RouteTree.target(router.core.routes, local)
+    const { route, input } = router.compiled.target(local)
     const encoded = Route.href(route, input)
     if (Result.isFailure(encoded)) throw encoded.failure
     return encoded.success
   })
   const active = createMemo(() => {
-    const state = current()
+    const current = location()
+    if (Option.isNone(current)) return false
     const pathname = href().split(/[?#]/)[0]
-    return state._tag === "Success" &&
-      (state.value.location.pathname === pathname ||
-        (!local.exact && pathname !== "/" && state.value.location.pathname.startsWith(`${pathname}/`)))
+    return current.value.pathname === pathname ||
+      (!local.exact && pathname !== "/" && current.value.pathname.startsWith(`${pathname}/`))
   })
   const onClick: JSX.EventHandler<HTMLAnchorElement, MouseEvent> = (event) => {
     const handler = local.onClick
@@ -518,7 +678,8 @@ export function Link(props: LinkProps): JSX.Element {
       event.currentTarget.hasAttribute("download")
     ) return
     event.preventDefault()
-    navigate(local as Destination)
+    // Router state already renders operation failures; the anchor consumes the rejection.
+    navigate(local as Destination).catch(() => {})
   }
   return createComponent(
     Dynamic,
@@ -538,30 +699,26 @@ export function Link(props: LinkProps): JSX.Element {
   )
 }
 
-/** Navigates on mount or when the encoded destination changes. @since 0.1.0 */
+/** Navigates on mount or when the tracked destination or state changes. @since 0.1.0 */
 export function Navigate(props: Destination): JSX.Element {
   const router = useRuntime()
   const navigate = useNavigate()
-  const branch = useContext(BranchContext)
-  let previous: string | undefined
+  const registry = useContext(RegistryContext)
+  let previous: RenderPolicy.NavigationIntent | undefined
   createEffect(() => {
     const result = router.href(props)
     if (Result.isFailure(result)) throw result.failure
-    const key = `${props.replace === true ? "replace" : "push"}:${result.success}`
-    if (key === previous) return
-    previous = key
-    untrack(() => {
-      // Pending views can remount this component after its URL is satisfied.
-      // Keep explicit same-URL history-state updates observable.
-      // Solid renders synchronously from the branch publication, before the
-      // derived leaf-state Atom necessarily publishes its new value.
-      const match = branch().matches.find((entry) => entry.result._tag === "Success")?.result
-      if (props.state === undefined && match?._tag === "Success") {
-        const location = match.value.location
-        if (`${location.pathname}${location.search}${location.hash}` === result.success) return
-      }
-      navigate(props)
-    })
+    const intent: RenderPolicy.NavigationIntent = {
+      href: result.success,
+      replace: props.replace === true,
+      state: props.state
+    }
+    if (RenderPolicy.sameIntent(previous, intent)) return
+    previous = intent
+    // Keep explicit history-state updates observable while pending fallbacks remount
+    // this component after its URL is already satisfied.
+    if (RenderPolicy.isSatisfied(intent, registry.get(router.core.branch).location)) return
+    navigate(props).catch(() => {})
   })
   return undefined
 }

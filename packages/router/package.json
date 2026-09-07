@@ -23,6 +23,7 @@
     "./MemoryHistory": "./src/MemoryHistory.ts",
     "./Router": "./src/Router.ts",
     "./RouteTree": "./src/RouteTree.ts",
+    "./RenderPolicy": "./src/RenderPolicy.ts",
     "./internal/*": null
   },
   "files": [
@@ -46,6 +47,7 @@
       "./MemoryHistory": "./dist/MemoryHistory.js",
       "./Router": "./dist/Router.js",
       "./RouteTree": "./dist/RouteTree.js",
+      "./RenderPolicy": "./dist/RenderPolicy.js",
       "./internal/*": null
     }
   },
