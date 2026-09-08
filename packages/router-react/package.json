@@ -1,6 +1,6 @@
 {
   "name": "@effect-stack/router-react",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "MIT",
   "description": "First-party React adapter for EffectStack Router",
@@ -20,7 +20,7 @@
     "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
   },
   "peerDependencies": {
-    "@effect-stack/router": "^0.1.0",
+    "@effect-stack/router": "^0.2.0",
     "@effect/atom-react": "^4.0.0-rc.112",
     "effect": "^4.0.0-rc.112",
     "react": "^19.0.0"

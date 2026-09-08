@@ -1,4 +1,4 @@
-# @effect-stack/router
+# @effect-stack/router-vue
 
 ## 0.2.0
 
@@ -41,9 +41,7 @@
   Include package-local examples, dependency-injection and navigation documentation, React package repository metadata, and
   standalone artifact checks that build the complete publishable package graph.
 
-## 0.1.0
+### Patch Changes
 
-### Minor Changes
-
-- [`d86ce3a`](https://github.com/samuelbriole/effect-stack/commit/d86ce3a6b379d5220244f9116b791a2b4913f59d) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Release the first renderer-independent EffectStack router with typed Schema routes, browser and memory history, lazy
-  modules, interruption-safe navigation, and Effect Atom state.
+- Updated dependencies [[`5c38565`](https://github.com/samuelbriole/effect-stack/commit/5c385653998c382ff9f24e5139bd031f7877d45f)]:
+  - @effect-stack/router@0.2.0
