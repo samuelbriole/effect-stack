@@ -1,7 +1,7 @@
 # @effect-stack/query
 
 Effect-native remote resources shared by Effect programs, Router loaders, Streams, and Atom. One scoped client owns the
-cache and its work; React, Solid, and Vue consume it through the official Effect Atom bindings.
+cache and its work; first-party React, Solid, and Vue adapters connect it to renderer lifecycles through Effect Atom.
 
 ## Install
 
@@ -102,6 +102,19 @@ coalesced follow-up request.
 
 ## Atom and renderers
 
+For renderer lifecycle management, typed application context, optional/dependent queries, and awaited mutation actions,
+use a first-party adapter:
+
+- [`@effect-stack/query-react`](../query-react)
+- [`@effect-stack/query-solid`](../query-solid)
+- [`@effect-stack/query-vue`](../query-vue)
+
+Each adapter consumes already-bound resources and mutation handles. The application supplies its scoped client and can
+share an existing Atom registry with Router. React's adapter activates queries after commit, so abandoned renders do not
+start remote work.
+
+For direct Atom integration, the core also exposes stable read-only views:
+
 ```ts
 import { QueryAtom } from "@effect-stack/query"
 
@@ -118,11 +131,11 @@ const result = useAtomValue(userAtom)
 const result = useAtomValue(() => userAtom)
 
 // Vue: the result is a Ref.
-const result = useAtomValue(userAtom)
+const result = useAtomValue(() => userAtom)
 ```
 
 Import `useAtomValue` from `@effect/atom-react`, `@effect/atom-solid`, or `@effect/atom-vue`, respectively. Mount their registry
-provider at the application root. The full examples show the required setup:
+provider at the application root. The full examples demonstrate the first-party adapters:
 
 - [React](examples/react)
 - [Solid](examples/solid)

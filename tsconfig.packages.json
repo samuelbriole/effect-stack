@@ -4,6 +4,9 @@
   "include": [],
   "references": [
     { "path": "packages/query" },
+    { "path": "packages/query-react" },
+    { "path": "packages/query-solid" },
+    { "path": "packages/query-vue" },
     { "path": "packages/router" },
     { "path": "packages/router-react" },
     { "path": "packages/router-solid" },

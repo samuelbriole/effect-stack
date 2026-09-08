@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  "references": [{ "path": "../query" }],
+  "compilerOptions": { "lib": ["ES2022", "DOM", "DOM.Iterable"] }
+}

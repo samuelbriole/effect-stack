@@ -1,51 +1,56 @@
-import type { QueryExampleApp, User, UserId } from "@effect-stack-example/query-shared"
+import type { User, UserId, UserNotFound } from "@effect-stack-example/query-shared"
+import { useMutation, useQuery } from "@effect-stack/query-solid"
 import type * as Mutation from "@effect-stack/query/Mutation"
 import * as Router from "@effect-stack/router/Router"
 import { useAtomMount, useAtomValue } from "@effect/atom-solid"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
-import type * as Atom from "effect/unstable/reactivity/Atom"
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js"
+import { useQueryContext } from "./query-context.ts"
 
 /** Fire-and-forget bridge from event handlers to environment-free Effects. */
 const run = <A, E>(effect: Effect.Effect<A, E>): void => {
   Effect.runPromise(effect.pipe(Effect.asVoid)).catch(() => undefined)
 }
 
-export function App(props: { readonly app: QueryExampleApp }): JSX.Element {
+export function App(): JSX.Element {
+  const app = useQueryContext()
   // Mounting the navigation atom keeps the headless router engine alive.
-  useAtomMount(() => props.app.router.navigate)
+  useAtomMount(() => app().router.navigate)
   return (
     <main>
-      <p class="eyebrow">Official Atom hooks &middot; headless core Router</p>
+      <p class="eyebrow">First-party Solid adapter · headless core Router</p>
       <h1>EffectStack Query — Solid</h1>
-      <Nav app={props.app} />
-      <RouterView app={props.app} />
+      <Nav />
+      <RouterView />
     </main>
   )
 }
 
-function Nav(props: { readonly app: QueryExampleApp }): JSX.Element {
+function Nav(): JSX.Element {
+  const app = useQueryContext()
   const goUsers = (): void => {
-    props.app.navigate(Router.push(props.app.routes.users, { params: {}, search: {}, hash: "" }))
+    app().navigate(Router.push(app().routes.users, { params: {}, search: {}, hash: "" }))
   }
   const goUser = (userId: UserId): void => {
-    props.app.navigate(Router.push(props.app.routes.user, { params: { userId }, search: {}, hash: "" }))
+    app().navigate(Router.push(app().routes.user, { params: { userId }, search: {}, hash: "" }))
   }
   return (
     <nav class="controls">
       <button onClick={goUsers}>Users</button>
-      <button onClick={() => goUser(props.app.sampleUserIds.ada)}>Ada #1</button>
-      <button onClick={() => goUser(props.app.sampleUserIds.alan)}>Alan #2 (flaky report)</button>
-      <button onClick={() => goUser(props.app.sampleUserIds.grace)}>Grace #3 (failing report)</button>
+      <button onClick={() => goUser(app().sampleUserIds.ada)}>Ada #1</button>
+      <button onClick={() => goUser(app().sampleUserIds.alan)}>Alan #2 (flaky report)</button>
+      <button onClick={() => goUser(app().sampleUserIds.grace)}>Grace #3 (failing report)</button>
     </nav>
   )
 }
 
-function RouterView(props: { readonly app: QueryExampleApp }): JSX.Element {
-  const state = useAtomValue(() => props.app.router.state)
+function RouterView(): JSX.Element {
+  const app = useQueryContext()
+  const state = useAtomValue(() => app().router.state)
   const match = createMemo(() => {
     const current = state()
     return AsyncResult.isSuccess(current) ? current.value : undefined
@@ -59,15 +64,15 @@ function RouterView(props: { readonly app: QueryExampleApp }): JSX.Element {
       <Show when={match()} keyed>
         {(entry) =>
           entry.id === "users"
-            ? <UsersView app={props.app} users={entry.loaderData} />
-            : <UserView app={props.app} userId={entry.params.userId} user={entry.loaderData} />}
+            ? <UsersView users={entry.loaderData} />
+            : <UserView userId={entry.params.userId} user={entry.loaderData} />}
       </Show>
       <Show when={failure()}>
         {(current) => (
           <section class="failure card">
             <h2>Navigation failed</h2>
             <pre>{String(Cause.squash(current().cause))}</pre>
-            <button onClick={() => props.app.navigate(Router.refresh)}>Retry navigation</button>
+            <button onClick={() => app().navigate(Router.refresh)}>Retry navigation</button>
           </section>
         )}
       </Show>
@@ -79,8 +84,9 @@ function RouterView(props: { readonly app: QueryExampleApp }): JSX.Element {
 }
 
 /** Reactive per-app mock-API counters, observed through the official Atom hook. */
-function StatsPanel(props: { readonly app: QueryExampleApp }): JSX.Element {
-  const stats = useAtomValue(() => props.app.atoms.stats)
+function StatsPanel(): JSX.Element {
+  const app = useQueryContext()
+  const stats = useAtomValue(() => app().atoms.stats)
   const line = createMemo(
     () =>
       `list ${stats().userList} · detail ${stats().userDetail} · report attempts ${stats().reportAttempts} (retries ${stats().reportRetries}) · mutations ${stats().mutationExecutions}`
@@ -96,9 +102,10 @@ function StatsPanel(props: { readonly app: QueryExampleApp }): JSX.Element {
   )
 }
 
-function UsersView(props: { readonly app: QueryExampleApp; readonly users: ReadonlyArray<User> }): JSX.Element {
-  // Live query data; the router loader snapshot shows until it first settles.
-  const liveResult = useAtomValue(() => props.app.atoms.userList)
+function UsersView(props: { readonly users: ReadonlyArray<User> }): JSX.Element {
+  const app = useQueryContext()
+  // Live query data through the adapter hook; the router loader snapshot shows until it first settles.
+  const liveResult = useQuery(() => app().resources.userList)
   const displayUsers = createMemo(() => {
     const current = liveResult()
     return AsyncResult.isSuccess(current) ? current.value : props.users
@@ -107,50 +114,47 @@ function UsersView(props: { readonly app: QueryExampleApp; readonly users: Reado
     <section>
       <h2>Team directory</h2>
       <p>
-        Rendered from the live <code>users/list</code>{" "}
-        atom, falling back to the router loader snapshot until it settles. The loader closes over the same query
-        resource.
+        Rendered from the live <code>users/list</code> resource through the adapter's{" "}
+        <code>useQuery</code>, falling back to the router loader snapshot until it settles. The loader closes over the
+        same query resource.
       </p>
       <ul>
         <For each={displayUsers()}>
           {(user) => (
             <li>
-              <UserLink app={props.app} userId={user.id} label={user.name} />{" "}
-              <span>· {user.email} · {user.visits} visits</span>
+              <UserLink userId={user.id} label={user.name} /> <span>· {user.email} · {user.visits} visits</span>
             </li>
           )}
         </For>
       </ul>
       <h3>Duplicate observers (same resource)</h3>
       <p>
-        Both panels below mount <code>QueryAtom.query(userList)</code>; the API is called once.
+        Both panels below bind <code>useQuery(() =&gt; userList)</code> on the same resource; the API is called once.
       </p>
       <div class="columns">
-        <ListObserver app={props.app} title="Observer A" />
-        <ListObserver app={props.app} title="Observer B" />
+        <ListObserver title="Observer A" />
+        <ListObserver title="Observer B" />
       </div>
       <div class="controls">
-        <button onClick={() => run(props.app.actions.refreshUserList())}>Refresh list</button>
+        <button onClick={() => run(app().actions.refreshUserList())}>Refresh list</button>
         <button
-          onClick={() =>
-            run(props.app.actions.invalidateUserList().pipe(Effect.andThen(props.app.resources.userList.get)))}
+          onClick={() => run(app().actions.invalidateUserList().pipe(Effect.andThen(app().resources.userList.get)))}
         >
           Invalidate + get (refetch)
         </button>
       </div>
-      <StatsPanel app={props.app} />
+      <StatsPanel />
     </section>
   )
 }
 
-function UserLink(
-  props: { readonly app: QueryExampleApp; readonly userId: UserId; readonly label: string }
-): JSX.Element {
+function UserLink(props: { readonly userId: UserId; readonly label: string }): JSX.Element {
+  const app = useQueryContext()
   return (
     <button
       onClick={() =>
-        props.app.navigate(
-          Router.push(props.app.routes.user, { params: { userId: props.userId }, search: {}, hash: "" })
+        app().navigate(
+          Router.push(app().routes.user, { params: { userId: props.userId }, search: {}, hash: "" })
         )}
     >
       {props.label}
@@ -158,8 +162,9 @@ function UserLink(
   )
 }
 
-function ListObserver(props: { readonly app: QueryExampleApp; readonly title: string }): JSX.Element {
-  const result = useAtomValue(() => props.app.atoms.userList)
+function ListObserver(props: { readonly title: string }): JSX.Element {
+  const app = useQueryContext()
+  const result = useQuery(() => app().resources.userList)
   const names = createMemo(() => {
     const current = result()
     return AsyncResult.isSuccess(current) ? current.value.map((user) => user.name).join(", ") : undefined
@@ -177,66 +182,91 @@ function ListObserver(props: { readonly app: QueryExampleApp; readonly title: st
   )
 }
 
-function UserView(props: { readonly app: QueryExampleApp; readonly userId: UserId; readonly user: User }): JSX.Element {
+function UserView(props: { readonly userId: UserId; readonly user: User }): JSX.Element {
+  const app = useQueryContext()
   const [name, setName] = createSignal("New name")
   const [showReport, setShowReport] = createSignal(false)
+  const [saveResult, setSaveResult] = createSignal<string | undefined>(undefined)
   // Live detail data; the router loader snapshot shows until it first settles.
-  const liveResult = useAtomValue(() => props.app.atoms.userDetail(props.userId))
+  const liveResult = useQuery(() => app().resources.userDetail(props.userId))
   const current = createMemo(() => {
     const result = liveResult()
     return AsyncResult.isSuccess(result) ? result.value : props.user
   })
+  // The pre-acquired controllers: awaited exits surface every outcome, including
+  // typed failures, instead of swallowing rejections.
+  const rename = useMutation(() => app().mutations.renameUser)
+  const bump = useMutation(() => app().mutations.bumpVisits)
+  const describe = (label: string, exit: Exit.Exit<User, UserNotFound>, show: (value: User) => string): void => {
+    setSaveResult(
+      Exit.isSuccess(exit)
+        ? `${label}: ${show(exit.value)}`
+        : `${label} failed: ${
+          Cause.hasInterruptsOnly(exit.cause)
+            ? "wait interrupted; the write may still complete"
+            : String(Cause.squash(exit.cause))
+        }`
+    )
+  }
+  const saveRename = (): void => {
+    void rename.executeExit({ userId: props.userId, name: name() }).then((exit) => {
+      describe("Rename", exit, (updated) => `saved "${updated.name}"`)
+    })
+  }
+  const saveBump = (): void => {
+    void bump.executeExit(props.userId).then((exit) => {
+      describe("Bump", exit, (updated) => `${updated.visits} visits now`)
+    })
+  }
   return (
     <section>
       <h2 data-testid="user-heading">{current().name}</h2>
       <p data-testid="user-visits">
-        {current().visits} visits · {current().email} · live detail atom, falling back to the router loader snapshot.
+        {current().visits} visits · {current().email} · live detail query, falling back to the router loader snapshot.
       </p>
       <h3>Duplicate observers (same detail resource)</h3>
       <div class="columns">
-        <DetailObserver app={props.app} userId={props.userId} title="Observer A" />
-        <DetailObserver app={props.app} userId={props.userId} title="Observer B" />
+        <DetailObserver userId={props.userId} title="Observer A" />
+        <DetailObserver userId={props.userId} title="Observer B" />
       </div>
       <div class="controls">
-        <button onClick={() => run(props.app.actions.refreshUserDetail(props.userId))}>Refresh detail</button>
+        <button onClick={() => run(app().actions.refreshUserDetail(props.userId))}>Refresh detail</button>
         <input aria-label="New name" value={name()} onInput={(event) => setName(event.currentTarget.value)} />
-        <button onClick={() => run(props.app.actions.renameUser({ userId: props.userId, name: name() }))}>
-          Rename
-        </button>
-        <button onClick={() => run(props.app.actions.bumpUserVisits(props.userId))}>Bump visits</button>
+        <button onClick={saveRename} disabled={rename.state().pendingCount > 0}>Rename</button>
+        <button onClick={saveBump} disabled={bump.state().pendingCount > 0}>Bump visits</button>
         <button
           onClick={() =>
-            run(props.app.actions.fireOverlappingMutations({ userId: props.userId, name: "Overlapped rename" }))}
+            run(app().actions.fireOverlappingMutations({ userId: props.userId, name: "Overlapped rename" }))}
         >
           Fire rename + bump (one each)
         </button>
-        <button onClick={() => run(props.app.actions.fireOverlappingRenames(props.userId))}>
+        <button onClick={() => run(app().actions.fireOverlappingRenames(props.userId))}>
           Fire two renames (same mutation)
         </button>
-        <button onClick={() => run(props.app.actions.startRenameAndInterrupt(props.userId))}>
+        <button onClick={() => run(app().actions.startRenameAndInterrupt(props.userId))}>
           Start rename &amp; interrupt
         </button>
         <button onClick={() => setShowReport((value) => !value)}>
           {showReport() ? "Hide flaky report" : "Show flaky report (Schedule retry)"}
         </button>
       </div>
-      <Show when={showReport()}>
-        <ReportPanel app={props.app} userId={props.userId} />
+      <Show when={saveResult()} keyed>
+        {(message) => <p role="status" data-testid="save-result">{message}</p>}
       </Show>
-      <h3>Mutation state atoms</h3>
+      <ReportPanel userId={props.userId} enabled={showReport()} />
+      <h3>Mutation state</h3>
       <div class="columns">
-        <MutationPanel atom={props.app.atoms.renameState} id="rename" title="users/rename" />
-        <MutationPanel atom={props.app.atoms.bumpVisitsState} id="bump" title="users/bump-visits" />
+        <MutationPanel getHandle={() => app().mutations.renameUser} id="rename" title="users/rename" />
+        <MutationPanel getHandle={() => app().mutations.bumpVisits} id="bump" title="users/bump-visits" />
       </div>
-      <StatsPanel app={props.app} />
+      <StatsPanel />
     </section>
   )
 }
 
-function DetailObserver(
-  props: { readonly app: QueryExampleApp; readonly userId: UserId; readonly title: string }
-): JSX.Element {
-  const result = useAtomValue(() => props.app.atoms.userDetail(props.userId))
+function DetailObserver(props: { readonly userId: UserId; readonly title: string }): JSX.Element {
+  const app = useQueryContext()
+  const result = useQuery(() => app().resources.userDetail(props.userId))
   const line = createMemo(() => {
     const current = result()
     return AsyncResult.isSuccess(current) ? `${current.value.name} · ${current.value.visits} visits` : undefined
@@ -254,9 +284,19 @@ function DetailObserver(
   )
 }
 
-function ReportPanel(props: { readonly app: QueryExampleApp; readonly userId: UserId }): JSX.Element {
-  const result = useAtomValue(() => props.app.atoms.userReport(props.userId))
+function ReportPanel(props: { readonly userId: UserId; readonly enabled: boolean }): JSX.Element {
+  const app = useQueryContext()
+  // The dependent query hook is unconditional; while the toggle is off it binds
+  // `Option.none` and reports the disabled state instead of fetching.
+  const result = useQuery(() => props.enabled ? Option.some(app().resources.userReport(props.userId)) : Option.none())
   const panel = createMemo(() => {
+    if (!props.enabled) {
+      return (
+        <div class="card" data-testid="report">
+          <p role="status">Report disabled — show it to run the dependent query.</p>
+        </div>
+      )
+    }
     const current = result()
     if (AsyncResult.isSuccess(current)) {
       return (
@@ -290,11 +330,11 @@ function ReportPanel(props: { readonly app: QueryExampleApp; readonly userId: Us
 }
 
 function MutationPanel<I>(props: {
-  readonly atom: Atom.Atom<Mutation.State<I, User, unknown>>
+  readonly getHandle: () => Mutation.Handle<I, User, UserNotFound>
   readonly id: string
   readonly title: string
 }): JSX.Element {
-  const state = useAtomValue(() => props.atom)
+  const { state } = useMutation(props.getHandle)
   const latest = createMemo(() => Option.getOrUndefined(state().latest))
   const describe = createMemo(() => {
     const entry = latest()

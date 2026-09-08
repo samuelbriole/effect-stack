@@ -8,8 +8,20 @@
     "packages/*/typetest/**/*.ts",
     "packages/*/typetest/**/*.tsx"
   ],
-  "exclude": ["**/node_modules/**", "**/dist/**", "packages/router-solid/**", "packages/router-vue/**"],
-  "references": [{ "path": "packages/query" }, { "path": "packages/router" }, { "path": "packages/router-react" }],
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "packages/query-solid/**",
+    "packages/query-vue/**",
+    "packages/router-solid/**",
+    "packages/router-vue/**"
+  ],
+  "references": [
+    { "path": "packages/query" },
+    { "path": "packages/query-react" },
+    { "path": "packages/router" },
+    { "path": "packages/router-react" }
+  ],
   "compilerOptions": {
     "rootDir": ".",
     "jsx": "react-jsx",

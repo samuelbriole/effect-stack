@@ -2,18 +2,26 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Scope from "effect/Scope"
-import { makeClient } from "./internal/core.ts"
+import { type ClientInternal, makeClient } from "./internal/core.ts"
 import type * as Mutation from "./Mutation.ts"
 import type * as Query from "./Query.ts"
+
+const TypeId: unique symbol = Symbol.for("@effect-stack/query/QueryClient")
+
+interface Variance<in R> {
+  readonly _R: (service: R) => void
+}
 
 /**
  * A scoped, authoritative query and mutation runtime for the services `R`.
  * Bound operations share this client's services and require no Atom registry.
+ * The service capacity is retained contravariantly across structural wrappers.
  *
  * @since 0.1.0
  * @category models
  */
-export interface QueryClient<R> {
+export interface QueryClient<in R> {
+  readonly [TypeId]: Variance<R>
   readonly query: <I, A, E, R2 extends R | Scope.Scope>(
     definition: Query.Query<I, A, E, R2>
   ) => Query.Family<I, A, E>
@@ -21,6 +29,13 @@ export interface QueryClient<R> {
     definition: Mutation.Mutation<I, A, E, R2>
   ) => Effect.Effect<Mutation.Handle<I, A, E>>
 }
+
+const withCapacity = <R>(client: ClientInternal<R>): QueryClient<R> =>
+  Object.assign(client, {
+    [TypeId]: {
+      _R: (_service: R): void => {}
+    }
+  })
 
 /**
  * Builds the supplied Layer once and keeps it alive for the client scope.
@@ -40,7 +55,7 @@ export const make = <R, E, RIn>(options: {
       const captured = Context.omit(Scope.Scope)(
         Context.merge(Context.omit(Scope.Scope)(fiber.context), services)
       ) as Context.Context<R>
-      return makeClient(captured)
+      return makeClient(captured).pipe(Effect.map(withCapacity))
     })
   })
 
@@ -58,6 +73,6 @@ export const makeWith = <R>(services: Context.Context<R>): Effect.Effect<QueryCl
       const captured = Context.omit(Scope.Scope)(
         Context.merge(Context.omit(Scope.Scope)(fiber.context), services)
       ) as Context.Context<R>
-      return makeClient(captured)
+      return makeClient(captured).pipe(Effect.map(withCapacity))
     })
   })

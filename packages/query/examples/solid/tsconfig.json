@@ -5,6 +5,7 @@
   "references": [
     { "path": "../shared" },
     { "path": "../../../query" },
+    { "path": "../../../query-solid" },
     { "path": "../../../router" }
   ],
   "compilerOptions": {

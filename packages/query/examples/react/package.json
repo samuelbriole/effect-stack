@@ -10,6 +10,7 @@
   "dependencies": {
     "@effect-stack-example/query-shared": "workspace:*",
     "@effect-stack/query": "workspace:*",
+    "@effect-stack/query-react": "workspace:*",
     "@effect-stack/router": "workspace:*",
     "@effect/atom-react": "4.0.0-rc.112",
     "effect": "4.0.0-rc.112",

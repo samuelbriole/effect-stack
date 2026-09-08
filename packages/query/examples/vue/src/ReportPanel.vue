@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { useAtomValue } from "@effect/atom-vue"
 import * as Cause from "effect/Cause"
 import * as Option from "effect/Option"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import { useQuery } from "@effect-stack/query-vue"
 import type { UserId } from "@effect-stack-example/query-shared"
 import { computed } from "vue"
-import { useApp } from "./app-context.ts"
+import { useQueryContext } from "./query-context.ts"
 
-const props = defineProps<{ readonly userId: UserId }>()
+const props = defineProps<{ readonly userId: UserId; readonly enabled: boolean }>()
 
-const app = useApp()
-const result = useAtomValue(() => app.atoms.userReport(props.userId))
+const app = useQueryContext()
 
-const view = computed<"loading" | "success" | "failure">(() => {
+// The dependent query hook is unconditional; while the toggle is off it binds
+// `Option.none` and reports the disabled state instead of fetching.
+const result = useQuery(() =>
+  props.enabled ? Option.some(app.value.resources.userReport(props.userId)) : Option.none()
+)
+
+const view = computed<"disabled" | "loading" | "success" | "failure">(() => {
+  if (!props.enabled) return "disabled"
   const current = result.value
   if (AsyncResult.isSuccess(current)) return "success"
   if (AsyncResult.isFailure(current)) return "failure"
@@ -35,7 +41,10 @@ const failureLine = computed(() => {
 </script>
 
 <template>
-  <div v-if="view === 'success'" class="card" data-testid="report">
+  <div v-if="view === 'disabled'" class="card" data-testid="report">
+    <p role="status">Report disabled — show it to run the dependent query.</p>
+  </div>
+  <div v-else-if="view === 'success'" class="card" data-testid="report">
     <h4>Report</h4>
     <p>{{ summary }}</p>
   </div>

@@ -1,14 +1,16 @@
 import { createApp } from "@effect-stack-example/query-shared"
-import { RegistryContext } from "@effect/atom-solid"
 import { Effect, Fiber } from "effect"
 import { render } from "solid-js/web"
 import { App } from "./App.tsx"
+import { Provider } from "./query-context.ts"
 
 /**
  * Boots the example the way a real SPA should: the application scope owns the
  * `QueryClient` and the Atom registry (both built by `createApp`), the Solid
- * tree mounts inside that scope, and teardown disposes Solid's root before the
- * registry and client scopes close.
+ * tree mounts inside that scope through the first-party query context
+ * `Provider` — which borrows `app.registry`, so Router state, stats, and every
+ * query hook observe one registry — and teardown disposes Solid's root before
+ * the registry is disposed and the client scope closes.
  */
 export const startExample = (container: HTMLElement): () => void => {
   const fiber = Effect.runFork(
@@ -19,9 +21,9 @@ export const startExample = (container: HTMLElement): () => void => {
           Effect.sync(() =>
             render(
               () => (
-                <RegistryContext.Provider value={app.registry}>
-                  <App app={app} />
-                </RegistryContext.Provider>
+                <Provider value={app} registry={app.registry}>
+                  <App />
+                </Provider>
               ),
               container
             )

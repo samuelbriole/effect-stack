@@ -5,6 +5,7 @@
   "references": [
     { "path": "../shared" },
     { "path": "../../../query" },
+    { "path": "../../../query-vue" },
     { "path": "../../../router" }
   ],
   "compilerOptions": {

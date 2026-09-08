@@ -1,20 +1,21 @@
-<script setup lang="ts">
-import { useAtomValue } from "@effect/atom-vue"
+<script setup lang="ts" generic="I">
+import type { User, UserNotFound } from "@effect-stack-example/query-shared"
+import { useMutation } from "@effect-stack/query-vue"
 import type * as Mutation from "@effect-stack/query/Mutation"
 import * as Cause from "effect/Cause"
 import * as Option from "effect/Option"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
-import type * as Atom from "effect/unstable/reactivity/Atom"
-import type { RenameUserInput, User, UserId } from "@effect-stack-example/query-shared"
 import { computed } from "vue"
 
 const props = defineProps<{
-  readonly atom: Atom.Atom<Mutation.State<RenameUserInput | UserId, User, unknown>>
+  readonly handle: Mutation.Handle<I, User, UserNotFound>
   readonly id: string
   readonly title: string
 }>()
 
-const state = useAtomValue(() => props.atom)
+// Bind the pre-acquired controller through the adapter hook; `state` is a
+// readonly ref of the controller's aggregate `Mutation.State`.
+const { state } = useMutation(() => props.handle)
 
 const pending = computed(() =>
   state.value.pendingCount === 0 ? "idle" : `${state.value.pendingCount} in flight`

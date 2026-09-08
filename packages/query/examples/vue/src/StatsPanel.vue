@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { useAtomValue } from "@effect/atom-vue"
 import { computed } from "vue"
-import { useApp } from "./app-context.ts"
+import { useQueryContext } from "./query-context.ts"
 
-const app = useApp()
-const stats = useAtomValue(() => app.atoms.stats)
+const app = useQueryContext()
+const stats = useAtomValue(() => app.value.atoms.stats)
 
 const line = computed(
   () =>

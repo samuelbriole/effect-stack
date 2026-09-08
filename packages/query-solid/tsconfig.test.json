@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["test/**/*.ts", "test/**/*.tsx", "typetest/**/*.ts", "typetest/**/*.tsx"],
+  "references": [{ "path": "../query" }, { "path": "tsconfig.json" }],
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "erasableSyntaxOnly": false,
+    "types": ["node", "vitest/globals"]
+  }
+}

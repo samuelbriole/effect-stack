@@ -26,6 +26,10 @@ Core packages must never import a renderer. A future renderer adapter must depen
 @effect-stack/router-react -> @effect-stack/router + @effect/atom-react + React
 @effect-stack/router-solid -> @effect-stack/router + @effect/atom-solid + Solid
 @effect-stack/router-vue   -> @effect-stack/router + @effect/atom-vue + Vue
+
+@effect-stack/query-react -> @effect-stack/query + @effect/atom-react + React
+@effect-stack/query-solid -> @effect-stack/query + @effect/atom-solid + Solid
+@effect-stack/query-vue   -> @effect-stack/query + @effect/atom-vue + Vue
 ```
 
 Such a package is created only after it earns an interface with substantive behavior such as accessible links, outlets,
@@ -77,6 +81,23 @@ Freshness is separate from inactive retention. Invalidation persists on inactive
 older request cannot satisfy newer callers. Atom bindings own observation leases, not another cache. Registry disposal
 releases those leases synchronously; closing the application/client scope awaits asynchronous cleanup before borrowed
 services are released. See the [Query guide](../packages/query/README.md) for operation and lifetime contracts.
+
+First-party Query adapters own typed application context, optional reactive resource selection, renderer subscription
+lifecycles, and invocation-specific event bridges. They consume bound resources and application-acquired mutation handles;
+the core client remains the cache and execution owner. Provider values and supplied registries are borrowed. A provider
+creates an owned native registry when none is supplied, or explicitly inherits the ambient registry with `registry="inherit"`.
+Query and Router can share the same application-owned registry without either borrowing provider disposing it.
+
+React query subscriptions activate at commit: an abandoned render cannot start a query or redirect the committed resource's
+subscription. Solid accessors and Vue refs/getters drive native reactive resource switching. `Option.none()` represents a
+disabled query and holds no query interest. Each selected resource supplies its own `AsyncResult`, including retained
+success during its refresh. Application context is a value in React, an accessor in Solid, and a readonly Ref in Vue so
+provider updates retain each renderer's normal reactivity.
+
+Mutation adapters expose the core's state and environment-free Effects together with native Promise and typed `Exit`
+bridges. Each action follows its own invocation, independently of the controller's latest result. Aborting a waiter or
+unmounting an observer does not cancel accepted writes. Explicit invocation interruption and application-scope closure
+retain the core's finalization guarantees.
 
 A lazy route module is renderer-neutral code splitting. Native dynamic import caching is allowed, but Router does not own
 preloading, eviction, request deduplication, or remote cache policy. Those resource concerns belong to Query.

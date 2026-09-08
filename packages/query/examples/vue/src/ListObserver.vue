@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { useAtomValue } from "@effect/atom-vue"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import { useQuery } from "@effect-stack/query-vue"
 import { computed } from "vue"
-import { useApp } from "./app-context.ts"
+import { useQueryContext } from "./query-context.ts"
 
 defineProps<{ readonly title: string }>()
 
-const app = useApp()
-const result = useAtomValue(() => app.atoms.userList)
+const app = useQueryContext()
+const result = useQuery(() => app.value.resources.userList)
 const names = computed(() => {
   const current = result.value
   return AsyncResult.isSuccess(current) ? current.value.map((user) => user.name).join(", ") : undefined

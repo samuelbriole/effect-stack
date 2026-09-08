@@ -3,7 +3,27 @@
 EffectStack packages are incremental. Installing Router does not require adopting Query, Form, or DB packages.
 
 For remote resources shared by Effect workflows and UI consumers, see the [Query guide](../packages/query/README.md).
-Query has a scoped core and uses the official Atom bindings for React, Solid, and Vue.
+Query has a scoped core and first-party adapters for [React](../packages/query-react), [Solid](../packages/query-solid), and
+[Vue](../packages/query-vue), built on the official Atom bindings.
+
+## Query adapters
+
+Choose the adapter for your renderer and bind definitions in your application's scoped client. Each package exposes
+`createQueryContext<App>()`, `useQuery`, and `useMutation`:
+
+| Adapter                     | Query input                                              | Query result                        | Application context   |
+| --------------------------- | -------------------------------------------------------- | ----------------------------------- | --------------------- |
+| `@effect-stack/query-react` | Resource or optional resource                            | `AsyncResult<A, E>`                 | `App`                 |
+| `@effect-stack/query-solid` | Accessor of resource or optional resource                | Accessor of `AsyncResult<A, E>`     | Accessor of `App`     |
+| `@effect-stack/query-vue`   | Resource, ref, or getter, optionally wrapped in `Option` | Readonly ref of `AsyncResult<A, E>` | Readonly ref of `App` |
+
+`Option.none()` disables observation. Mutation hooks accept application-acquired handles and expose native state plus
+`executeEffect`, `startEffect`, `execute`, and `executeExit`. Use `executeExit` for typed, invocation-specific outcomes in
+async event handlers. Accepted mutations remain client-owned when a waiter aborts or an observer unmounts.
+
+Providers borrow their application value. Pass `registry={app.registry}` to share the application's registry with Router,
+choose `"inherit"` to use the ambient native registry, or omit the prop for a provider-owned registry. Keep the client scope
+alive until its UI is unmounted, and await scope closure before releasing application services.
 
 ## Install
 

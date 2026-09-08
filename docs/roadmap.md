@@ -6,8 +6,9 @@ Future packages begin with a tested tracer, not an empty package scaffold.
    first-party adapters. Next: file-routing tooling, redirects and guards, preload policy, scroll restoration, and further
    accessibility hardening. SSR/hydration is deferred.
 2. **Query:** the initial core has scoped resource identity, shared requests, freshness and inactive retention, durable
-   invalidation, concurrent observable mutations, Stream/Atom views, and native Schedule retry composition. React, Solid,
-   and Vue examples share the same application runtime. Next: explicit prefetch policy, polling and platform refresh
+   invalidation, concurrent observable mutations, Stream/Atom views, and native Schedule retry composition. First-party
+   React, Solid, and Vue adapters provide typed context, optional reactive queries, and awaitable mutation integration over
+   the same scoped runtime. Next: explicit prefetch policy, polling and platform refresh
    signals, optimistic updates, pagination, hydration, and HttpApi/RPC integration.
 3. **Form:** Schema-shaped values, touched/dirty state, synchronous and Effect validation, interruption-safe asynchronous
    validation, submission, arrays, and multi-step flows.

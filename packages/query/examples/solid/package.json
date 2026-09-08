@@ -10,6 +10,7 @@
   "dependencies": {
     "@effect-stack-example/query-shared": "workspace:*",
     "@effect-stack/query": "workspace:*",
+    "@effect-stack/query-solid": "workspace:*",
     "@effect-stack/router": "workspace:*",
     "@effect/atom-solid": "4.0.0-rc.112",
     "effect": "4.0.0-rc.112",

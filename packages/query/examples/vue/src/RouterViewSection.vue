@@ -4,14 +4,17 @@ import * as Router from "@effect-stack/router/Router"
 import * as Cause from "effect/Cause"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import { computed } from "vue"
-import { useApp } from "./app-context.ts"
+import { useQueryContext } from "./query-context.ts"
 import UsersView from "./UsersView.vue"
 import UserView from "./UserView.vue"
 
-const app = useApp()
-const state = useAtomValue(() => app.router.state)
+const app = useQueryContext()
+const state = useAtomValue(() => app.value.router.state)
 const resolved = computed(() => (AsyncResult.isSuccess(state.value) ? state.value.value : undefined))
 const failure = computed(() => (AsyncResult.isFailure(state.value) ? state.value : undefined))
+const retryNavigation = (): void => {
+  app.value.navigate(Router.refresh)
+}
 </script>
 
 <template>
@@ -24,7 +27,7 @@ const failure = computed(() => (AsyncResult.isFailure(state.value) ? state.value
   <section v-else-if="failure !== undefined" class="failure card">
     <h2>Navigation failed</h2>
     <pre>{{ String(Cause.squash(failure.cause)) }}</pre>
-    <button @click="app.navigate(Router.refresh)">Retry navigation</button>
+    <button @click="retryNavigation">Retry navigation</button>
   </section>
   <p v-else role="status">Loading route…</p>
 </template>

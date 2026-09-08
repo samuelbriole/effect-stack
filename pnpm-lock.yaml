@@ -96,6 +96,60 @@ importers:
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112
 
+  packages/query-react:
+    devDependencies:
+      '@effect-stack/query':
+        specifier: workspace:*
+        version: link:../query
+      '@effect/atom-react':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(react@19.2.8)(scheduler@0.27.0)
+      '@types/react':
+        specifier: 19.2.18
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: 19.2.7
+        version: 19.2.7(@types/react@19.2.18)
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+
+  packages/query-solid:
+    devDependencies:
+      '@effect-stack/query':
+        specifier: workspace:*
+        version: link:../query
+      '@effect/atom-solid':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(solid-js@1.9.15)
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+      solid-js:
+        specifier: 1.9.15
+        version: 1.9.15
+
+  packages/query-vue:
+    devDependencies:
+      '@effect-stack/query':
+        specifier: workspace:*
+        version: link:../query
+      '@effect/atom-vue':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(vue@3.5.42(typescript@7.0.2))
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+      vue:
+        specifier: 3.5.42
+        version: 3.5.42(typescript@7.0.2)
+
   packages/query/examples/react:
     dependencies:
       '@effect-stack-example/query-shared':
@@ -104,6 +158,9 @@ importers:
       '@effect-stack/query':
         specifier: workspace:*
         version: link:../..
+      '@effect-stack/query-react':
+        specifier: workspace:*
+        version: link:../../../query-react
       '@effect-stack/router':
         specifier: workspace:*
         version: link:../../../router
@@ -159,6 +216,9 @@ importers:
       '@effect-stack/query':
         specifier: workspace:*
         version: link:../..
+      '@effect-stack/query-solid':
+        specifier: workspace:*
+        version: link:../../../query-solid
       '@effect-stack/router':
         specifier: workspace:*
         version: link:../../../router
@@ -187,6 +247,9 @@ importers:
       '@effect-stack/query':
         specifier: workspace:*
         version: link:../..
+      '@effect-stack/query-vue':
+        specifier: workspace:*
+        version: link:../../../query-vue
       '@effect-stack/router':
         specifier: workspace:*
         version: link:../../../router

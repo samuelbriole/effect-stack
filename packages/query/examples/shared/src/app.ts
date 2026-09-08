@@ -3,15 +3,14 @@
  *
  * `createApp` runs inside the application's own scope: it builds the mock
  * Users API Layer once, creates the `QueryClient` from that captured context
- * (`QueryClient.makeWith`), derives families, resources, mutation handles,
- * stable atoms, and a headless core Router whose loaders close over the same
- * query resources the UI observes. Mutation definitions invalidate affected
- * reads inside their own invocation, so committed writes always refresh the
- * cache and interrupted writes never do. Renderers acquire it with
- * `Effect.scoped`, mount their UI, and unmount before the Atom registry and
- * client scope close.
+ * (`QueryClient.makeWith`), derives resources, acquires mutation handles, and
+ * creates a headless Router whose loaders share the UI's query resources.
+ * Successful mutations include invalidating affected reads. The adapter
+ * Providers borrow `app.registry` and supply typed application context;
+ * `useQuery` and `useMutation` observe the application's bound capabilities.
+ * Teardown unmounts the UI before the registry is disposed and the client
+ * scope closes.
  */
-import * as QueryAtom from "@effect-stack/query/QueryAtom"
 import * as QueryClient from "@effect-stack/query/QueryClient"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import * as Route from "@effect-stack/router/Route"
@@ -44,8 +43,10 @@ export const createApp = Effect.fn("QueryExample.createApp")(function*(options: 
   const api = Context.get(services, UsersApi)
   const client = yield* QueryClient.makeWith(services)
 
-  // The application scope also owns the Atom registry: it is disposed with
-  // the app scope, after the UI has unmounted, never under a live view.
+  // The application scope also owns the Atom registry: the adapter Providers
+  // borrow it (so router and stats atoms keep native hooks on one registry),
+  // it is disposed with the app scope after the UI has unmounted, never under
+  // a live view.
   const registry = AtomRegistry.make({
     ...(options.scheduleTask === undefined ? {} : { scheduleTask: options.scheduleTask }),
     defaultIdleTTL: 400
@@ -65,6 +66,8 @@ export const createApp = Effect.fn("QueryExample.createApp")(function*(options: 
     yield* userListFamily.invalidate
     yield* userDetailFamily.invalidate
   })
+  // Handles are pre-acquired here, in the application scope: renderers bind
+  // them through `useMutation` and never acquire controllers themselves.
   const renameUser = yield* client.mutation(makeRenameUserMutation(invalidateUserReads))
   const bumpVisits = yield* client.mutation(makeBumpVisitsMutation(invalidateUserReads))
 
@@ -102,20 +105,21 @@ export const createApp = Effect.fn("QueryExample.createApp")(function*(options: 
     routes: { users: usersRoute, user: userRoute },
     sampleUserIds,
 
-    /** Env-free resources the UI can also `get`/`refresh`/`invalidate` directly. */
+    /** Env-free resources the `useQuery` hooks bind; also `get`/`refresh`/`invalidate`-able directly. */
     resources: {
       userList,
       userDetail: (userId: UserId) => userDetailFamily(userId),
       userReport: (userId: UserId) => userReportFamily(userId)
     },
 
+    /** Pre-acquired controllers the `useMutation` hooks bind, with state and invocations. */
+    mutations: {
+      renameUser,
+      bumpVisits
+    },
+
     /** Stable atoms for the official `@effect/atom-*` hooks. */
     atoms: {
-      userList: QueryAtom.query(userList),
-      userDetail: (userId: UserId) => QueryAtom.query(userDetailFamily(userId)),
-      userReport: (userId: UserId) => QueryAtom.query(userReportFamily(userId)),
-      renameState: QueryAtom.mutation(renameUser),
-      bumpVisitsState: QueryAtom.mutation(bumpVisits),
       /** Reactive per-app mock-API call counters served by the service itself. */
       stats: Atom.subscriptionRef(api.stats)
     },
@@ -128,9 +132,6 @@ export const createApp = Effect.fn("QueryExample.createApp")(function*(options: 
         yield* userListFamily.invalidate
       }),
       refreshUserDetail: (userId: UserId) => userDetailFamily(userId).refresh,
-      // Invalidation of affected reads happens inside the bound mutation.
-      renameUser: (input: RenameUserInput) => renameUser.execute(input),
-      bumpUserVisits: (userId: UserId) => bumpVisits.execute(userId),
       /** Two controllers at once: each shows one invocation in flight. */
       fireOverlappingMutations: Effect.fn("QueryExample.fireOverlappingMutations")(function*(input: RenameUserInput) {
         const renameInvocation = yield* renameUser.start(input)

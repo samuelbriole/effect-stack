@@ -6,6 +6,8 @@
     { "path": "tsconfig.examples.json" },
     { "path": "tsconfig.tests.json" },
     { "path": "packages/query/integration/tsconfig.json" },
+    { "path": "packages/query-solid/tsconfig.test.json" },
+    { "path": "packages/query-vue/tsconfig.test.json" },
     { "path": "packages/router-solid/tsconfig.test.json" },
     { "path": "packages/router-vue/tsconfig.test.json" }
   ]

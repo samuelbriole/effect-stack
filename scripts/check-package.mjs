@@ -5,6 +5,9 @@ import { pathToFileURL } from "node:url"
 
 await Promise.all([
   ["query", ["index", "Query", "QueryClient", "Mutation", "QueryAtom"]],
+  ["query-react", ["index"]],
+  ["query-solid", ["index"]],
+  ["query-vue", ["index"]],
   ["router", ["index", "Route", "RouteTree", "RenderPolicy", "History", "BrowserHistory", "MemoryHistory", "Router"]],
   ["router-react", ["index"]],
   ["router-solid", ["index"]],
@@ -19,6 +22,9 @@ const pack = JSON.parse(execFileSync("pnpm", ["pack", "--dry-run", "--json"], {
 }))
 const packedFiles = new Set(pack.files.map((file) => file.path))
 for (const file of packedFiles) {
+  if (name.startsWith("query") && file.endsWith(".tsbuildinfo")) {
+    throw new Error(`TypeScript build cache included in ${name} package: ${file}`)
+  }
   if (
     file.startsWith("examples/") || file.startsWith("test/") || file.startsWith("typetest/") || file.startsWith("integration/")
   ) {
@@ -47,7 +53,22 @@ const source = (await Promise.all(
 )).join("\n")
 
 const forbidden = {
-  query: ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue", "@tanstack/"],
+  query: [
+    "react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue",
+    "@effect-stack/query-react", "@effect-stack/query-solid", "@effect-stack/query-vue", "@tanstack/"
+  ],
+  "query-react": [
+    "solid-js", "vue", "@effect/atom-solid", "@effect/atom-vue",
+    "@effect-stack/query-solid", "@effect-stack/query-vue", "@tanstack/"
+  ],
+  "query-solid": [
+    "react", "vue", "@effect/atom-react", "@effect/atom-vue",
+    "@effect-stack/query-react", "@effect-stack/query-vue", "@tanstack/"
+  ],
+  "query-vue": [
+    "react", "solid-js", "@effect/atom-react", "@effect/atom-solid",
+    "@effect-stack/query-react", "@effect-stack/query-solid", "@tanstack/"
+  ],
   router: ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"],
   "router-react": ["solid-js", "vue", "@effect/atom-solid", "@effect/atom-vue", "@tanstack/"],
   "router-solid": ["react", "vue", "@effect/atom-react", "@effect/atom-vue", "@tanstack/"],
