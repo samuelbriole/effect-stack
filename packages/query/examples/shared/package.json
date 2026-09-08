@@ -1,0 +1,14 @@
+{
+  "name": "@effect-stack-example/query-shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@effect-stack/query": "workspace:*",
+    "@effect-stack/router": "workspace:*",
+    "effect": "4.0.0-rc.112"
+  }
+}

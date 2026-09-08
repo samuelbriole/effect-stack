@@ -1,0 +1,43 @@
+{
+  "name": "@effect-stack/query-vue",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "First-party Vue adapter for EffectStack Query",
+  "homepage": "https://github.com/samuelbriole/effect-stack#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samuelbriole/effect-stack.git",
+    "directory": "packages/query-vue"
+  },
+  "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
+  "sideEffects": false,
+  "exports": { ".": "./src/index.ts", "./package.json": "./package.json" },
+  "files": [
+    "src/**/*.ts",
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
+  },
+  "peerDependencies": {
+    "@effect-stack/query": "^0.0.0",
+    "@effect/atom-vue": "^4.0.0-rc.112",
+    "effect": "^4.0.0-rc.112",
+    "vue": "^3.5.42"
+  },
+  "devDependencies": {
+    "@effect-stack/query": "workspace:*",
+    "@effect/atom-vue": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112",
+    "vue": "3.5.42"
+  },
+  "scripts": { "build": "tsc -b tsconfig.json", "check": "tsc -b tsconfig.json" }
+}

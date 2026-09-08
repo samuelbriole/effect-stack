@@ -39,7 +39,12 @@
       }
     },
     {
-      "files": ["packages/router/src/**/*", "packages/router/test/**/*", "packages/router/typetest/**/*"],
+      "files": [
+        "packages/router/src/**/*",
+        "packages/router/test/**/*",
+        "packages/router/typetest/**/*",
+        "packages/query/src/**/*"
+      ],
       "rules": {
         "eslint/no-restricted-imports": [
           "error",
@@ -53,7 +58,10 @@
               "vue/*",
               "@effect/atom-react",
               "@effect/atom-solid",
-              "@effect/atom-vue"
+              "@effect/atom-vue",
+              "@effect-stack/query-react",
+              "@effect-stack/query-solid",
+              "@effect-stack/query-vue"
             ]
           }
         ]

@@ -6,7 +6,7 @@ EffectStack is a set of headless modules with explicit ownership. Applications m
 
 - **Router** is authoritative for URL interpretation, route matching, navigation history, navigation commands, and
   navigation lifecycle state.
-- Future **Query** is authoritative for remote-resource lifecycle, caching, staleness, and mutations.
+- **Query** is authoritative for remote-resource lifecycle, caching, staleness, and mutations.
 - Future **Form** is authoritative for editing, validation, and submission state.
 - Future **DB** is authoritative for normalized entities, indexes, transactions, and live queries.
 
@@ -26,6 +26,10 @@ Core packages must never import a renderer. A future renderer adapter must depen
 @effect-stack/router-react -> @effect-stack/router + @effect/atom-react + React
 @effect-stack/router-solid -> @effect-stack/router + @effect/atom-solid + Solid
 @effect-stack/router-vue   -> @effect-stack/router + @effect/atom-vue + Vue
+
+@effect-stack/query-react -> @effect-stack/query + @effect/atom-react + React
+@effect-stack/query-solid -> @effect-stack/query + @effect/atom-solid + Solid
+@effect-stack/query-vue   -> @effect-stack/query + @effect/atom-vue + Vue
 ```
 
 Such a package is created only after it earns an interface with substantive behavior such as accessible links, outlets,
@@ -62,6 +66,44 @@ own transition and renderer hooks expose an awaitable bridge. See [navigation an
 for completion, interruption, and recovery semantics.
 
 ## Route loading versus remote state
+
+Query's application-scoped client owns one cache shared by Effect reads, Streams, mutation controllers, and read-only Atom
+views. `QueryClient.make` builds its service Layer once; `makeWith` borrows already-built services. Layer initialization
+errors belong to construction, and bound operations require no Atom registry or application services. Query definitions
+plus immutable structural inputs determine identity within a client.
+
+Read requests are shared by active consumers. Losing one consumer removes its interest; losing the last interrupts the
+request. Mutation invocations are client-owned after acceptance, have independent outcomes, and survive observer or waiter
+departure. Each execution has a child scope whose finalizers complete before publication. Native `AsyncResult` represents
+query outcomes; mutation state identifies the latest-started invocation and counts all pending work.
+
+Freshness is separate from inactive retention. Invalidation persists on inactive entries and advances a generation so an
+older request cannot satisfy newer callers. Atom bindings own observation leases, not another cache. Registry disposal
+releases those leases synchronously; closing the application/client scope awaits asynchronous cleanup before borrowed
+services are released. See the [Query guide](../packages/query/README.md) for operation and lifetime contracts.
+
+First-party Query adapters own typed application context, optional reactive resource selection, renderer subscription
+lifecycles, and invocation-specific event bridges. They consume bound resources and application-acquired mutation handles;
+the core client remains the cache and execution owner. Provider values and supplied registries are borrowed. A provider
+creates an owned native registry when none is supplied, or explicitly inherits the ambient registry with `registry="inherit"`.
+Query and Router can share the same application-owned registry without either borrowing provider disposing it.
+
+React query subscriptions activate at commit: an abandoned render cannot start a query or redirect the committed resource's
+subscription. Pure synchronous snapshots expose cached query and mutation state during render. Solid accessors and Vue refs/getters drive native reactive resource switching. `Option.none()` represents a
+disabled query and holds no query interest. Each selected resource supplies its own `AsyncResult`, including retained
+success during its refresh. Application context is a value in React, an accessor in Solid, and a readonly Ref in Vue so
+provider updates retain each renderer's normal reactivity.
+
+Mutation adapters expose the core's state and environment-free Effects together with native Promise and typed `Exit`
+bridges. Each action follows its own invocation, independently of the controller's latest result. Aborting a waiter or
+unmounting an observer does not cancel accepted writes. Explicit invocation interruption and application-scope closure
+retain the core's finalization guarantees.
+
+Bound resources and mutation handles carry self-contained observation capabilities. Observation is part of their structural
+public contract, preserved by forwarding wrappers and spread copies, rather than a hidden lookup keyed by the original
+handle. Cache metadata transitions commit before external notifications, and shutdown publishes accepted execution outcomes
+only after their finalizers finish. Native query-Atom refresh delegates to persistent core invalidation. See
+[Effect interoperability](query-interoperability.md) for the refresh, transport, reactivity, and hydration boundaries.
 
 A lazy route module is renderer-neutral code splitting. Native dynamic import caching is allowed, but Router does not own
 preloading, eviction, request deduplication, or remote cache policy. Those resource concerns belong to Query.

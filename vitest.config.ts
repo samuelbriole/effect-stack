@@ -2,7 +2,7 @@ import solid from "vite-plugin-solid"
 import { defineConfig } from "vitest/config"
 
 export default defineConfig({
-  plugins: [solid({ include: ["packages/router-solid/**/*.tsx"] })],
+  plugins: [solid({ include: ["packages/router-solid/**/*.tsx", "packages/query-solid/**/*.tsx"] })],
   test: {
     environment: "node",
     include: ["packages/*/test/**/*.test.{ts,tsx}"],

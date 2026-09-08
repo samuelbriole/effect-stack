@@ -1,0 +1,46 @@
+{
+  "name": "@effect-stack/query-react",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Commit-safe React bindings for EffectStack Query",
+  "homepage": "https://github.com/samuelbriole/effect-stack#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samuelbriole/effect-stack.git",
+    "directory": "packages/query-react"
+  },
+  "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
+  "sideEffects": false,
+  "exports": { ".": "./src/index.tsx", "./package.json": "./package.json" },
+  "files": [
+    "src/**/*.tsx",
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
+  },
+  "peerDependencies": {
+    "@effect-stack/query": "^0.0.0",
+    "@effect/atom-react": "^4.0.0-rc.112",
+    "effect": "^4.0.0-rc.112",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@effect-stack/query": "workspace:*",
+    "@effect/atom-react": "4.0.0-rc.112",
+    "@types/react": "19.2.18",
+    "effect": "4.0.0-rc.112",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "@types/react-dom": "19.2.7"
+  },
+  "scripts": { "build": "tsc -b tsconfig.json", "check": "tsc -b tsconfig.json" }
+}

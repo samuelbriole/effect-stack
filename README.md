@@ -19,7 +19,10 @@ pnpm add @effect-stack/router effect@rc
 | [`@effect-stack/router-react`](packages/router-react) | 🧪 Initial adapter |
 | [`@effect-stack/router-solid`](packages/router-solid) | 🧪 Initial adapter |
 | [`@effect-stack/router-vue`](packages/router-vue)     | 🧪 Initial adapter |
-| `@effect-stack/query`                                 | 🟡 Planned         |
+| [`@effect-stack/query`](packages/query)               | 🧪 Initial core    |
+| [`@effect-stack/query-react`](packages/query-react)   | 🧪 Initial adapter |
+| [`@effect-stack/query-solid`](packages/query-solid)   | 🧪 Initial adapter |
+| [`@effect-stack/query-vue`](packages/query-vue)       | 🧪 Initial adapter |
 | `@effect-stack/form`                                  | 🟡 Planned         |
 | `@effect-stack/db`                                    | 🔭 Exploring       |
 
