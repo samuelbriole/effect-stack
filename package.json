@@ -12,7 +12,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test-types": "tstyche --target '>=5.9'",
-    "pack:check": "pnpm --filter @effect-stack/router pack:check",
+    "pack:check": "pnpm build && node scripts/check-package.mjs",
     "changeset": "changeset",
     "changeset-version": "changeset version",
     "changeset-publish": "pnpm build && changeset publish",

@@ -1,0 +1,35 @@
+{
+  "name": "@effect-stack/router-solid",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "First-party Solid adapter for EffectStack Router",
+  "homepage": "https://github.com/samuelbriole/effect-stack#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samuelbriole/effect-stack.git",
+    "directory": "packages/router-solid"
+  },
+  "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
+  "sideEffects": false,
+  "exports": { ".": "./src/index.ts", "./package.json": "./package.json" },
+  "files": ["src/**/*.ts", "dist/**", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
+  },
+  "peerDependencies": {
+    "@effect-stack/router": "^0.1.0",
+    "@effect/atom-solid": "^4.0.0-rc.112",
+    "effect": "^4.0.0-rc.112",
+    "solid-js": "^1.9.15"
+  },
+  "devDependencies": {
+    "@effect-stack/router": "workspace:*",
+    "@effect/atom-solid": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112",
+    "solid-js": "1.9.15"
+  },
+  "scripts": { "build": "tsc -b tsconfig.json", "check": "tsc -b tsconfig.json" }
+}

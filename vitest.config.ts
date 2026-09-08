@@ -1,8 +1,11 @@
+import solid from "vite-plugin-solid"
 import { defineConfig } from "vitest/config"
 
 export default defineConfig({
+  plugins: [solid({ include: ["packages/router-solid/**/*.tsx"] })],
   test: {
-    include: ["packages/*/test/**/*.test.ts"],
+    environment: "node",
+    include: ["packages/*/test/**/*.test.{ts,tsx}"],
     passWithNoTests: false,
     sequence: {
       concurrent: true

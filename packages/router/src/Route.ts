@@ -10,6 +10,7 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as UrlParams from "effect/unstable/http/UrlParams"
+import type * as History from "./History.ts"
 
 /**
  * The URL portions owned by route matching.
@@ -33,6 +34,16 @@ export interface RouteInput<Params, Search, Hash> {
   readonly params: Params
   readonly search: Search
   readonly hash: Hash
+}
+
+/**
+ * Decoded URL values supplied to a navigation-scoped data loader.
+ *
+ * @since 0.2.0
+ * @category models
+ */
+export interface LoaderInput<Params, Search, Hash> extends RouteInput<Params, Search, Hash> {
+  readonly location: History.Location
 }
 
 /**
@@ -63,7 +74,10 @@ export interface Route<
   HashSchema extends Schema.ConstraintCodec<unknown, string, never, never>,
   Module,
   LoadError,
-  LoadServices
+  LoadServices,
+  Data = void,
+  LoaderError = never,
+  LoaderServices = never
 > {
   readonly id: Id
   readonly path: Path
@@ -71,6 +85,9 @@ export interface Route<
   readonly searchSchema: Schema.Struct<SearchFields>
   readonly hashSchema: HashSchema
   readonly load: undefined | (() => Effect.Effect<Module, LoadError, Scope.Scope | LoadServices>)
+  readonly loader?: (
+    input: LoaderInput<Schema.Struct<ParamsFields>["Type"], Schema.Struct<SearchFields>["Type"], HashSchema["Type"]>
+  ) => Effect.Effect<Data, LoaderError, Scope.Scope | LoaderServices>
 }
 
 /**
@@ -80,16 +97,23 @@ export interface Route<
  * @since 0.1.0
  * @category models
  */
-export type Any = Route<
-  string,
-  string,
-  UrlFields,
-  UrlFields,
-  Schema.ConstraintCodec<unknown, string, never, never>,
-  unknown,
-  unknown,
-  unknown
->
+export type Any =
+  & Omit<
+    Route<
+      string,
+      string,
+      UrlFields,
+      UrlFields,
+      Schema.ConstraintCodec<unknown, string, never, never>,
+      unknown,
+      unknown,
+      unknown
+    >,
+    "loader"
+  >
+  & {
+    readonly loader?: (input: never) => Effect.Effect<unknown, unknown, unknown>
+  }
 
 /**
  * Type helpers for route definitions.
@@ -106,38 +130,27 @@ export declare namespace Route {
   /** @since 0.1.0 */
   export type Hash<R extends Any> = R["hashSchema"]["Type"]
   /** @since 0.1.0 */
-  export type Module<R extends Any> = R extends
-    Route<string, string, infer _P, infer _S, infer _H, infer M, infer _E, infer _R> ? M
-    : never
+  export type Module<R extends Any> = Effect.Success<ReturnType<NonNullable<R["load"]>>>
   /** @since 0.1.0 */
-  export type LoadError<R extends Any> = R extends Route<
-    string,
-    string,
-    infer _P,
-    infer _S,
-    infer _H,
-    infer _M,
-    infer E,
-    infer _R
-  > ? E
-    : never
+  export type LoadError<R extends Any> = Effect.Error<ReturnType<NonNullable<R["load"]>>>
   /** @since 0.1.0 */
   export type LoadServices<R extends Any> = Exclude<
-    R extends Route<
-      string,
-      string,
-      infer _P,
-      infer _S,
-      infer _H,
-      infer _M,
-      infer _E,
-      infer Services
-    > ? Services
-      : never,
+    Effect.Services<ReturnType<NonNullable<R["load"]>>>,
     Scope.Scope
   >
   /** @since 0.1.0 */
   export type Input<R extends Any> = RouteInput<Params<R>, Search<R>, Hash<R>>
+  /** @since 0.2.0 */
+  export type LoaderData<R extends Any> = Effect.Success<ReturnType<NonNullable<R["loader"]>>>
+  /** @since 0.2.0 */
+  export type LoaderError<R extends Any> = Effect.Error<ReturnType<NonNullable<R["loader"]>>>
+  /** @since 0.2.0 */
+  export type LoaderServices<R extends Any> = Exclude<
+    Effect.Services<ReturnType<NonNullable<R["loader"]>>>,
+    Scope.Scope
+  >
+  /** @since 0.2.0 */
+  export type Services<R extends Any> = LoadServices<R> | LoaderServices<R>
 }
 
 /**
@@ -227,48 +240,12 @@ interface BaseOptions<
   readonly hash?: HashSchema | undefined
 }
 
-interface LazyOptions<
-  Id extends string,
-  Path extends string,
-  ParamsFields extends UrlFields,
-  SearchFields extends UrlFields,
-  HashSchema extends Schema.ConstraintCodec<unknown, string, never, never>,
-  Module,
-  LoadError,
-  LoadServices
-> extends BaseOptions<Id, Path, ParamsFields, SearchFields, HashSchema> {
-  readonly load: () => Effect.Effect<Module, LoadError, Scope.Scope | LoadServices>
-}
-
 const pathSegments = (path: string): ReadonlyArray<string> => path === "/" ? [] : path.slice(1).split("/")
 
 const describeSchemaError = (error: Schema.SchemaError): string => error.message
 
 /**
- * Defines an eager route.
- *
- * @since 0.1.0
- * @category constructors
- */
-export function make<
-  const Id extends string,
-  const Path extends `/${string}`,
-  const ParamsFields extends UrlFields,
-  const SearchFields extends UrlFields,
-  HashSchema extends Schema.ConstraintCodec<unknown, string, never, never> = Schema.String
->(options: BaseOptions<Id, Path, ParamsFields, SearchFields, HashSchema>): Route<
-  Id,
-  Path,
-  ParamsFields,
-  SearchFields,
-  HashSchema,
-  void,
-  never,
-  never
->
-
-/**
- * Defines a route with a lazy module effect.
+ * Defines a route with optional lazy code and navigation-scoped data loading.
  *
  * @since 0.1.0
  * @category constructors
@@ -281,8 +258,18 @@ export function make<
   HashSchema extends Schema.ConstraintCodec<unknown, string, never, never> = Schema.String,
   Module = void,
   LoadError = never,
-  LoadServices = never
->(options: LazyOptions<Id, Path, ParamsFields, SearchFields, HashSchema, Module, LoadError, LoadServices>): Route<
+  LoadServices = never,
+  Data = void,
+  LoaderError = never,
+  LoaderServices = never
+>(
+  options: BaseOptions<Id, Path, ParamsFields, SearchFields, HashSchema> & {
+    readonly load?: () => Effect.Effect<Module, LoadError, Scope.Scope | LoadServices>
+    readonly loader?: (
+      input: LoaderInput<Schema.Struct<ParamsFields>["Type"], Schema.Struct<SearchFields>["Type"], HashSchema["Type"]>
+    ) => Effect.Effect<Data, LoaderError, Scope.Scope | LoaderServices>
+  }
+): Route<
   Id,
   Path,
   ParamsFields,
@@ -290,7 +277,10 @@ export function make<
   HashSchema,
   Module,
   LoadError,
-  LoadServices
+  LoadServices,
+  Data,
+  LoaderError,
+  LoaderServices
 >
 
 export function make(options: {
@@ -300,16 +290,8 @@ export function make(options: {
   readonly search: UrlFields
   readonly hash?: Schema.ConstraintCodec<unknown, string, never, never> | undefined
   readonly load?: (() => Effect.Effect<unknown, unknown, unknown>) | undefined
-}): Route<
-  string,
-  string,
-  UrlFields,
-  UrlFields,
-  Schema.ConstraintCodec<unknown, string, never, never>,
-  unknown,
-  unknown,
-  unknown
-> {
+  readonly loader?: (input: never) => Effect.Effect<unknown, unknown, unknown>
+}): Any {
   if (!options.path.startsWith("/")) {
     throw new RouteDefinitionError({
       routeId: options.id,
@@ -341,7 +323,8 @@ export function make(options: {
     paramsSchema: Schema.Struct(options.params),
     searchSchema: Schema.Struct(options.search),
     hashSchema: options.hash ?? Schema.String,
-    load: options.load
+    load: options.load,
+    ...(options.loader === undefined ? {} : { loader: options.loader })
   }
 }
 
@@ -400,20 +383,11 @@ const normalizeSearch = (
  * @since 0.1.0
  * @category matching
  */
-export const match = <
-  Id extends string,
-  Path extends string,
-  ParamsFields extends UrlFields,
-  SearchFields extends UrlFields,
-  HashSchema extends Schema.ConstraintCodec<unknown, string, never, never>,
-  Module,
-  LoadError,
-  LoadServices
->(
-  route: Route<Id, Path, ParamsFields, SearchFields, HashSchema, Module, LoadError, LoadServices>,
+export const match = <R extends Any>(
+  route: R,
   url: UrlParts
 ): Result.Result<
-  Option.Option<Match<Route<Id, Path, ParamsFields, SearchFields, HashSchema, Module, LoadError, LoadServices>>>,
+  Option.Option<Match<R>>,
   RouteDecodeError
 > => {
   const expected = pathSegments(route.path)

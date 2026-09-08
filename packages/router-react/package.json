@@ -1,0 +1,36 @@
+{
+  "name": "@effect-stack/router-react",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "First-party React adapter for EffectStack Router",
+  "homepage": "https://github.com/samuelbriole/effect-stack#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samuelbriole/effect-stack.git",
+    "directory": "packages/router-react"
+  },
+  "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
+  "sideEffects": false,
+  "exports": { ".": "./src/index.tsx", "./package.json": "./package.json" },
+  "files": ["src/**/*.tsx", "dist/**", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
+  },
+  "peerDependencies": {
+    "@effect-stack/router": "^0.1.0",
+    "@effect/atom-react": "^4.0.0-rc.112",
+    "effect": "^4.0.0-rc.112",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@effect-stack/router": "workspace:*",
+    "@effect/atom-react": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112",
+    "react": "19.2.8",
+    "@types/react": "19.2.18"
+  },
+  "scripts": { "build": "tsc -b tsconfig.json", "check": "tsc -b tsconfig.json" }
+}

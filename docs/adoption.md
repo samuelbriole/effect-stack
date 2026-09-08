@@ -51,7 +51,12 @@ const state = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
 
 ## React
 
-Install `@effect/atom-react@rc`, mount `RegistryProvider`, then use the official hooks directly:
+For code-based nested routing, use the [first-party React adapter](../packages/router-react). It provides typed links,
+route-local hooks, layouts, lazy views, and route boundaries, with a provider-owned Atom registry. See the
+[React example](../packages/router-react/examples/basic/src/App.tsx) for a complete application.
+
+For direct integration with the flat core router above, install `@effect/atom-react@rc`, mount `RegistryProvider`, and use
+the official hooks:
 
 ```tsx
 import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react"
@@ -71,7 +76,11 @@ const App = () => (
 
 ## Solid
 
-Install `@effect/atom-solid@rc` and use its accessor-based hooks:
+For code-based nested routing, use the [first-party Solid adapter](../packages/router-solid). Its route-local hooks return
+accessors, preserving Solid's fine-grained updates. The [Solid example](../packages/router-solid/examples/basic/src/App.tsx)
+demonstrates nested layouts, typed links, injected Effect services, and a lazy view.
+
+For direct integration with the flat core router above, install `@effect/atom-solid@rc` and use its accessor-based hooks:
 
 ```tsx
 import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-solid"
@@ -85,7 +94,13 @@ const View = () => {
 
 ## Vue
 
-Install `@effect/atom-vue@rc`, provide an Atom registry at the application boundary, and use its Ref-based composables:
+For code-based nested routing, use the [first-party Vue adapter](../packages/router-vue). Its route composables return
+computed refs that templates auto-unwrap, with a provider-owned Atom registry. The
+[Vue example](../packages/router-vue/examples/basic/src/ProjectLayout.vue) demonstrates nested layouts, typed links,
+injected Effect services, and a lazy view.
+
+For direct integration with the flat core router above, install `@effect/atom-vue@rc`, provide an Atom registry at the
+application boundary, and use its Ref-based composables:
 
 ```ts
 import { AtomRegistry, registryKey, useAtomSet, useAtomValue } from "@effect/atom-vue"
@@ -106,6 +121,5 @@ app.onUnmount(() => registry.dispose())
 app.mount("#root")
 ```
 
-See the complete [React](../examples/router-react), [Solid](../examples/router-solid), and
-[Vue](../examples/router-vue) tracers, all of which consume the same
-[renderer-neutral definitions](../examples/router-shared).
+The React, Solid, and Vue examples exercise their first-party adapters; the
+[renderer-neutral definitions](../packages/router/examples/shared) remain a shared core fixture.

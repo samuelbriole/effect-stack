@@ -13,14 +13,14 @@ pnpm add @effect-stack/router effect@rc
 
 ## Packages
 
-| Package                                   | Status            |
-| ----------------------------------------- | ----------------- |
-| [`@effect-stack/router`](packages/router) | 🟢 Available      |
-| `@effect-stack/router-react`              | 🧪 Private tracer |
-| `@effect-stack/router-solid`              | 🧪 Private tracer |
-| `@effect-stack/router-vue`                | 🧪 Private tracer |
-| `@effect-stack/query`                     | 🟡 Planned        |
-| `@effect-stack/form`                      | 🟡 Planned        |
-| `@effect-stack/db`                        | 🔭 Exploring      |
+| Package                                               | Status             |
+| ----------------------------------------------------- | ------------------ |
+| [`@effect-stack/router`](packages/router)             | 🟢 Available       |
+| [`@effect-stack/router-react`](packages/router-react) | 🧪 Initial adapter |
+| [`@effect-stack/router-solid`](packages/router-solid) | 🧪 Initial adapter |
+| [`@effect-stack/router-vue`](packages/router-vue)     | 🧪 Initial adapter |
+| `@effect-stack/query`                                 | 🟡 Planned         |
+| `@effect-stack/form`                                  | 🟡 Planned         |
+| `@effect-stack/db`                                    | 🔭 Exploring       |
 
 [Architecture](docs/architecture.md) · [Detailed roadmap](docs/roadmap.md)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": false,
-  "includes": ["**/*.{ts,tsx,js,jsx,json,md,yml,yaml}"],
+  "includes": ["**/*.{ts,tsx,mts,js,jsx,json,md,yml,yaml}"],
   "indentWidth": 2,
   "lineWidth": 120,
   "newLineKind": "lf",
