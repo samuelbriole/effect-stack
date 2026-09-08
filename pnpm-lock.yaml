@@ -90,6 +90,129 @@ importers:
         specifier: 3.3.11
         version: 3.3.11(typescript@7.0.2)
 
+  packages/query:
+    devDependencies:
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+
+  packages/query/examples/react:
+    dependencies:
+      '@effect-stack-example/query-shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@effect-stack/query':
+        specifier: workspace:*
+        version: link:../..
+      '@effect-stack/router':
+        specifier: workspace:*
+        version: link:../../../router
+      '@effect/atom-react':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(react@19.2.8)(scheduler@0.27.0)
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+      scheduler:
+        specifier: 0.27.0
+        version: 0.27.0
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.18
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: 19.2.7
+        version: 19.2.7(@types/react@19.2.18)
+      '@types/scheduler':
+        specifier: 0.26.0
+        version: 0.26.0
+      '@vitejs/plugin-react':
+        specifier: 6.1.1
+        version: 6.1.1(vite@8.2.2(@types/node@26.4.0)(yaml@2.9.0))
+      vite:
+        specifier: 8.2.2
+        version: 8.2.2(@types/node@26.4.0)(yaml@2.9.0)
+
+  packages/query/examples/shared:
+    dependencies:
+      '@effect-stack/query':
+        specifier: workspace:*
+        version: link:../..
+      '@effect-stack/router':
+        specifier: workspace:*
+        version: link:../../../router
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+
+  packages/query/examples/solid:
+    dependencies:
+      '@effect-stack-example/query-shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@effect-stack/query':
+        specifier: workspace:*
+        version: link:../..
+      '@effect-stack/router':
+        specifier: workspace:*
+        version: link:../../../router
+      '@effect/atom-solid':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(solid-js@1.9.15)
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+      solid-js:
+        specifier: 1.9.15
+        version: 1.9.15
+    devDependencies:
+      vite:
+        specifier: 8.2.2
+        version: 8.2.2(@types/node@26.4.0)(yaml@2.9.0)
+      vite-plugin-solid:
+        specifier: 2.11.14
+        version: 2.11.14(solid-js@1.9.15)(vite@8.2.2(@types/node@26.4.0)(yaml@2.9.0))
+
+  packages/query/examples/vue:
+    dependencies:
+      '@effect-stack-example/query-shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@effect-stack/query':
+        specifier: workspace:*
+        version: link:../..
+      '@effect-stack/router':
+        specifier: workspace:*
+        version: link:../../../router
+      '@effect/atom-vue':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(vue@3.5.42(typescript@6.0.3))
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+      vue:
+        specifier: 3.5.42
+        version: 3.5.42(typescript@6.0.3)
+    devDependencies:
+      '@vitejs/plugin-vue':
+        specifier: 6.0.8
+        version: 6.0.8(vite@8.2.2(@types/node@26.4.0)(yaml@2.9.0))(vue@3.5.42(typescript@6.0.3))
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: 8.2.2
+        version: 8.2.2(@types/node@26.4.0)(yaml@2.9.0)
+      vue-tsc:
+        specifier: 3.3.11
+        version: 3.3.11(typescript@6.0.3)
+
   packages/router:
     devDependencies:
       effect:

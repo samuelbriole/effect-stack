@@ -3,6 +3,7 @@
   "extends": "./tsconfig.base.json",
   "include": [],
   "references": [
+    { "path": "packages/query" },
     { "path": "packages/router" },
     { "path": "packages/router-react" },
     { "path": "packages/router-solid" },

@@ -39,7 +39,12 @@
       }
     },
     {
-      "files": ["packages/router/src/**/*", "packages/router/test/**/*", "packages/router/typetest/**/*"],
+      "files": [
+        "packages/router/src/**/*",
+        "packages/router/test/**/*",
+        "packages/router/typetest/**/*",
+        "packages/query/src/**/*"
+      ],
       "rules": {
         "eslint/no-restricted-imports": [
           "error",

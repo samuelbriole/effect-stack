@@ -6,7 +6,7 @@ EffectStack is a set of headless modules with explicit ownership. Applications m
 
 - **Router** is authoritative for URL interpretation, route matching, navigation history, navigation commands, and
   navigation lifecycle state.
-- Future **Query** is authoritative for remote-resource lifecycle, caching, staleness, and mutations.
+- **Query** is authoritative for remote-resource lifecycle, caching, staleness, and mutations.
 - Future **Form** is authoritative for editing, validation, and submission state.
 - Future **DB** is authoritative for normalized entities, indexes, transactions, and live queries.
 
@@ -62,6 +62,21 @@ own transition and renderer hooks expose an awaitable bridge. See [navigation an
 for completion, interruption, and recovery semantics.
 
 ## Route loading versus remote state
+
+Query's application-scoped client owns one cache shared by Effect reads, Streams, mutation controllers, and read-only Atom
+views. `QueryClient.make` builds its service Layer once; `makeWith` borrows already-built services. Layer initialization
+errors belong to construction, and bound operations require no Atom registry or application services. Query definitions
+plus immutable structural inputs determine identity within a client.
+
+Read requests are shared by active consumers. Losing one consumer removes its interest; losing the last interrupts the
+request. Mutation invocations are client-owned after acceptance, have independent outcomes, and survive observer or waiter
+departure. Each execution has a child scope whose finalizers complete before publication. Native `AsyncResult` represents
+query outcomes; mutation state identifies the latest-started invocation and counts all pending work.
+
+Freshness is separate from inactive retention. Invalidation persists on inactive entries and advances a generation so an
+older request cannot satisfy newer callers. Atom bindings own observation leases, not another cache. Registry disposal
+releases those leases synchronously; closing the application/client scope awaits asynchronous cleanup before borrowed
+services are released. See the [Query guide](../packages/query/README.md) for operation and lifetime contracts.
 
 A lazy route module is renderer-neutral code splitting. Native dynamic import caching is allowed, but Router does not own
 preloading, eviction, request deduplication, or remote cache policy. Those resource concerns belong to Query.

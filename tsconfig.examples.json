@@ -3,6 +3,10 @@
   "extends": "./tsconfig.base.json",
   "include": [],
   "references": [
+    { "path": "packages/query/examples/shared" },
+    { "path": "packages/query/examples/react" },
+    { "path": "packages/query/examples/solid" },
+    { "path": "packages/query/examples/vue" },
     { "path": "packages/router/examples/shared" },
     { "path": "packages/router-react/examples/basic" },
     { "path": "packages/router-solid/examples/basic" },

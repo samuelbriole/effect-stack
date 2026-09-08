@@ -1,0 +1,59 @@
+{
+  "name": "@effect-stack/query",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Effect-native remote resources shared by Effects, Streams, and Atom",
+  "homepage": "https://github.com/samuelbriole/effect-stack#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samuelbriole/effect-stack.git",
+    "directory": "packages/query"
+  },
+  "bugs": {
+    "url": "https://github.com/samuelbriole/effect-stack/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./Query": "./src/Query.ts",
+    "./QueryClient": "./src/QueryClient.ts",
+    "./Mutation": "./src/Mutation.ts",
+    "./QueryAtom": "./src/QueryAtom.ts",
+    "./internal/*": null
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      "./package.json": "./package.json",
+      ".": "./dist/index.js",
+      "./Query": "./dist/Query.js",
+      "./QueryClient": "./dist/QueryClient.js",
+      "./Mutation": "./dist/Mutation.js",
+      "./QueryAtom": "./dist/QueryAtom.js",
+      "./internal/*": null
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "check": "tsc -b tsconfig.json",
+    "pack:check": "pnpm --workspace-root pack:check"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "effect": "4.0.0-rc.112"
+  }
+}

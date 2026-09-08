@@ -1,6 +1,9 @@
 # Adoption
 
-EffectStack packages are incremental. Installing Router does not require adopting future Query, Form, or DB packages.
+EffectStack packages are incremental. Installing Router does not require adopting Query, Form, or DB packages.
+
+For remote resources shared by Effect workflows and UI consumers, see the [Query guide](../packages/query/README.md).
+Query has a scoped core and uses the official Atom bindings for React, Solid, and Vue.
 
 ## Install
 
