@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
-import { Mutation, Query } from "@effect-stack/query"
+import { Mutation, Query, QueryAtom } from "@effect-stack/query"
 import { createQueryContext, useMutation, useQuery } from "@effect-stack/query-vue"
 import type * as MutationNS from "@effect-stack/query/Mutation"
+import { injectRegistry, useAtomValue } from "@effect/atom-vue"
 import { Deferred, Effect, Option, Ref } from "effect"
+import * as Atom from "effect/unstable/reactivity/Atom"
 import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineComponent, h, nextTick, reactive, ref, render, type VNode } from "vue"
 import { formatResult, type Gate, gated, makeGate, makeScopedClient, rendererDrain } from "./harness.ts"
 
@@ -269,5 +271,87 @@ describe.sequential("Vue deep reactive sources", () => {
     // Two selections, two loads: reactive property reads never duplicated interest.
     expect(totalLoads).toBe(2)
     render(null, container)
+  })
+
+  it("sweeps idle nodes of a deep reactive registry after the mutation observer unmounts", async () => {
+    // Fake the clock the native idle sweep runs on (Date + setTimeout) while keeping
+    // setImmediate real, so the harness drains stay scheduler turns and no test sleeps.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
+    const { client, dispose } = makeScopedClient()
+    cleanups.push(() => void dispose())
+    const raw = AtomRegistry.make({ defaultIdleTTL: 60_000 })
+    const store = reactive<{ registry: AtomRegistry.AtomRegistry }>({ registry: raw })
+    const resource = client.query(
+      Query.make<string, string, never>({
+        name: "idle-query",
+        staleTime: "1 hours",
+        load: (key) => Effect.succeed(key)
+      })
+    )("value")
+    const app = reactive<App>({ list: resource })
+    const handle = Effect.runSync(
+      client.mutation(
+        Mutation.make<string, string, never>({ name: "idle-mutation", execute: (input) => Effect.succeed(input) })
+      )
+    )
+    // An Atom.readable probe with the registry's inherited idle TTL: its body runs once
+    // per node creation and its finalizer once per node removal, so mount/sweep counts
+    // prove node cleanup without inspecting registry internals.
+    let observations = 0
+    let releases = 0
+    const probe = Atom.readable<number>((get) => {
+      observations += 1
+      get.addFinalizer(() => {
+        releases += 1
+      })
+      return observations
+    })
+    let injected!: AtomRegistry.AtomRegistry
+    const View = defineComponent({
+      setup(): () => VNode {
+        injected = injectRegistry()
+        const context = useQueryContext()
+        const result = useQuery(() => context.value.list)
+        const mutation = useMutation(() => handle)
+        const observed = useAtomValue(() => probe)
+        return () =>
+          h("p", `${formatResult(result.value)}|${String(mutation.state.value.pendingCount)}|${String(observed.value)}`)
+      }
+    })
+    const container = document.createElement("div")
+    document.body.append(container)
+    cleanups.push(() => {
+      render(null, container)
+      container.remove()
+    })
+    try {
+      render(h(Provider, { value: app, registry: store.registry }, { default: () => [h(View)] }), container)
+      await drain()
+      // The native hooks observe the exact raw registry, never the reactive proxy.
+      expect(injected).toBe(raw)
+      expect(container.textContent).toBe("success:value|0|1")
+      // Unmount: releases fall through the registry's async node-removal dispatcher.
+      // A TTL-bearing atom (mutation state and the probe) then arms the idle sweep.
+      // If a proxy had been provided, this drain would crash reading
+      // `#currentSweepTTL` off the proxy inside the native registry.
+      render(null, container)
+      await drain()
+      expect(observations).toBe(1)
+      expect(releases).toBe(0)
+      // Controlled clock: run past the largest bucket boundary (TTL + resolution
+      // slack) so the sweep removes both idle nodes and runs their finalizers.
+      vi.advanceTimersByTime(120_000)
+      await drain()
+      expect(releases).toBe(1)
+      // The borrowed registry is usable after the sweep, and re-observing the probe
+      // recreates its node: the idle cleanup really removed it.
+      expect(formatResult(raw.get(QueryAtom.query(resource)))).toBe("success:value")
+      expect(() => raw.get(QueryAtom.mutation(handle))).not.toThrow()
+      expect(raw.get(probe)).toBe(2)
+      expect(observations).toBe(2)
+    } finally {
+      raw.dispose()
+      vi.useRealTimers()
+    }
   })
 })

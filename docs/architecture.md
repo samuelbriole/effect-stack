@@ -89,7 +89,7 @@ creates an owned native registry when none is supplied, or explicitly inherits t
 Query and Router can share the same application-owned registry without either borrowing provider disposing it.
 
 React query subscriptions activate at commit: an abandoned render cannot start a query or redirect the committed resource's
-subscription. Solid accessors and Vue refs/getters drive native reactive resource switching. `Option.none()` represents a
+subscription. Pure synchronous snapshots expose cached query and mutation state during render. Solid accessors and Vue refs/getters drive native reactive resource switching. `Option.none()` represents a
 disabled query and holds no query interest. Each selected resource supplies its own `AsyncResult`, including retained
 success during its refresh. Application context is a value in React, an accessor in Solid, and a readonly Ref in Vue so
 provider updates retain each renderer's normal reactivity.
@@ -98,6 +98,12 @@ Mutation adapters expose the core's state and environment-free Effects together 
 bridges. Each action follows its own invocation, independently of the controller's latest result. Aborting a waiter or
 unmounting an observer does not cancel accepted writes. Explicit invocation interruption and application-scope closure
 retain the core's finalization guarantees.
+
+Bound resources and mutation handles carry self-contained observation capabilities. Observation is part of their structural
+public contract, preserved by forwarding wrappers and spread copies, rather than a hidden lookup keyed by the original
+handle. Cache metadata transitions commit before external notifications, and shutdown publishes accepted execution outcomes
+only after their finalizers finish. Native query-Atom refresh delegates to persistent core invalidation. See
+[Effect interoperability](query-interoperability.md) for the refresh, transport, reactivity, and hydration boundaries.
 
 A lazy route module is renderer-neutral code splitting. Native dynamic import caching is allowed, but Router does not own
 preloading, eviction, request deduplication, or remote cache policy. Those resource concerns belong to Query.

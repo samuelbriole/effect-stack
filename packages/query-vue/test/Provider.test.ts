@@ -6,7 +6,18 @@ import { Deferred, Effect } from "effect"
 import type * as Scope from "effect/Scope"
 import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
-import { defineComponent, h, nextTick, onErrorCaptured, provide, type Ref, render, shallowRef, type VNode } from "vue"
+import {
+  defineComponent,
+  h,
+  nextTick,
+  onErrorCaptured,
+  provide,
+  reactive,
+  type Ref,
+  render,
+  shallowRef,
+  type VNode
+} from "vue"
 import { awaitStarted, formatResult, type Gate, gated, makeGate, makeScopedClient, rendererDrain } from "./harness.ts"
 
 const cleanups: Array<() => void> = []
@@ -236,6 +247,87 @@ describe.sequential("Vue query provider", () => {
     expect(captured.registries).toEqual([first, second])
     expect(container.textContent).toBe("app:success:value")
     expect(formatResult(second.get(resourceAtom))).toBe("success:value")
+  })
+
+  it("keeps one mounted subtree across raw and proxy representations of the borrowed registry", async () => {
+    captured.registries.length = 0
+    const first = AtomRegistry.make()
+    const second = AtomRegistry.make()
+    cleanups.push(() => {
+      first.dispose()
+      second.dispose()
+    })
+    const store = reactive<{ registry: AtomRegistry.AtomRegistry }>({ registry: first })
+    const slot = shallowRef<AtomRegistry.AtomRegistry>(first)
+    let setups = 0
+    const View = defineComponent({
+      setup(): () => VNode {
+        setups += 1
+        captured.registries.push(injectRegistry())
+        return () => h("p", "view")
+      }
+    })
+    const Root = defineComponent({
+      setup(): () => VNode {
+        return () =>
+          h(Provider, { value: { label: "app" }, registry: slot.value }, {
+            default: () => [h(View)]
+          })
+      }
+    })
+    const container = mountProvider(() => h(Root))
+    await rendererDrain()
+    await nextTick()
+    // The injected registry is the exact raw object, never a reactive wrapper.
+    expect(setups).toBe(1)
+    expect(captured.registries).toHaveLength(1)
+    expect(captured.registries[0]).toBe(first)
+    // Same registry through a deep reactive wrapper: a representation change, not a
+    // replacement. Keyed identity compares normalized registries, so nothing remounts.
+    slot.value = store.registry
+    await rendererDrain()
+    await nextTick()
+    expect(setups).toBe(1)
+    expect(captured.registries).toHaveLength(1)
+    expect(container.textContent).toBe("view")
+    // Back to the raw representation: still one mounted subtree.
+    slot.value = first
+    await rendererDrain()
+    await nextTick()
+    expect(setups).toBe(1)
+    expect(captured.registries).toHaveLength(1)
+    expect(container.textContent).toBe("view")
+    // A genuine replacement, arriving wrapped, remounts and injects the new raw registry.
+    store.registry = second
+    slot.value = store.registry
+    await rendererDrain()
+    await nextTick()
+    expect(setups).toBe(2)
+    expect(captured.registries).toHaveLength(2)
+    expect(captured.registries[1]).toBe(second)
+    expect(container.textContent).toBe("view")
+  })
+
+  it("normalizes an ambient registry provided through a reactive proxy for the inherit slot", async () => {
+    captured.registries.length = 0
+    const ambient = AtomRegistry.make()
+    cleanups.push(() => ambient.dispose())
+    const store = reactive<{ registry: AtomRegistry.AtomRegistry }>({ registry: ambient })
+    const Wrapper = defineComponent({
+      setup(_props, { slots }) {
+        provide(registryKey, store.registry)
+        return () => h(Provider, { value: { label: "app" }, registry: "inherit" as const }, slots)
+      }
+    })
+    const container = mountProvider(() => h(Wrapper, null, { default: () => [h(Child, { captureRegistry: true })] }))
+    await rendererDrain()
+    await nextTick()
+    expect(container.textContent).toBe("app:success:value")
+    expect(captured.registries).toHaveLength(1)
+    expect(captured.registries[0]).toBe(ambient)
+    render(null, container)
+    await rendererDrain()
+    expect(() => ambient.get(resourceAtom)).not.toThrow()
   })
 
   it("publishes a replaced App value reactively without remounting consumers", async () => {

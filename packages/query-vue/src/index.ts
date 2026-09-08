@@ -29,7 +29,8 @@ export interface QueryProviderProps<App> {
   readonly value: App
   /**
    * A borrowed `AtomRegistry`, `"inherit"` to join the ambient native registry, or omitted to
-   * own a fresh registry disposed with the provider's component scope.
+   * own a fresh registry disposed with the provider's component scope. A registry arriving
+   * through reactive state is normalized with `toRaw` before it reaches the native hooks.
    */
   readonly registry?: AtomRegistry.AtomRegistry | "inherit"
 }
@@ -59,6 +60,17 @@ const unwrapResource = <A, E>(
   return raw
 }
 
+// Vue deep-wraps an `AtomRegistry` placed in `ref`/`reactive` state, but the native
+// registry reads ES private fields (the idle sweep's `#currentSweepTTL`) that a proxy
+// receiver cannot resolve: providing the proxy crashes node cleanup as soon as a
+// TTL-bearing atom unmounts. Every registry is normalized with `toRaw` before it is
+// provided, and keyed-remount detection compares these normalized identities so a
+// raw<->proxy representation change never remounts while a genuine replacement still
+// does. `"inherit"` and `undefined` pass through untouched.
+const unwrapRegistry = (
+  registry: AtomRegistry.AtomRegistry | "inherit" | undefined
+): AtomRegistry.AtomRegistry | "inherit" | undefined => typeof registry === "object" ? toRaw(registry) : registry
+
 /**
  * Creates an isolated typed application context. The Provider owns registry selection only:
  * the application builds its scoped `QueryClient` outside this adapter, and the supplied `App`
@@ -66,7 +78,10 @@ const unwrapResource = <A, E>(
  *
  * A registry object is borrowed and never disposed here; `"inherit"` joins the ambient
  * `@effect/atom-vue` registry; omitting `registry` owns a registry disposed on unmount.
- * Replacing the registry remounts the keyed provider subtree so every atom resubscribes.
+ * Every registry, supplied or inherited, is normalized with `toRaw` before it is provided,
+ * so the native lifecycle always runs on the original object. Replacing the registry
+ * remounts the keyed provider subtree so every atom resubscribes; a raw<->proxy
+ * representation change of one registry is not a replacement.
  * Replacing the `App` value never remounts: `useQueryContext()` returns a readonly ref that
  * publishes the new value through Vue's own reactivity.
  *
@@ -84,8 +99,10 @@ export function createQueryContext<App>(): QueryContext<App> {
     inheritAttrs: false,
     props: { value: valueProp, registry: registryProp },
     setup(props, { slots }) {
-      const supplied = props.registry
-      const registry = supplied === "inherit" ? injectRegistry() : supplied ?? AtomRegistry.make()
+      const supplied = unwrapRegistry(props.registry)
+      // The inherit slot may itself resolve to a proxy an ambient component provided;
+      // normalize it too so native consumers always observe the raw registry.
+      const registry = supplied === "inherit" ? toRaw(injectRegistry()) : supplied ?? AtomRegistry.make()
       if (supplied === undefined) onScopeDispose(() => registry.dispose())
       provide(registryKey, registry)
       // Vue's generic props inference cannot resolve `App` through the unresolved
@@ -99,16 +116,19 @@ export function createQueryContext<App>(): QueryContext<App> {
     inheritAttrs: false,
     props: { value: valueProp, registry: registryProp },
     setup(props, { slots }) {
-      let current = props.registry
+      // Compare normalized identities: the same borrowed registry arriving first raw and
+      // then through a reactive wrapper (or vice versa) is one registry, not a replacement.
+      let current = unwrapRegistry(props.registry)
       let generation = 0
       return () => {
-        if (props.registry !== current) {
-          current = props.registry
+        const registry = unwrapRegistry(props.registry)
+        if (registry !== current) {
+          current = registry
           generation++
         }
         return h(RegistryOwner, {
           value: props.value,
-          ...(props.registry === undefined ? {} : { registry: props.registry }),
+          ...(registry === undefined ? {} : { registry }),
           key: generation
         }, slots)
       }

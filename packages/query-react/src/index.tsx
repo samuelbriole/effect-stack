@@ -95,9 +95,12 @@ export function createQueryContext<App>(): QueryContext<App> {
 }
 
 /**
- * Observes a bound resource after the component commits. `None` is inert and
- * returns `Initial`. A changed resource starts with its own state and never
- * carries previous data across keys.
+ * Observes a bound resource. The render snapshot is the resource's
+ * authoritative synchronous observation, so a warm cache commits as cached
+ * data without an `Initial` pass. Read interest, and any loading it triggers,
+ * is acquired only after the component commits; an abandoned render acquires
+ * nothing. `None` is inert and returns `Initial`. A changed resource starts
+ * with its own cached state and never carries previous data across keys.
  *
  * @since 0.1.0
  * @category hooks
@@ -107,10 +110,14 @@ export const useQuery = <A, E>(
 ): AsyncResult.AsyncResult<A, E> => {
   const registry = React.useContext(RegistryContext)
   const resource = Option.isOption(input) ? Option.getOrUndefined(input) : input
-  const bridge = React.useMemo(
-    () => Atom.make<AsyncResult.AsyncResult<A, E>>(AsyncResult.initial()).pipe(Atom.setIdleTTL(0)),
-    [resource]
-  )
+  const bridge = React.useMemo(() => {
+    const seed: AsyncResult.AsyncResult<A, E> = resource === undefined
+      ? AsyncResult.initial()
+      : resource.observation.getSnapshot()
+    // The bridge is keyed by registry so a replacement registry remounts a
+    // freshly seeded bridge instead of reviving a stale initializer.
+    return Atom.make<AsyncResult.AsyncResult<A, E>>(seed).pipe(Atom.setIdleTTL(0))
+  }, [registry, resource])
   const result = useAtomValue(bridge)
   const lease = React.useRef<
     {
@@ -177,7 +184,11 @@ export interface MutationResult<I, A, E> {
 
 /**
  * Observes a pre-acquired mutation handle and exposes environment-free Effect
- * and Promise execution bridges. Accepted invocations remain client-owned.
+ * and Promise execution bridges. The render snapshot is the handle's
+ * authoritative synchronous observation, so an accepted invocation's pending
+ * and latest state is visible on the first commit. The observation lease is
+ * acquired only after the component commits. Accepted invocations remain
+ * client-owned.
  *
  * @since 0.1.0
  * @category hooks
@@ -185,8 +196,11 @@ export interface MutationResult<I, A, E> {
 export const useMutation = <I, A, E>(handle: Mutation.Handle<I, A, E>): MutationResult<I, A, E> => {
   const registry = React.useContext(RegistryContext)
   const bridge = React.useMemo(
-    () => Atom.make<Mutation.State<I, A, E>>({ latest: Option.none(), pendingCount: 0 }).pipe(Atom.setIdleTTL(0)),
-    [handle]
+    () =>
+      // Keyed by registry so a replacement registry seeds a fresh bridge
+      // rather than reviving a stale initializer.
+      Atom.make<Mutation.State<I, A, E>>(handle.observation.getSnapshot()).pipe(Atom.setIdleTTL(0)),
+    [handle, registry]
   )
   const state = useAtomValue(bridge)
   React.useEffect(

@@ -34,6 +34,19 @@ export interface Options<I, A, E, R> {
 }
 
 /**
+ * The synchronous observation protocol implemented by every bound resource.
+ * Snapshot reads never allocate cache entries or start work.
+ *
+ * @since 0.1.0
+ * @category models
+ */
+export interface Observation<A, E> {
+  readonly getSnapshot: () => AsyncResult.AsyncResult<A, E>
+  readonly observe: (listener: (value: AsyncResult.AsyncResult<A, E>) => void) => () => void
+  readonly invalidate: () => void
+}
+
+/**
  * A bound resource shared by Effect readers and scoped observers.
  * Its dependencies have already been supplied by the client.
  *
@@ -50,6 +63,8 @@ export interface Resource<A, E> {
   readonly snapshot: Effect.Effect<AsyncResult.AsyncResult<A, E>>
   /** Current state followed by updates. Subscribing holds an observer lease. */
   readonly changes: Stream.Stream<AsyncResult.AsyncResult<A, E>>
+  /** Renderer-neutral synchronous observation and invalidation capability. */
+  readonly observation: Observation<A, E>
 }
 
 /**

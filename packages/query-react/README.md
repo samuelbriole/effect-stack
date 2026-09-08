@@ -69,6 +69,10 @@ Query interest activates only after React commits. Abandoned Suspense and transi
 redirect the committed subscription. StrictMode replay can release and reacquire interest, so request counts across replay
 depend on whether another consumer keeps the request alive. The client remains the cache and execution owner.
 
+Render reads the resource's side-effect-free cached snapshot. Already-cached data is available on the first render, including
+when switching to another cached resource; uncached and disabled selections start as Initial. Reading cached state does not
+acquire loading interest or revalidate it. Existing mutation state is likewise available immediately when observing a handle.
+
 Switching resources releases interest in the previous resource and observes the selected resource's own state. A failed
 refresh retains that resource's native previous success and Cause; unrelated data is not carried across resource keys.
 

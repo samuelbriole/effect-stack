@@ -1,6 +1,5 @@
 import type * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import * as Atom from "effect/unstable/reactivity/Atom"
-import { mutationView, queryView } from "./internal/core.ts"
 import type * as Mutation from "./Mutation.ts"
 import type * as Query from "./Query.ts"
 
@@ -18,12 +17,11 @@ const mutationAtoms = new WeakMap<object, Atom.Atom<Mutation.State<unknown, unkn
 export const query = <A, E>(resource: Query.Resource<A, E>): Atom.Atom<AsyncResult.AsyncResult<A, E>> => {
   const cached = queryAtoms.get(resource)
   if (cached !== undefined) return cached as Atom.Atom<AsyncResult.AsyncResult<A, E>>
-  const view = queryView(resource)
   const atom = Atom.readable((get) => {
-    const release = view.observe((value) => get.setSelf(value))
+    const release = resource.observation.observe((value) => get.setSelf(value))
     get.addFinalizer(release)
-    return view.snapshot()
-  }).pipe(Atom.setIdleTTL(0))
+    return resource.observation.getSnapshot()
+  }, () => resource.observation.invalidate()).pipe(Atom.setIdleTTL(0))
   queryAtoms.set(resource, atom as Atom.Atom<AsyncResult.AsyncResult<unknown, unknown>>)
   return atom
 }
@@ -39,11 +37,10 @@ export const query = <A, E>(resource: Query.Resource<A, E>): Atom.Atom<AsyncResu
 export const mutation = <I, A, E>(handle: Mutation.Handle<I, A, E>): Atom.Atom<Mutation.State<I, A, E>> => {
   const cached = mutationAtoms.get(handle)
   if (cached !== undefined) return cached as Atom.Atom<Mutation.State<I, A, E>>
-  const view = mutationView(handle)
   const atom = Atom.readable((get) => {
-    const release = view.subscribe((value) => get.setSelf(value))
+    const release = handle.observation.observe((value) => get.setSelf(value))
     get.addFinalizer(release)
-    return view.snapshot()
+    return handle.observation.getSnapshot()
   })
   mutationAtoms.set(handle, atom as Atom.Atom<Mutation.State<unknown, unknown, unknown>>)
   return atom

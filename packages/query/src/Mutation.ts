@@ -53,6 +53,17 @@ export interface State<I, A, E> {
   readonly pendingCount: number
 }
 
+/**
+ * The synchronous observation protocol implemented by every mutation handle.
+ *
+ * @since 0.1.0
+ * @category models
+ */
+export interface Observation<I, A, E> {
+  readonly getSnapshot: () => State<I, A, E>
+  readonly observe: (listener: (value: State<I, A, E>) => void) => () => void
+}
+
 declare const InvocationIdTypeId: unique symbol
 
 /**
@@ -88,6 +99,8 @@ export interface Handle<I, A, E> {
   readonly execute: (input: I) => Effect.Effect<A, E>
   readonly snapshot: Effect.Effect<State<I, A, E>>
   readonly changes: Stream.Stream<State<I, A, E>>
+  /** Renderer-neutral synchronous observation capability. */
+  readonly observation: Observation<I, A, E>
 }
 
 /**

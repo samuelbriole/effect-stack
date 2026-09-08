@@ -11,6 +11,16 @@ pnpm add @effect-stack/query effect@rc
 
 This package targets Effect v4 RC. Use matching versions of Effect and its Atom renderer bindings.
 
+## When to use Query
+
+Effect already supports shared reactive requests and Effect access to Atom results through `AtomHttpApi`, `AtomRpc`,
+`AtomRegistry.getResult`, and related reactivity modules. Query adds a specific application-scoped ownership model: one cache
+shared across registries, separate freshness and inactive retention, persistent invalidation generations, shared imperative
+and observer read interest, and independently awaitable client-owned mutations. Its timing follows the captured Effect
+Clock. Choose Query when those lifetime and cache semantics fit the application.
+
+See [Effect interoperability](../../docs/query-interoperability.md) for refresh behavior and integration boundaries.
+
 ## Define a query
 
 A definition describes how to load a resource. Input, success, failure, and service requirements are inferred from its
@@ -69,6 +79,28 @@ starting a request.
 | `resource.snapshot`   | Sample `AsyncResult` without initiating a request or retaining observation interest. |
 | `resource.changes`    | Observe `AsyncResult` through a scoped Stream; start loading when needed.            |
 
+### Observation capability
+
+Resources and mutation handles carry an explicit, self-contained `observation` capability. Renderer integrations can read
+`observation.getSnapshot()` synchronously without acquiring interest, starting work, or allocating a cache entry. Repeated
+reads return the same snapshot object while state is unchanged. Query snapshots follow the current cache entry after GC;
+holding a resource does not retain that entry.
+
+`observation.observe(listener)` attaches a listener and returns an idempotent release function. Query observation acquires
+one read interest and can synchronously publish while activating; mutation observation never owns invocation lifetime.
+Subscribe in a renderer's commit/subscription phase, then read the snapshot. An initial callback is not guaranteed.
+
+The client's observation dispatch isolates callback defects and reports them through Effect error logging. A throwing
+listener cannot prevent other listeners from running, change the execution's result, or strand a reader or client shutdown.
+
+The capability is an enumerable property backed by closure-based functions, so a spread copy such as `{ ...resource }`
+preserves observation. Structural substitutes must implement the complete capability and its lifetime contract. Atom views
+consume the capability directly, rather than requiring an entry in a module-private identity table. Different wrappers can
+have different memoized Atom objects while sharing the same authoritative resource.
+
+The Effect-based `snapshot` operations still interrupt after client closure. Synchronous query snapshots return terminal
+state without reopening the client; synchronous mutation snapshots retain the controller's final state.
+
 Query failures are values in the observation Stream, preserving their `Cause` and previous successful data. They do not
 terminate observation. Imperative reads fail with the loader's typed errors.
 
@@ -95,6 +127,9 @@ last interest disappears, unfinished read work is interrupted and its preceding 
 
 Each request has its own scope. Its finalizers run before the result is published; cached results should be reusable values
 whose lifetime does not depend on that completed request scope.
+
+This ordering also applies during client shutdown: new operations reject immediately, while accepted active readers and
+observers receive the execution's actual finalized Exit, including finalizer defects. Client scope closure waits for cleanup.
 
 Invalidation during a request advances the required generation. Existing callers can receive that request's result, but it
 cannot clear the newer invalidation. Later callers await a request covering the newer generation. Active interests cause a
@@ -146,6 +181,20 @@ Different registries can observe the same client and share its cache. Atom teard
 owns inactive retention. Query state is native `AsyncResult`, including initial, waiting, success, and failure with previous
 success.
 
+### Native Atom refresh
+
+`registry.refresh(QueryAtom.query(resource))` delegates to Query invalidation. It marks a retained entry stale across every
+registry sharing that client. Active interest starts or queues revalidation; an inactive resource stays inactive and reloads
+when interest returns. Refreshing an absent view does not allocate a cache entry. After client closure this imperative
+notification is a no-op.
+
+Use `resource.refresh` when you need to acquire read interest and await its result. Native Atom refresh returns no query
+result and does not own a request waiter. Refreshing a mutation Atom never executes a mutation.
+
+Atom refresh-forwarding combinators use this same invalidation path. Their scheduling and freshness predicates still belong
+to Effect Atom; they do not replace the Query client's Clock, freshness, retention, or generation policies. See the
+[interoperability guide](../../docs/query-interoperability.md) before combining automatic policies.
+
 ## Mutations
 
 Bind an observable controller, composing post-success invalidation as an ordinary Effect:
@@ -173,10 +222,13 @@ editors can have separate mutation state while updating shared queries.
 For explicit invocation control:
 
 ```ts
-const invocation = yield * rename.start(input)
-const updated = yield * invocation.await
-// Explicit cancellation, including finalization:
-yield * invocation.interrupt
+const startRename = Effect.gen(function*() {
+  const invocation = yield* rename.start(input)
+  return invocation
+})
+
+// Inside your application Effect, await the outcome with `invocation.await`,
+// or run `invocation.interrupt` for explicit cancellation and finalization.
 ```
 
 - Invocations execute concurrently and each waiter receives its own outcome.
@@ -223,8 +275,7 @@ closed and cannot serve a renderer.
 Build shared services once, acquire Query with `makeWith`, and pass the bound resource's Effect to a Router loader:
 
 ```ts
-loader: ;
-;(({ params }) => users(params.id).get)
+const loader = ({ params }: { readonly params: { readonly id: string } }) => users(params.id).get
 ```
 
 Router can use `Layer.succeedContext(services)` to borrow the same already-built application services. Independently

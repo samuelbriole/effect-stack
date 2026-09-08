@@ -65,6 +65,42 @@ const cleanupAll = async (): Promise<void> => {
 afterEach(cleanupAll)
 
 describe.sequential("useQuery commit gate", () => {
+  it("commits a warm cache on first mount without an Initial pass", async () => {
+    const client = makeClient()
+    let starts = 0
+    const resource = client.query(Query.make<void, string>({
+      name: "warm-first-commit",
+      load: () =>
+        Effect.sync(() => {
+          starts++
+          return "warm-data"
+        }),
+      staleTime: "1 hour"
+    }))(undefined)
+    await Effect.runPromise(resource.get)
+    expect(starts).toBe(1)
+    const renders: Array<string> = []
+    let firstCommit: string | undefined
+    function Probe() {
+      const result = useQuery(resource)
+      renders.push(result._tag === "Success" ? result.value : result._tag)
+      React.useLayoutEffect(() => {
+        firstCommit ??= result._tag === "Success" ? result.value : result._tag
+      }, [])
+      return <span>{result._tag === "Success" ? result.value : result._tag}</span>
+    }
+    const { container } = await mount(
+      <QueryApp.Provider value={{ label: "app" }}>
+        <Probe />
+      </QueryApp.Provider>
+    )
+    expect(firstCommit).toBe("warm-data")
+    expect(renders[0]).toBe("warm-data")
+    expect(renders).not.toContain("Initial")
+    expect(container.textContent).toBe("warm-data")
+    expect(starts).toBe(1)
+  })
+
   it("does not start work for an abandoned initial Suspense render", async () => {
     const client = makeClient()
     const family = client.query(Query.make<void, string>({
@@ -156,7 +192,7 @@ describe.sequential("useQuery commit gate", () => {
     expect(container.textContent).toBe("a-published")
   })
 
-  it("commits a resource swap as Initial without carrying A data and releases A interest", async () => {
+  it("commits a swap to an uncached resource as Initial without carrying A data and releases A interest", async () => {
     const client = makeClient()
     const refreshStarted = Effect.runSync(Deferred.make<void>())
     const refreshFinalized = Effect.runSync(Deferred.make<void>())
@@ -202,6 +238,51 @@ describe.sequential("useQuery commit gate", () => {
       expect(container.textContent).not.toContain("unrelated-a-data")
     })
     await Effect.runPromise(Deferred.await(refreshFinalized))
+  })
+
+  it("commits a swap to a warm resource as its cached data on first commit", async () => {
+    const client = makeClient()
+    let aLoads = 0
+    let bLoads = 0
+    const family = client.query(Query.make<"a" | "b", string>({
+      name: "cached-swap",
+      load: (key) =>
+        Effect.sync(() => {
+          if (key === "a") aLoads++
+          else bLoads++
+          return `data-${key}`
+        }),
+      staleTime: "1 hour"
+    }))
+    await Effect.runPromise(family("b").get)
+    expect(bLoads).toBe(1)
+    let select: ((key: "a" | "b") => void) | undefined
+    const firstCommits: Array<string> = []
+    function Probe() {
+      const [key, setKey] = React.useState<"a" | "b">("a")
+      select = setKey
+      const result = useQuery(family(key))
+      const text = result._tag === "Success" ? result.value : result._tag
+      React.useLayoutEffect(() => {
+        firstCommits.push(text)
+      }, [key])
+      return <span>{text}</span>
+    }
+    const { container } = await mount(
+      <QueryApp.Provider value={{ label: "app" }}>
+        <Probe />
+      </QueryApp.Provider>
+    )
+    await React.act(flush)
+    expect(container.textContent).toBe("data-a")
+    await React.act(async () => {
+      flushSync(() => select?.("b"))
+      expect(container.textContent).toBe("data-b")
+      expect(container.textContent).not.toContain("Initial")
+    })
+    expect(firstCommits).toEqual(["Initial", "data-b"])
+    expect(aLoads).toBe(1)
+    expect(bLoads).toBe(1)
   })
 
   it("releases its StrictMode lease and disposes its owned registry after the native grace period", async () => {
@@ -298,6 +379,58 @@ describe.sequential("useQuery commit gate", () => {
       expect(starts).toBe(0)
       expect(duringRender).toBeGreaterThan(before)
       expect(registry.getNodes().size).toBe(before)
+      await React.act(async () => root.unmount())
+      await React.act(async () => vi.advanceTimersByTime(1_000))
+      expect(registry.getNodes().size).toBe(before)
+    } finally {
+      registry.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it("acquires no interest and starts no loader for an abandoned warm render", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    const client = makeClient()
+    let starts = 0
+    const resource = client.query(Query.make<void, string>({
+      name: "abandoned-warm",
+      load: () =>
+        Effect.sync(() => {
+          starts++
+          return "warm-data"
+        }),
+      staleTime: "1 hour"
+    }))(undefined)
+    await Effect.runPromise(resource.get)
+    expect(starts).toBe(1)
+    const registry = makeRegistry({ defaultIdleTTL: 60_000 })
+    const queryAtom = QueryAtom.query(resource)
+    const before = registry.getNodes().size
+    let duringRender = before
+    let renderedTag: string | undefined
+    const suspended = new Promise<void>(() => {})
+    function Probe(): React.ReactNode {
+      const result = useQuery(resource)
+      renderedTag = result._tag
+      duringRender = Math.max(duringRender, registry.getNodes().size)
+      throw suspended
+    }
+    const root = createRoot(document.createElement("div"))
+    try {
+      await React.act(async () => {
+        root.render(
+          <QueryApp.Provider value={{ label: "app" }} registry={registry}>
+            <React.Suspense fallback={null}>
+              <Probe />
+            </React.Suspense>
+          </QueryApp.Provider>
+        )
+      })
+      expect(renderedTag).toBe("Success")
+      expect(duringRender).toBeGreaterThan(before)
+      expect(registry.getNodes().has(queryAtom)).toBe(false)
+      expect(registry.getNodes().size).toBe(before)
+      expect(starts).toBe(1)
       await React.act(async () => root.unmount())
       await React.act(async () => vi.advanceTimersByTime(1_000))
       expect(registry.getNodes().size).toBe(before)
@@ -444,6 +577,56 @@ describe.sequential("Query provider", () => {
     expect(second.getNodes().has(queryAtom)).toBe(false)
     expect(firstDispose).not.toHaveBeenCalled()
     expect(secondDispose).not.toHaveBeenCalled()
+    first.dispose()
+    second.dispose()
+  })
+
+  it("seeds the first commit from the shared warm cache after a registry replacement", async () => {
+    const client = makeClient()
+    let starts = 0
+    const resource = client.query(Query.make<void, string>({
+      name: "replacement-warm",
+      load: () =>
+        Effect.sync(() => {
+          starts++
+          return "replacement-data"
+        }),
+      staleTime: "1 hour"
+    }))(undefined)
+    const queryAtom = QueryAtom.query(resource)
+    const first = makeRegistry()
+    const second = makeRegistry()
+    const firstCommits: Array<string> = []
+    function Child() {
+      const result = useQuery(resource)
+      const text = result._tag === "Success" ? result.value : result._tag
+      React.useLayoutEffect(() => {
+        firstCommits.push(text)
+      }, [])
+      return <span>{text}</span>
+    }
+    const { container, root } = await mount(
+      <QueryApp.Provider value={{ label: "app" }} registry={first}>
+        <Child />
+      </QueryApp.Provider>
+    )
+    await React.act(flush)
+    expect(container.textContent).toBe("replacement-data")
+    expect(firstCommits).toEqual(["Initial"])
+    expect(starts).toBe(1)
+    await React.act(async () => {
+      root.render(
+        <QueryApp.Provider value={{ label: "app" }} registry={second}>
+          <Child />
+        </QueryApp.Provider>
+      )
+      await flush()
+    })
+    expect(firstCommits).toEqual(["Initial", "replacement-data"])
+    expect(container.textContent).toBe("replacement-data")
+    expect(second.getNodes().has(queryAtom)).toBe(true)
+    expect(first.getNodes().has(queryAtom)).toBe(false)
+    expect(starts).toBe(1)
     first.dispose()
     second.dispose()
   })

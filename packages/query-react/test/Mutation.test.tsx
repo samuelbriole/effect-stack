@@ -276,4 +276,60 @@ describe.sequential("useMutation", () => {
       await flush()
     })
   })
+
+  it("commits an existing pending invocation and latest result on first commit", async () => {
+    const client = makeClient()
+    const started = Effect.runSync(Deferred.make<void>())
+    const writeGate = Effect.runSync(Deferred.make<void>())
+    const handle = Effect.runSync(client.mutation(Mutation.make<"write", string>({
+      name: "pending-first-commit",
+      execute: () =>
+        Effect.acquireUseRelease(
+          Deferred.succeed(started, undefined),
+          () => Deferred.await(writeGate).pipe(Effect.as("written")),
+          () => Effect.sync(() => {})
+        )
+    })))
+    const invocation = Effect.runSync(handle.start("write"))
+    await Effect.runPromise(Deferred.await(started))
+    const registry = makeRegistry()
+    const states: Array<Mutation.State<"write", string, never>> = []
+    let firstCommit: Mutation.State<"write", string, never> | undefined
+    function Probe() {
+      const { state } = useMutation(handle)
+      React.useLayoutEffect(() => {
+        firstCommit ??= state
+      }, [])
+      states.push(state)
+      return <span>{state.pendingCount}</span>
+    }
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    cleanups.push(async () => {
+      await React.act(async () => root.unmount())
+      registry.dispose()
+    })
+    await React.act(async () => {
+      root.render(
+        <QueryApp.Provider value={{}} registry={registry}>
+          <Probe />
+        </QueryApp.Provider>
+      )
+      await flush()
+    })
+    expect(firstCommit?.pendingCount).toBe(1)
+    const latest = firstCommit?.latest ?? Option.none()
+    expect(Option.isSome(latest)).toBe(true)
+    expect(Option.isSome(latest) ? latest.value.input : undefined).toBe("write")
+    expect(container.textContent).toBe("1")
+    await React.act(async () => {
+      Effect.runSync(Deferred.succeed(writeGate, undefined))
+      await expect(Effect.runPromise(invocation.await)).resolves.toBe("written")
+      await flush()
+    })
+    const settled = states.at(-1)
+    expect(settled?.pendingCount).toBe(0)
+    const settledLatest = settled?.latest ?? Option.none()
+    expect(Option.isSome(settledLatest) ? settledLatest.value.result._tag : undefined).toBe("Success")
+  })
 })

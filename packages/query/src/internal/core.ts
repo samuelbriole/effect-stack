@@ -45,6 +45,8 @@ interface QueryEntry<I, A, E, R> {
   readonly context: Context.Context<R>
   readonly clock: Clock.Clock
   readonly launch: <X, XE>(effect: Effect.Effect<X, XE>) => Fiber.Fiber<X, XE>
+  readonly coordinate: <X, XE>(effect: Effect.Effect<X, XE>) => Fiber.Fiber<X, XE>
+  readonly reportListenerDefect: (defect: unknown) => void
   readonly isClosed: () => boolean
   readonly listeners: Set<Listener<AsyncResult.AsyncResult<A, E>>>
   state: AsyncResult.AsyncResult<A, E>
@@ -55,12 +57,37 @@ interface QueryEntry<I, A, E, R> {
   interests: number
   gcToken: number
   gcFiber: Fiber.Fiber<void> | undefined
+  notificationVersion: number
   readonly onGc: () => void
 }
 
-const publishQuery = <I, A, E, R>(entry: QueryEntry<I, A, E, R>, value: AsyncResult.AsyncResult<A, E>) => {
+const commitQuery = <I, A, E, R>(
+  entry: QueryEntry<I, A, E, R>,
+  value: AsyncResult.AsyncResult<A, E>
+): number => {
   entry.state = value
-  for (const listener of entry.listeners) listener(value)
+  return ++entry.notificationVersion
+}
+
+const notifyQuery = <I, A, E, R>(
+  entry: QueryEntry<I, A, E, R>,
+  value: AsyncResult.AsyncResult<A, E>,
+  version: number
+): void => {
+  const listeners = Array.from(entry.listeners)
+  for (const listener of listeners) {
+    if (entry.notificationVersion !== version) break
+    if (!entry.listeners.has(listener)) continue
+    try {
+      listener(value)
+    } catch (defect) {
+      entry.reportListenerDefect(defect)
+    }
+  }
+}
+
+const publishQuery = <I, A, E, R>(entry: QueryEntry<I, A, E, R>, value: AsyncResult.AsyncResult<A, E>) => {
+  notifyQuery(entry, value, commitQuery(entry, value))
 }
 
 const newRequest = <A, E>(generation: number): Request<A, E> => ({
@@ -83,7 +110,10 @@ const startRequest = <I, A, E, R>(entry: QueryEntry<I, A, E, R>, request: Reques
   )
   const fiber = entry.launch(execution)
   request.fiber = fiber
-  entry.launch(Effect.gen(function*() {
+  // Publication is a reentrancy boundary: the last observer may have released
+  // this request before its execution fiber could be assigned.
+  if (request.cancelled || entry.isClosed()) fiber.interruptUnsafe()
+  entry.coordinate(Effect.gen(function*() {
     const exit = yield* Fiber.await(fiber)
     const now = Exit.isSuccess(exit) ? yield* entry.clock.currentTimeMillis : undefined
     completeRequest(entry, request, exit, now)
@@ -102,22 +132,37 @@ const completeRequest = <I, A, E, R>(
   }
   entry.active = undefined
   const current = request.generation === entry.generation
-  if (current) {
+  let publication: readonly [value: AsyncResult.AsyncResult<A, E>, version: number] | undefined
+  if (entry.isClosed()) {
+    if (Exit.isSuccess(exit) || !Cause.hasInterruptsOnly(exit.cause)) {
+      entry.settledGeneration = request.generation
+    }
+    const value = AsyncResult.fromExitWithPrevious(exit, Option.some(entry.state))
+    publication = [value, commitQuery(entry, value)]
+  } else if (current) {
     if (Exit.isSuccess(exit)) {
-      publishQuery(entry, AsyncResult.success(exit.value, { timestamp: now }))
       entry.settledGeneration = request.generation
+      const value = AsyncResult.success(exit.value, { timestamp: now })
+      publication = [value, commitQuery(entry, value)]
     } else if (!Cause.hasInterruptsOnly(exit.cause)) {
-      publishQuery(entry, AsyncResult.fromExitWithPrevious(exit, Option.some(entry.state)))
       entry.settledGeneration = request.generation
+      const value = AsyncResult.fromExitWithPrevious(exit, Option.some(entry.state))
+      publication = [value, commitQuery(entry, value)]
     } else {
-      publishQuery(entry, settled(entry.state))
+      const value = settled(entry.state)
+      publication = [value, commitQuery(entry, value)]
     }
   } else if (request.cancelled && entry.queued === undefined) {
     // Cancellation supersedes the generation immediately. Clear the waiting
     // flag after cleanup only when no replacement was accepted meanwhile.
-    publishQuery(entry, settled(entry.state))
+    const value = settled(entry.state)
+    publication = [value, commitQuery(entry, value)]
   }
-  Deferred.doneUnsafe(request.deferred, exit)
+  try {
+    if (publication !== undefined) notifyQuery(entry, publication[0], publication[1])
+  } finally {
+    Deferred.doneUnsafe(request.deferred, exit)
+  }
   startQueued(entry)
 }
 
@@ -163,10 +208,10 @@ const releaseInterest = <I, A, E, R>(entry: QueryEntry<I, A, E, R>): void => {
       Effect.flatMap(() =>
         Effect.sync(() => {
           if (entry.interests === 0 && entry.gcToken === token) {
-            publishQuery(entry, AsyncResult.initial())
             entry.settledGeneration = -1
             entry.gcFiber = undefined
             entry.onGc()
+            publishQuery(entry, AsyncResult.initial())
           }
         })
       )
@@ -199,16 +244,6 @@ const invalidateEntry = <I, A, E, R>(entry: QueryEntry<I, A, E, R>): void => {
   }
 }
 
-export interface QueryView<A, E> {
-  readonly snapshot: () => AsyncResult.AsyncResult<A, E>
-  readonly observe: (listener: Listener<AsyncResult.AsyncResult<A, E>>) => () => void
-}
-
-const queryViews = new WeakMap<object, QueryView<unknown, unknown>>()
-
-export const queryView = <A, E>(resource: Query.Resource<A, E>): QueryView<A, E> =>
-  queryViews.get(resource) as QueryView<A, E>
-
 export interface ClientInternal<R> {
   readonly query: <I, A, E, R2 extends R | Scope.Scope>(
     definition: Query.Query<I, A, E, R2>
@@ -237,6 +272,9 @@ export const makeClient = <R>(context: Context.Context<R>): Effect.Effect<Client
     )
     const launch = yield* FiberSet.runtime(fibers)<R>().pipe(Effect.provide(context))
     const coordinate = <X, XE>(effect: Effect.Effect<X, XE>): Fiber.Fiber<X, XE> => Effect.runForkWith(context)(effect)
+    const reportListenerDefect = (defect: unknown): void => {
+      coordinate(Effect.logError("Query observation listener threw", defect))
+    }
     const ensureOpen = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
       Effect.suspend(() => closed ? Effect.interrupt : effect)
     const queryFamilies = new WeakMap<object, Query.Family<unknown, unknown, unknown>>()
@@ -252,15 +290,21 @@ export const makeClient = <R>(context: Context.Context<R>): Effect.Effect<Client
         if (Option.isSome(found)) return found.value
         let entry: QueryEntry<I, A, E, R2>
         const shutdown = (): Effect.Effect<void> =>
-          Effect.sync(() => {
+          Effect.gen(function*() {
             entry.gcFiber?.interruptUnsafe()
-            entry.active?.fiber?.interruptUnsafe()
-            if (entry.active !== undefined) Deferred.doneUnsafe(entry.active.deferred, Effect.interrupt)
+            entry.gcFiber = undefined
             if (entry.queued !== undefined) Deferred.doneUnsafe(entry.queued.deferred, Effect.interrupt)
-            entry.active = undefined
             entry.queued = undefined
-            publishQuery(entry, AsyncResult.failure(interruptedCause))
-            entry.onGc()
+            const active = entry.active
+            if (active === undefined) {
+              entry.settledGeneration = -1
+              publishQuery(entry, AsyncResult.failure(interruptedCause))
+            } else {
+              active.fiber?.interruptUnsafe()
+              // Completion is coordinated outside the FiberSet and settles this
+              // deferred only after the execution scope and all finalizers close.
+              yield* Deferred.await(active.deferred).pipe(Effect.exit)
+            }
           })
         entry = {
           definition,
@@ -268,6 +312,8 @@ export const makeClient = <R>(context: Context.Context<R>): Effect.Effect<Client
           context: context as Context.Context<R2>,
           clock,
           launch,
+          coordinate,
+          reportListenerDefect,
           isClosed: () => closed,
           listeners: new Set(),
           state: AsyncResult.initial(),
@@ -278,6 +324,7 @@ export const makeClient = <R>(context: Context.Context<R>): Effect.Effect<Client
           interests: 0,
           gcToken: 0,
           gcFiber: undefined,
+          notificationVersion: 0,
           onGc: () => {
             const current = MutableHashMap.get(entries, input)
             if (Option.isSome(current) && current.value === entry) {
@@ -293,6 +340,48 @@ export const makeClient = <R>(context: Context.Context<R>): Effect.Effect<Client
       const resources = Atom.family((input: I): Query.Resource<A, E> => {
         const current = () => entryFor(input)
         const peek = () => MutableHashMap.get(entries, input)
+        const absentSnapshot = AsyncResult.initial<A, E>()
+        const closedSnapshot = AsyncResult.failure<A, E>(interruptedCause)
+        const getSnapshot = (): AsyncResult.AsyncResult<A, E> => {
+          const entry = peek()
+          if (Option.isSome(entry)) return entry.value.state
+          return closed ? closedSnapshot : absentSnapshot
+        }
+        const invalidateObserved = (): void => {
+          if (closed) return
+          const entry = peek()
+          if (Option.isSome(entry)) invalidateEntry(entry.value)
+        }
+        const observe = (listener: Listener<AsyncResult.AsyncResult<A, E>>): () => void => {
+          if (closed) {
+            try {
+              listener(getSnapshot())
+            } catch (defect) {
+              reportListenerDefect(defect)
+            }
+            return () => {}
+          }
+          const entry = current()
+          const release = acquireInterest(entry)
+          let released = false
+          const close = () => {
+            if (released) return
+            released = true
+            entry.listeners.delete(listener)
+            release()
+            observerClosers.delete(close)
+          }
+          // Attach before activation because request publication is synchronous.
+          entry.listeners.add(listener)
+          observerClosers.add(close)
+          const now = entry.clock.currentTimeMillisUnsafe()
+          if (
+            entry.state._tag !== "Success" ||
+            entry.settledGeneration !== entry.generation ||
+            now - entry.state.timestamp >= Duration.toMillis(definition.staleTime)
+          ) requestFor(entry)
+          return close
+        }
         const get = ensureOpen(Effect.acquireUseRelease(
           Effect.sync(() => {
             const entry = current()
@@ -330,14 +419,8 @@ export const makeClient = <R>(context: Context.Context<R>): Effect.Effect<Client
           (ticket) => Deferred.await(ticket.request.deferred),
           (ticket) => Effect.sync(ticket.release)
         ))
-        const invalidate = ensureOpen(Effect.sync(() => {
-          const entry = peek()
-          if (Option.isSome(entry)) invalidateEntry(entry.value)
-        }))
-        const snapshot = ensureOpen(Effect.sync(() => {
-          const entry = peek()
-          return Option.isSome(entry) ? entry.value.state : AsyncResult.initial<A, E>()
-        }))
+        const invalidate = ensureOpen(Effect.sync(invalidateObserved))
+        const snapshot = ensureOpen(Effect.sync(getSnapshot))
         const changes = Stream.callback<AsyncResult.AsyncResult<A, E>>((queue) =>
           Effect.suspend(() =>
             closed ?
@@ -375,39 +458,8 @@ export const makeClient = <R>(context: Context.Context<R>): Effect.Effect<Client
               )
           )
         )
-        const resource: Query.Resource<A, E> = { get, refresh, invalidate, snapshot, changes }
-        queryViews.set(resource, {
-          snapshot: () => {
-            if (closed) return AsyncResult.failure(interruptedCause)
-            const entry = peek()
-            return Option.isSome(entry) ? entry.value.state : AsyncResult.initial<A, E>()
-          },
-          observe: (listener) => {
-            if (closed) {
-              listener(AsyncResult.failure(interruptedCause))
-              return () => {}
-            }
-            const entry = current()
-            const release = acquireInterest(entry)
-            let released = false
-            const close = () => {
-              if (released) return
-              released = true
-              entry.listeners.delete(listener)
-              release()
-              observerClosers.delete(close)
-            }
-            entry.listeners.add(listener)
-            observerClosers.add(close)
-            const now = entry.clock.currentTimeMillisUnsafe()
-            if (
-              entry.state._tag !== "Success" ||
-              entry.settledGeneration !== entry.generation ||
-              now - entry.state.timestamp >= Duration.toMillis(definition.staleTime)
-            ) requestFor(entry)
-            return close
-          }
-        } as QueryView<unknown, unknown>)
+        const observation: Query.Observation<A, E> = { getSnapshot, observe, invalidate: invalidateObserved }
+        const resource: Query.Resource<A, E> = { get, refresh, invalidate, snapshot, changes, observation }
         return resource
       })
       const family = Object.assign((input: I) => resources(input), {
@@ -428,16 +480,6 @@ export const makeClient = <R>(context: Context.Context<R>): Effect.Effect<Client
     }
   })
 
-export interface MutationView<I, A, E> {
-  readonly snapshot: () => Mutation.State<I, A, E>
-  readonly subscribe: (listener: Listener<Mutation.State<I, A, E>>) => () => void
-}
-
-const mutationViews = new WeakMap<object, MutationView<unknown, unknown, unknown>>()
-
-export const mutationView = <I, A, E>(handle: Mutation.Handle<I, A, E>): MutationView<I, A, E> =>
-  mutationViews.get(handle) as MutationView<I, A, E>
-
 const makeMutation = <R, I, A, E, R2 extends R | Scope.Scope>(
   definition: Mutation.Mutation<I, A, E, R2>,
   context: Context.Context<R>,
@@ -452,31 +494,52 @@ const makeMutation = <R, I, A, E, R2 extends R | Scope.Scope>(
     let sequence = 0
     let state: Mutation.State<I, A, E> = { latest: Option.none(), pendingCount: 0 }
     const listeners = new Set<Listener<Mutation.State<I, A, E>>>()
-    const publish = (next: Mutation.State<I, A, E>) => {
+    let notificationVersion = 0
+    const commit = (next: Mutation.State<I, A, E>): number => {
       state = next
-      for (const listener of listeners) listener(next)
+      return ++notificationVersion
+    }
+    const notify = (next: Mutation.State<I, A, E>, version: number): void => {
+      const snapshot = Array.from(listeners)
+      for (const listener of snapshot) {
+        if (notificationVersion !== version) break
+        if (!listeners.has(listener)) continue
+        try {
+          listener(next)
+        } catch (defect) {
+          coordinate(Effect.logError("Mutation observation listener threw", defect))
+        }
+      }
     }
     const start = (input: I): Effect.Effect<Mutation.Invocation<A, E>> =>
       ensureOpen(Effect.sync(() => {
         const id = ++sequence as unknown as Mutation.InvocationId
-        publish({
+        const pending = {
           latest: Option.some({ id, input, result: AsyncResult.initial(true) }),
           pendingCount: state.pendingCount + 1
-        })
+        }
+        const pendingVersion = commit(pending)
         const completion = Deferred.makeUnsafe<A, E>()
         const effect = Effect.suspend(() => definition.execute(input)).pipe(
           Effect.provide(context as Context.Context<R2>),
           Effect.scoped
         )
-        const fiber = launch(effect)
+        let fiber: Fiber.Fiber<A, E> | undefined
+        let cancelled = false
         const shutdown = (): Effect.Effect<void> =>
-          Fiber.interrupt(fiber).pipe(
+          Effect.sync(() => {
+            cancelled = true
+            fiber?.interruptUnsafe()
+          }).pipe(
             Effect.andThen(Deferred.await(completion).pipe(Effect.exit)),
             Effect.asVoid
           )
         shutdowns.add(shutdown)
+        fiber = launch(effect)
+        if (cancelled || isClosed()) fiber.interruptUnsafe()
+        const executionFiber = fiber
         coordinate(
-          Fiber.await(fiber).pipe(Effect.flatMap((exit) =>
+          Fiber.await(executionFiber).pipe(Effect.flatMap((exit) =>
             Effect.sync(() => {
               const latest = Option.isSome(state.latest) && state.latest.value.id === id
                 ? Option.some({
@@ -485,18 +548,46 @@ const makeMutation = <R, I, A, E, R2 extends R | Scope.Scope>(
                   result: AsyncResult.fromExitWithPrevious(exit, Option.some(state.latest.value.result))
                 })
                 : state.latest
-              publish({ latest, pendingCount: Math.max(0, state.pendingCount - 1) })
-              Deferred.doneUnsafe(completion, exit)
+              const next = { latest, pendingCount: Math.max(0, state.pendingCount - 1) }
+              const version = commit(next)
               shutdowns.delete(shutdown)
+              try {
+                notify(next, version)
+              } finally {
+                Deferred.doneUnsafe(completion, exit)
+              }
             })
           ))
         )
-        const interrupt = Fiber.interrupt(fiber).pipe(
+        notify(pending, pendingVersion)
+        const interrupt = Fiber.interrupt(executionFiber).pipe(
           Effect.andThen(Deferred.await(completion).pipe(Effect.exit)),
           Effect.asVoid
         )
         return { id, await: Deferred.await(completion), interrupt }
       }))
+    const getSnapshot = (): Mutation.State<I, A, E> => state
+    const observe = (listener: Listener<Mutation.State<I, A, E>>): () => void => {
+      if (isClosed()) {
+        try {
+          listener(state)
+        } catch (defect) {
+          coordinate(Effect.logError("Mutation observation listener threw", defect))
+        }
+        return () => {}
+      }
+      let released = false
+      const close = () => {
+        if (released) return
+        released = true
+        listeners.delete(listener)
+        observerClosers.delete(close)
+      }
+      listeners.add(listener)
+      observerClosers.add(close)
+      return close
+    }
+    const observation: Mutation.Observation<I, A, E> = { getSnapshot, observe }
     const handle: Mutation.Handle<I, A, E> = {
       start,
       execute: (input) => start(input).pipe(Effect.flatMap((invocation) => invocation.await)),
@@ -528,26 +619,8 @@ const makeMutation = <R, I, A, E, R2 extends R | Scope.Scope>(
               (release) => Effect.sync(release)
             )
         )
-      )
+      ),
+      observation
     }
-    mutationViews.set(handle, {
-      snapshot: () => state,
-      subscribe: (listener) => {
-        if (isClosed()) {
-          listener(state)
-          return () => {}
-        }
-        let released = false
-        const close = () => {
-          if (released) return
-          released = true
-          listeners.delete(listener)
-          observerClosers.delete(close)
-        }
-        listeners.add(listener)
-        observerClosers.add(close)
-        return close
-      }
-    } as MutationView<unknown, unknown, unknown>)
     return handle
   })
