@@ -75,7 +75,7 @@ describe("Effect service injection", () => {
       const registry = AtomRegistry.make()
       yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
       yield* AtomRegistry.mount(registry, router.core.branch)
-      yield* AtomRegistry.mount(registry, router.core.navigate)
+      yield* AtomRegistry.mount(registry, router.core.navigation)
       const resolved = yield* AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true })
       expect(resolved.loaderData).toBe("connection-1")
       expect(
@@ -83,8 +83,7 @@ describe("Effect service injection", () => {
           match.result._tag === "Success" ? match.result.value.loaderData : undefined
         )
       ).toEqual(["connection-1", "connection-1"])
-      registry.set(router.core.navigate, Router.refresh)
-      yield* AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true })
+      yield* router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
       expect(acquired).toBe(1)
       expect(released).toBe(0)
       const otherRegistry = AtomRegistry.make()

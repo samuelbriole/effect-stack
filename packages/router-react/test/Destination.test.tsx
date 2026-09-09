@@ -137,7 +137,7 @@ describe.sequential("Shared-URL destinations", () => {
     expect(anchor.getAttribute("href")).toBe("/dashboard?page=5#details")
     await React.act(async () => {
       anchor.click()
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     })
     expect(container.textContent).toContain("Index page 5")
     const resolved = await Effect.runPromise(

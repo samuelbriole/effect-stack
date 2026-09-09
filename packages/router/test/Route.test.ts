@@ -1,5 +1,6 @@
 import * as Route from "@effect-stack/router/Route"
 import { describe, expect, it } from "@effect/vitest"
+import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -132,6 +133,34 @@ describe("Route", () => {
         search: {}
       })
     ).toThrowError(Route.RouteDefinitionError)
+  })
+
+  it("stores the lazy code loader on the route's lazy field", () => {
+    const lazyEffect = Effect.succeed({ title: "lazy" })
+    const route = Route.make({
+      id: "lazy-route",
+      path: "/lazy-route",
+      params: {},
+      search: {},
+      lazy: () => lazyEffect
+    })
+    expect(route.lazy).toBeTypeOf("function")
+    expect(route.lazy !== undefined ? Effect.runSync(Effect.scoped(route.lazy())) : undefined).toEqual({
+      title: "lazy"
+    })
+  })
+
+  it("keeps lazy code loading independent from the data loader", () => {
+    const route = Route.make({
+      id: "both-loaders",
+      path: "/both-loaders",
+      params: {},
+      search: {},
+      lazy: () => Effect.succeed({ title: "code" }),
+      loader: () => Effect.succeed("data")
+    })
+    expect(route.lazy).toBeTypeOf("function")
+    expect(route.loader).toBeTypeOf("function")
   })
 
   it("distinguishes a different path from invalid route data", () => {

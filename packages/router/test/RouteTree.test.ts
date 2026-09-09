@@ -10,11 +10,11 @@ describe("RouteTree", () => {
     const dynamic = RouteTree.make({ getParentRoute: () => layout, path: ":id", params: { id: Schema.String } })
     const fixed = RouteTree.make({ getParentRoute: () => layout, path: "new" })
     const tree = root.addChildren([layout.addChildren([dynamic, fixed])])
-    const routes = RouteTree.flatten(tree)
-    const plan = RouteTree.plan(routes, { pathname: "/new", search: "", hash: "" })
+    const compiled = RouteTree.compile(tree)
+    const plan = compiled.plan({ pathname: "/new", search: "", hash: "" })
     expect(plan.entries.map(({ route }) => route.id)).toEqual([root.id, layout.id, fixed.id])
     expect(plan.notFound).toBe(false)
-    const missing = RouteTree.plan(routes, { pathname: "/new/missing", search: "", hash: "" })
+    const missing = compiled.plan({ pathname: "/new/missing", search: "", hash: "" })
     expect(missing.notFound).toBe(true)
     expect(missing.entries.at(-1)?.route.id).toBe(fixed.id)
   })
@@ -41,17 +41,15 @@ describe("RouteTree", () => {
     const routes = RouteTree.flatten(tree)
     expect(RouteTree.compile(tree)).toBe(compiled)
     expect(compiled.routes).toEqual(routes)
-    expect(compiled.ranked.map(({ route }) => route.id)).toEqual([fixed.id, dynamic.id, layout.id, root.id])
-    expect(compiled.byId.get(dynamic.id)?.route).toBe(dynamic)
-    for (const pathname of ["/new", "/42", "/new/missing", "/"]) {
-      const location = { pathname, search: "", hash: "" }
-      expect(compiled.plan(location)).toEqual(RouteTree.plan(routes, location))
-    }
     const branch = compiled.plan({ pathname: "/new", search: "", hash: "" })
     expect(branch.entries.map(({ route }) => route.id)).toEqual([root.id, layout.id, fixed.id])
     const missing = compiled.plan({ pathname: "/new/missing", search: "", hash: "" })
     expect(missing.notFound).toBe(true)
     expect(missing.entries.at(-1)?.route.id).toBe(fixed.id)
+    // Static ranking wins over declaration order through the shared plan.
+    const dynamicMatch = compiled.plan({ pathname: "/42", search: "", hash: "" })
+    expect(dynamicMatch.entries.map(({ route }) => route.id)).toEqual([root.id, layout.id, dynamic.id])
+    expect(dynamicMatch.notFound).toBe(false)
   })
 
   it("selects ranked endpoints from compiled trees and rejects unknown destinations", () => {
@@ -65,15 +63,27 @@ describe("RouteTree", () => {
     const index = RouteTree.make({ getParentRoute: () => layout, path: "/" })
     const tree = root.addChildren([project.addChildren([layout.addChildren([index])])])
     const compiled = RouteTree.compile(tree)
-    const routes = RouteTree.flatten(tree)
     expect(compiled.target({ to: "/projects/:id" }).route).toBe(index)
-    expect(RouteTree.target(routes, { to: "/projects/:id" }).route).toBe(index)
     expect(compiled.target({ to: "/" }).route).toBe(tree)
     expect(() => compiled.target({ to: "/missing" })).toThrow("Unknown route destination")
     const a = RouteTree.make({ getParentRoute: () => root, path: ":a", params: { a: Schema.String } })
     const b = RouteTree.make({ getParentRoute: () => root, path: ":b", params: { b: Schema.String } })
     expect(() => RouteTree.compile(root.addChildren([a, b]))).toThrow("Ambiguous route template")
     expect(() => RouteTree.compile(project)).toThrow("different parent")
+  })
+
+  it("passes the lazy code loader through tree builders to the composed route", () => {
+    const moduleEffect = Effect.succeed({ title: "lazy" })
+    const root = RouteTree.root({ lazy: () => moduleEffect })
+    const child = RouteTree.make({
+      getParentRoute: () => root,
+      path: "child",
+      lazy: () => Effect.succeed({ title: "child" })
+    })
+    expect(root.lazy !== undefined ? Effect.runSync(Effect.scoped(root.lazy())) : undefined).toEqual({ title: "lazy" })
+    expect(child.lazy !== undefined ? Effect.runSync(Effect.scoped(child.lazy())) : undefined).toEqual({
+      title: "child"
+    })
   })
 
   it("makes nodes pipeable and recognizable across adapter spreads", () => {

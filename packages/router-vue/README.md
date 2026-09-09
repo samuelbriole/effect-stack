@@ -82,7 +82,7 @@ application layout. Child paths are relative; `/` defines an index route, and an
 layout. Params and search Schemas are inherited. Static segments outrank dynamic segments. `route.to` is the full literal
 route pattern; `Link`, `useNavigate`, and `router.href` share destination typing.
 
-`loader` returns an Effect using decoded URL inputs. `load` imports a lazy view module with a `default` or `component`
+`loader` returns an Effect using decoded URL inputs. `lazy` imports a lazy view module with a `default` or `component`
 export; an explicit `component` takes precedence. Ancestors resolve before descendants, while code and data load
 concurrently within each route. Superseding navigation interrupts pending work.
 

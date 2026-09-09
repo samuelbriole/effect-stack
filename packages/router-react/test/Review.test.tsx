@@ -344,9 +344,15 @@ describe.sequential("React review regressions", () => {
     try {
       await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
       const initial = renders
-      await React.act(async () =>
-        registry.set(router.core.navigate, Router.push(child, { params: {}, search: {}, hash: "" }))
-      )
+      await React.act(async () => {
+        void Effect
+          .runPromise(
+            router.core
+              .execute(Router.push(child, { params: {}, search: {}, hash: "" }))
+              .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+          )
+          .catch(() => {})
+      })
       await React.act(async () => {
         Effect.runSync(Deferred.succeed(ready, undefined))
         await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))

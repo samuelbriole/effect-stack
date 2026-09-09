@@ -84,7 +84,8 @@ export interface Route<
   readonly paramsSchema: Schema.Struct<ParamsFields>
   readonly searchSchema: Schema.Struct<SearchFields>
   readonly hashSchema: HashSchema
-  readonly load: undefined | (() => Effect.Effect<Module, LoadError, Scope.Scope | LoadServices>)
+  /** The lazy code loader supplied at construction, if any. */
+  readonly lazy: undefined | (() => Effect.Effect<Module, LoadError, Scope.Scope | LoadServices>)
   readonly loader?: (
     input: LoaderInput<Schema.Struct<ParamsFields>["Type"], Schema.Struct<SearchFields>["Type"], HashSchema["Type"]>
   ) => Effect.Effect<Data, LoaderError, Scope.Scope | LoaderServices>
@@ -130,12 +131,12 @@ export declare namespace Route {
   /** @since 0.1.0 */
   export type Hash<R extends Any> = R["hashSchema"]["Type"]
   /** @since 0.1.0 */
-  export type Module<R extends Any> = Effect.Success<ReturnType<NonNullable<R["load"]>>>
+  export type Module<R extends Any> = Effect.Success<ReturnType<NonNullable<R["lazy"]>>>
   /** @since 0.1.0 */
-  export type LoadError<R extends Any> = Effect.Error<ReturnType<NonNullable<R["load"]>>>
+  export type LoadError<R extends Any> = Effect.Error<ReturnType<NonNullable<R["lazy"]>>>
   /** @since 0.1.0 */
   export type LoadServices<R extends Any> = Exclude<
-    Effect.Services<ReturnType<NonNullable<R["load"]>>>,
+    Effect.Services<ReturnType<NonNullable<R["lazy"]>>>,
     Scope.Scope
   >
   /** @since 0.1.0 */
@@ -247,6 +248,8 @@ const describeSchemaError = (error: Schema.SchemaError): string => error.message
 /**
  * Defines a route with optional lazy code and navigation-scoped data loading.
  *
+ * `lazy` imports route code; `loader` prepares route data.
+ *
  * @since 0.1.0
  * @category constructors
  */
@@ -264,7 +267,8 @@ export function make<
   LoaderServices = never
 >(
   options: BaseOptions<Id, Path, ParamsFields, SearchFields, HashSchema> & {
-    readonly load?: () => Effect.Effect<Module, LoadError, Scope.Scope | LoadServices>
+    /** Imports this route's code. @since 0.3.0 */
+    readonly lazy?: () => Effect.Effect<Module, LoadError, Scope.Scope | LoadServices>
     readonly loader?: (
       input: LoaderInput<Schema.Struct<ParamsFields>["Type"], Schema.Struct<SearchFields>["Type"], HashSchema["Type"]>
     ) => Effect.Effect<Data, LoaderError, Scope.Scope | LoaderServices>
@@ -289,7 +293,7 @@ export function make(options: {
   readonly params: UrlFields
   readonly search: UrlFields
   readonly hash?: Schema.ConstraintCodec<unknown, string, never, never> | undefined
-  readonly load?: (() => Effect.Effect<unknown, unknown, unknown>) | undefined
+  readonly lazy?: (() => Effect.Effect<unknown, unknown, unknown>) | undefined
   readonly loader?: (input: never) => Effect.Effect<unknown, unknown, unknown>
 }): Any {
   if (!options.path.startsWith("/")) {
@@ -323,7 +327,7 @@ export function make(options: {
     paramsSchema: Schema.Struct(options.params),
     searchSchema: Schema.Struct(options.search),
     hashSchema: options.hash ?? Schema.String,
-    load: options.load,
+    lazy: options.lazy,
     ...(options.loader === undefined ? {} : { loader: options.loader })
   }
 }

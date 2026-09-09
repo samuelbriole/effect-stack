@@ -25,17 +25,26 @@ superseding navigation interrupts the previous operation; its caller does not ac
 Interrupting an Effect caller, or aborting the awaitable bridge with an `AbortSignal`, cancels that caller's transition and
 waits for scoped cleanup. Typed failures remain in Effect's error channel; defects and interruption remain in `Cause`.
 
-Headless applications use `core.execute(command)` and supply `AtomRegistry.AtomRegistry`. The existing `core.navigate`
-command atom remains available for Atom-driven event handlers. Back, forward, and go commands request history traversal;
-their completion acknowledges that request, not a future browser `popstate`. History events enter the same transition
-engine when they arrive. Out-of-range history traversal may emit no event.
+Headless applications use the navigation command interface `core.execute(command)` and supply
+`AtomRegistry.AtomRegistry`. `core.navigation` is a read-only Atom observation of the latest navigation operation,
+including operations started through `execute` or the host history. It waits while an operation is in flight and
+settles when that operation's transition finishes; failures raised before a transition is accepted settle it directly.
+Its successful projection carries no value, because resolved data lives in `branch.matches` and
+`branch.lastSuccess`. A headless operation keeps its engine mounted until completion or interrupted cleanup, even
+without a separate state subscription. For the consumer audit, migration recipes, and deliberate deferrals behind this
+interface, see [Router review decisions](router-review-decisions.md). Back, forward, and go commands request history
+traversal; their completion acknowledges that request, not a future browser `popstate`. History events enter the same
+transition engine when they arrive. Out-of-range history traversal may emit no event. The newest claimed operation owns
+`navigation`, and each claimed operation settles it exactly once with its full outcome: acceptance, a typed failure, a
+defect, or an interruption, preserving the original Cause. A traversal whose `go` fails, dies, or is interrupted
+terminalizes the projection instead of leaving it waiting — but only while its own claim is current: when a history
+change it caused started a destination transition first, or when a newer command failed before acceptance, that newer
+claim wins and the stale traversal outcome is suppressed.
 
-The command atom also observes operations started through `execute`. Writing `Atom.Reset` resets its observed result to
-Initial; the next operation updates it again. A headless operation keeps its engine mounted until completion or interrupted
-cleanup, even without a separate state subscription.
-
-`Atom.Interrupt` cancels an operation submitted through the command atom. Operations started through `execute` or
-`useNavigateEffect` use their caller's Effect interruption; `useNavigate` accepts an `AbortSignal` for that purpose.
+Operations started through `execute` or `useNavigateEffect` use their caller's Effect interruption; `useNavigate`
+accepts an `AbortSignal` for that purpose. Event handlers without a caller fiber dispatch `execute` through their
+host's runner (as the adapters' `Link`, declarative `Navigate`, and boundary resets do) and observe settled failures
+through router state rather than cancelling through an atom.
 
 `Link` and declarative `Navigate` consume event-triggered operation failures because router state already exposes those
 failures to route boundaries. Imperative callers receive the rejected Promise or typed Effect failure.
@@ -51,7 +60,7 @@ The public branch contains explicitly separate snapshots:
   produced it. Incoming params are never silently attached to old loader data.
 - `lastSuccess` is the last complete successful branch. Partial ancestor completion does not replace it.
 - The branch `result` represents initialization, waiting, and terminal navigation outcomes, including runtime failures and
-  interruption.
+  interruption. Its successful value is always `undefined`; resolved route data stays in `matches` and `lastSuccess`.
 
 Entries form a typed union. Discriminate by the top-level `routeId` to recover that route's params, module, loader data,
 and failures. An inactive route is represented by `Option.none()` in its stable `routeAtoms(route)` projections.

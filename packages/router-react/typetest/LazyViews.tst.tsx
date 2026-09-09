@@ -15,43 +15,51 @@ describe("React lazy module view validation", () => {
     const route = createRoute({
       getParentRoute: () => root,
       path: "valid",
-      load: () => Effect.succeed({ default: Home } as const)
+      lazy: () => Effect.succeed({ default: Home } as const)
     })
     expect<Route.Route.Module<typeof route>>().type.toBe<{ readonly default: typeof Home }>()
     expect(createRoute).type.toBeCallableWith({
       getParentRoute: () => root,
       path: "memo",
-      load: () => Effect.succeed({ component: React.memo(Home) })
+      lazy: () => Effect.succeed({ component: React.memo(Home) })
     })
     expect(createRoute).type.toBeCallableWith({
       getParentRoute: () => root,
       path: "lazy",
-      load: () => Effect.succeed({ default: React.lazy(async () => ({ default: Home })) })
+      lazy: () => Effect.succeed({ default: React.lazy(async () => ({ default: Home })) })
     })
   })
-  test("rejects present but invalid view exports", () => {
+  test("rejects present but invalid view exports under lazy", () => {
     expect(createRoute).type.not.toBeCallableWith({
       getParentRoute: () => root,
       path: "bad-default",
-      load: () => Effect.succeed({ default: 42 })
+      lazy: () => Effect.succeed({ default: 42 })
     })
     expect(createRoute).type.not.toBeCallableWith({
       getParentRoute: () => root,
       path: "bad-component",
-      load: () => Effect.succeed({ component: "div" })
+      lazy: () => Effect.succeed({ component: "div" })
     })
-    expect(createRootRoute).type.not.toBeCallableWith({ load: () => Effect.succeed({ default: 42 }) })
-    expect(createRootRoute).type.not.toBeCallableWith({ load: () => Effect.succeed({ component: 42 }) })
+    expect(createRootRoute).type.not.toBeCallableWith({ lazy: () => Effect.succeed({ default: 42 }) })
+    expect(createRootRoute).type.not.toBeCallableWith({ lazy: () => Effect.succeed({ component: 42 }) })
+  })
+  test("rejects the removed load option name", () => {
+    expect(createRoute).type.not.toBeCallableWith({
+      getParentRoute: () => root,
+      path: "removed-load",
+      load: () => Effect.succeed({ default: Home })
+    })
+    expect(createRootRoute).type.not.toBeCallableWith({ load: () => Effect.succeed({ default: Home }) })
   })
   test("allows renderer-neutral modules and preserves loader data inference", () => {
     const route = createRoute({
       getParentRoute: () => root,
       path: "neutral",
-      load: () => Effect.succeed({ title: "descriptor" } as const),
+      lazy: () => Effect.succeed({ title: "descriptor" } as const),
       loader: () => Effect.succeed({ count: 1 })
     })
     expect<Route.Route.Module<typeof route>>().type.toBe<{ readonly title: "descriptor" }>()
     expect<ReturnType<typeof route.useLoaderData>>().type.toBe<{ count: number }>()
-    expect(createRootRoute).type.toBeCallableWith({ load: () => Effect.succeed({ title: "descriptor" }) })
+    expect(createRootRoute).type.toBeCallableWith({ lazy: () => Effect.succeed({ title: "descriptor" }) })
   })
 })

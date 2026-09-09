@@ -31,7 +31,7 @@ Use `MemoryHistory.layer("/initial")` in tests, SSR-like environments, and hosts
 
 ## Direct Atom usage
 
-The public facade is ordinary Effect Atom state and an action Atom:
+The public facade is ordinary Effect Atom state plus the `router.execute(command)` Effect interface for navigation:
 
 ```ts
 import { Router } from "@effect-stack/router"
@@ -42,12 +42,14 @@ const state = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
   const registry = AtomRegistry.make()
   yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
   yield* AtomRegistry.mount(registry, router.state)
-  yield* AtomRegistry.mount(registry, router.navigate)
-  registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-  yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+  yield* router
+    .execute(Router.push(home, { params: {}, search: {}, hash: "" }))
+    .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
   return registry.get(router.state)
 })))
 ```
+
+`router.branch`, `router.completed`, and `router.navigation` remain read-only observations; they never dispatch work.
 
 ## React
 
@@ -56,15 +58,20 @@ route-local hooks, layouts, lazy views, and route boundaries, with a provider-ow
 [React example](../packages/router-react/examples/basic/src/App.tsx) for a complete application.
 
 For direct integration with the flat core router above, install `@effect/atom-react@rc`, mount `RegistryProvider`, and use
-the official hooks:
+the official hooks. Event handlers dispatch `execute` through the ambient registry:
 
 ```tsx
-import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react"
+import { RegistryContext, RegistryProvider, useAtomValue } from "@effect/atom-react"
+import { AtomRegistry } from "effect/unstable/reactivity"
 
 const View = () => {
   const state = useAtomValue(router.state)
-  const navigate = useAtomSet(router.navigate)
-  return <button onClick={() => navigate(Router.back)}>{state.waiting ? "Waiting" : "Back"}</button>
+  const registry = React.useContext(RegistryContext)
+  const goBack = () =>
+    void Effect
+      .runPromise(router.execute(Router.back).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
+      .catch(() => {})
+  return <button onClick={goBack}>{state.waiting ? "Waiting" : "Back"}</button>
 }
 
 const App = () => (
@@ -83,12 +90,18 @@ demonstrates nested layouts, typed links, injected Effect services, and a lazy v
 For direct integration with the flat core router above, install `@effect/atom-solid@rc` and use its accessor-based hooks:
 
 ```tsx
-import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-solid"
+import { RegistryContext, useAtomValue } from "@effect/atom-solid"
+import { AtomRegistry } from "effect/unstable/reactivity"
+import { useContext } from "solid-js"
 
 const View = () => {
   const state = useAtomValue(() => router.state)
-  const navigate = useAtomSet(() => router.navigate)
-  return <button onClick={() => navigate(Router.back)}>{state().waiting ? "Waiting" : "Back"}</button>
+  const registry = useContext(RegistryContext)
+  const goBack = () =>
+    void Effect
+      .runPromise(router.execute(Router.back).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
+      .catch(() => {})
+  return <button onClick={goBack}>{state().waiting ? "Waiting" : "Back"}</button>
 }
 ```
 
@@ -103,14 +116,18 @@ For direct integration with the flat core router above, install `@effect/atom-vu
 application boundary, and use its Ref-based composables:
 
 ```ts
-import { AtomRegistry, registryKey, useAtomSet, useAtomValue } from "@effect/atom-vue"
-import { createApp, defineComponent, h } from "vue"
+import { AtomRegistry, registryKey, useAtomValue } from "@effect/atom-vue"
+import { createApp, defineComponent, h, inject } from "vue"
 
 const View = defineComponent({
   setup() {
     const state = useAtomValue(() => router.state)
-    const navigate = useAtomSet(() => router.navigate)
-    return () => h("button", { onClick: () => navigate(Router.back) }, state.value.waiting ? "Waiting" : "Back")
+    const registry = inject(registryKey)!
+    const goBack = () =>
+      void Effect
+        .runPromise(router.execute(Router.back).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
+        .catch(() => {})
+    return () => h("button", { onClick: goBack }, state.value.waiting ? "Waiting" : "Back")
   }
 })
 
