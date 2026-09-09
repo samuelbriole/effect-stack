@@ -62,8 +62,10 @@ type InvalidLazyModuleExport<M> = M extends unknown ?
   : never
 
 // A lazy module may carry renderer-neutral data, but a present view export must be a Vue component.
-// Modules without `default`/`component` keep the Outlet fallback.
-type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown : { readonly load?: never }
+// Modules without `default`/`component` keep the Outlet fallback. This check is stricter than
+// `RouteTree.CheckedLazyModule` because Vue option objects match `Component` structurally.
+type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown
+  : { readonly lazy?: never }
 /** @since 0.1.0 */
 export type VueRoute<
   R extends Route.Any,
@@ -200,7 +202,7 @@ export function createRoute(
     readonly params?: RouteTree.Fields
     readonly search?: RouteTree.Fields
     readonly hash?: RouteTree.HashCodec
-    readonly load?: () => Effect.Effect<unknown, unknown, unknown>
+    readonly lazy?: () => Effect.Effect<unknown, unknown, unknown>
     readonly loader?: (input: never) => Effect.Effect<unknown, unknown, unknown>
   }
 ): unknown {
@@ -425,7 +427,7 @@ const RouterView = defineComponent({
     provide(routerKey, props.router)
     provide(snapshotKey, "resolved")
     const registry = injectRegistry()
-    onScopeDispose(registry.mount(core.navigate))
+    onScopeDispose(registry.mount(core.navigation))
     const branch = useAtomValue(() => core.branch)
     provide(branchKey, branch)
     provide(depthKey, 0)
@@ -534,7 +536,14 @@ export const Outlet = defineComponent({
       cached = next
       return next
     })
-    const refresh = () => registry.set(core.navigate, Router.refresh)
+    // The boundary reset follows its own invocation through `execute`;
+    // failures surface in the branch snapshots like any transition.
+    const refresh = () => {
+      void Effect.runPromise(
+        core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+      )
+        .catch(() => {})
+    }
     return () => {
       const selected = selection.value
       if (selected._tag === "Empty") return null

@@ -20,16 +20,9 @@ export interface Views {
 
 type ReactModuleView = NonNullable<Views["component"]>
 
-type InvalidLazyModuleExport<M> = M extends unknown ?
-    | ("default" extends keyof M ? ([Exclude<M["default"], undefined>] extends [ReactModuleView] ? never : true)
-      : never)
-    | ("component" extends keyof M ? ([Exclude<M["component"], undefined>] extends [ReactModuleView] ? never : true)
-      : never)
-  : never
-
 // A lazy module may carry renderer-neutral data, but a present view export must be a React component.
 // Modules without `default`/`component` keep the Outlet fallback.
-type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown : { readonly load?: never }
+type CheckedLazyModule<M> = RouteTree.CheckedLazyModule<M, ReactModuleView>
 /** @since 0.2.0 */
 export interface SelectorOptions<A> {
   readonly equals?: (left: A, right: A) => boolean
@@ -170,7 +163,7 @@ export function createRoute(
     readonly params?: RouteTree.Fields
     readonly search?: RouteTree.Fields
     readonly hash?: RouteTree.HashCodec
-    readonly load?: () => Effect.Effect<unknown, unknown, unknown>
+    readonly lazy?: () => Effect.Effect<unknown, unknown, unknown>
     readonly loader?: (input: never) => Effect.Effect<unknown, unknown, unknown>
   }
 ): unknown {
@@ -359,7 +352,7 @@ type Startup = { readonly _tag: "Active" | "Pending" } | { readonly _tag: "Failu
 function RouterView() {
   const { core } = useRuntime()
   const registry = React.useContext(RegistryContext)
-  React.useEffect(() => registry.mount(core.navigate), [registry, core])
+  React.useEffect(() => registry.mount(core.navigation), [registry, core])
   const retry = useRetry()
   const startup = React.useMemo(() =>
     Atom.map(core.branch, (branch): Startup =>

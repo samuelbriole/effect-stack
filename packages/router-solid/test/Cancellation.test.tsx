@@ -27,7 +27,7 @@ it("interrupts nested lazy work on navigation and rejects late module publicatio
     getParentRoute: () => parent,
     path: "lazy",
     pendingComponent: () => <p>Pending</p>,
-    load: () =>
+    lazy: () =>
       Effect.gen(function*() {
         yield* Effect.addFinalizer(() => Deferred.succeed(stopped, undefined))
         yield* Deferred.succeed(started, undefined)
@@ -44,8 +44,11 @@ it("interrupts nested lazy work on navigation and rejects late module publicatio
   try {
     await Effect.runPromise(Deferred.await(started))
     expect(container.textContent).toBe("ShellPending")
-    registry.set(router.core.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+    await Effect.runPromise(
+      router.core
+        .execute(Router.push(home, { params: {}, search: {}, hash: "" }))
+        .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    )
     await Effect.runPromise(Deferred.await(stopped))
     expect(container.textContent).toBe("ShellHome")
     complete({ default: () => "Stale" })

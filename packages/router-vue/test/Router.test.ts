@@ -39,9 +39,14 @@ const settle = async <T extends RouteTree.Any, E>(
   command = false
 ) => {
   await Effect.runPromise(
-    AtomRegistry.getResult(registry, command ? router.core.navigate : router.core.state, { suspendOnWaiting: true })
-      .pipe(Effect.exit)
+    AtomRegistry.getResult(registry, command ? router.core.navigation : router.core.state, {
+      suspendOnWaiting: true
+    }).pipe(Effect.exit)
   )
+  await nextTick()
+}
+const run = async (self: Effect.Effect<unknown, unknown, never>) => {
+  await Effect.runPromise(self.pipe(Effect.exit))
   await nextTick()
 }
 
@@ -97,8 +102,9 @@ describe.sequential("Vue router", () => {
     expect(container.textContent).toContain("Project 2:activity")
     expect(container.textContent).toContain("Root 1Local 1")
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/projects/3?tab=activity")
-    registry.set(router.core.navigate, Router.refresh)
-    await settle(router, registry, true)
+    await run(
+      router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    )
     expect(container.textContent).toContain("Root 1Local 1")
   })
 
@@ -181,7 +187,7 @@ describe.sequential("Vue router", () => {
       getParentRoute: () => parent,
       path: "lazy",
       pendingComponent: () => h("p", "Pending view"),
-      load: () =>
+      lazy: () =>
         Effect.gen(function*() {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
@@ -270,13 +276,19 @@ describe.sequential("Vue router", () => {
     await nextTick()
     expect(container.textContent).toBe("ShellError: render failed")
     broken.value = false
-    registry.set(router.core.navigate, Router.push(child, { params: { id: 2 }, search: {}, hash: "" }))
-    await settle(router, registry, true)
+    await run(
+      router.core
+        .execute(Router.push(child, { params: { id: 2 }, search: {}, hash: "" }))
+        .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    )
     expect(container.textContent).toBe("ShellChild 2")
     broken.value = true
     await nextTick()
-    registry.set(router.core.navigate, Router.push(child, { params: { id: 3 }, search: {}, hash: "" }))
-    await settle(router, registry, true)
+    await run(
+      router.core
+        .execute(Router.push(child, { params: { id: 3 }, search: {}, hash: "" }))
+        .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    )
     expect(container.textContent).toBe("Shell@effect-stack/router/RouteLoaderError")
   })
 
@@ -303,8 +315,9 @@ describe.sequential("Vue router", () => {
     expect(match.location.state).toEqual(state)
     expect(match.location.index).toBe(0)
     expect(visits).toBe(2)
-    registry.set(router.core.navigate, Router.refresh)
-    await settle(router, registry, true)
+    await run(
+      router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    )
     expect(visits).toBe(3)
   })
 

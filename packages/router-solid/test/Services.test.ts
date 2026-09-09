@@ -35,15 +35,16 @@ describe("Solid Effect service injection", () => {
       const registry = AtomRegistry.make()
       yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
       yield* AtomRegistry.mount(registry, router.core.branch)
-      yield* AtomRegistry.mount(registry, router.core.navigate)
+      yield* AtomRegistry.mount(registry, router.core.navigation)
       yield* AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true })
       expect(
         registry.get(router.core.branch).matches.map((entry) =>
           entry.result._tag === "Success" ? entry.result.value.loaderData : undefined
         )
       ).toEqual([1, 1])
-      registry.set(router.core.navigate, Router.refresh)
-      yield* AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true })
+      yield* router.core.execute(Router.refresh).pipe(
+        Effect.provideService(AtomRegistry.AtomRegistry, registry)
+      )
       expect(acquired).toBe(1)
       expect(released).toBe(0)
       const other = AtomRegistry.make()

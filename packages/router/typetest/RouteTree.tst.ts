@@ -57,18 +57,16 @@ describe("RouteTree.compile", () => {
   test("preserves the tree's route union", () => {
     expect(compiled).type.toBe<RouteTree.Compiled<RouteTree.All<typeof tree>>>()
     expect({} as (typeof compiled.routes)[number]).type.toBe<RouteTree.All<typeof tree>>()
-    expect({} as (typeof compiled.ranked)[number]["route"]).type.toBe<RouteTree.All<typeof tree>>()
-    expect({} as (typeof compiled.ranked)[number]["segments"]).type.toBe<ReadonlyArray<string>>()
-    expect(compiled.byId.get(child.id)).type.toBe<RouteTree.Ranked<RouteTree.All<typeof tree>> | undefined>()
-    expect(compiled.endpoints.get("/child")).type.toBe<RouteTree.All<typeof tree> | undefined>()
   })
 
   test("stays erased for renderer adapters", () => {
     const erased: RouteTree.Compiled = compiled
     expect(erased.routes).type.toBe<ReadonlyArray<RouteTree.Any>>()
-    expect(erased.ranked).type.toBe<ReadonlyArray<RouteTree.Ranked>>()
-    expect(erased.byId.get(child.id)).type.toBe<RouteTree.Ranked | undefined>()
-    expect(erased.endpoints.get("/child")).type.toBe<RouteTree.Any | undefined>()
+  })
+
+  test("keeps the operation-oriented surface and hides ranking internals", () => {
+    expect<keyof typeof compiled>().type.toBe<"routes" | "plan" | "target">()
+    expect<keyof RouteTree.Compiled>().type.toBe<"routes" | "plan" | "target">()
   })
 
   test("plans and selects endpoints from the compiled tree", () => {

@@ -65,8 +65,9 @@ Child paths are relative. `/` is an index route; an `id` instead of a `path` def
 inherited. Static segments outrank dynamic segments, and an index owns its shared URL's destination requirements.
 `route.to` exposes the full literal route pattern for navigation and eventual generated file routes.
 
-`loader` returns an Effect using decoded params, search, hash, and location. `load` independently imports a view module
-with a `default` or `component` export. An explicit `component` takes precedence. Ancestors resolve before descendants;
+`loader` returns an Effect using decoded params, search, hash, and location. `lazy` independently imports a view module
+with a `default` or `component` export. An explicit `component` takes precedence.
+Ancestors resolve before descendants;
 code and data load concurrently within each route. Superseding navigation interrupts pending work.
 
 `pendingComponent`, `errorComponent`, and `notFoundComponent` bubble to the nearest declaring ancestor, replacing its view
