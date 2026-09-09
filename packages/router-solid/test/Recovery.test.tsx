@@ -50,8 +50,11 @@ it("bubbles reactive render errors and recovers on same-route navigation", async
     expect(container.textContent).toBe("ShellChild 1")
     fail()
     expect(container.textContent).toBe("ShellRender boundary")
-    registry.set(router.core.navigate, Router.push(child, { params: { id: 2 }, search: {}, hash: "" }))
-    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+    await Effect.runPromise(
+      router.core
+        .execute(Router.push(child, { params: { id: 2 }, search: {}, hash: "" }))
+        .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    )
     expect(container.textContent).toBe("ShellChild 2")
   } finally {
     dispose()
@@ -86,9 +89,10 @@ it("replaces a latched render error with a subsequent loader error", async () =>
     await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     fail()
     expect(container.textContent).toBe("Error: render failed")
-    registry.set(router.core.navigate, Router.push(child, { params: { id: 2 }, search: {}, hash: "" }))
     await Effect.runPromise(
-      AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }).pipe(Effect.exit)
+      router.core
+        .execute(Router.push(child, { params: { id: 2 }, search: {}, hash: "" }))
+        .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry), Effect.exit)
     )
     expect(container.textContent).toBe("@effect-stack/router/RouteLoaderError")
   } finally {

@@ -38,7 +38,7 @@ const projectIndex = createRoute({
 const detailsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "details",
-  load: () => Effect.promise(() => import("./ProjectDetails.vue")),
+  lazy: () => Effect.promise(() => import("./ProjectDetails.vue")),
   pendingComponent: () => h("p", { role: "status" }, "Loading details…")
 })
 export const router = createRouter({

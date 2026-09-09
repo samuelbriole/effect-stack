@@ -17,7 +17,7 @@ const root = createRootRoute({ loader: () => Connection.use((service) => Effect.
 const child = createRoute({
   getParentRoute: () => root,
   path: "projects",
-  load: () => Projects.use((service) => Effect.succeed({ title: service.title })),
+  lazy: () => Projects.use((service) => Effect.succeed({ title: service.title })),
   loader: () => Effect.addFinalizer(() => Effect.void)
 })
 const routeTree = root.addChildren([child])

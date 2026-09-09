@@ -47,7 +47,7 @@ const projectIndex = createRoute({
 const detailsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "details",
-  load: () => Effect.promise(() => import("./ProjectDetails.tsx")),
+  lazy: () => Effect.promise(() => import("./ProjectDetails.tsx")),
   pendingComponent: () => <p role="status">Loading details…</p>
 })
 export const router = createRouter({

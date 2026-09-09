@@ -20,6 +20,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import * as Atom from "effect/unstable/reactivity/Atom"
 import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry"
 import * as History from "./History.ts"
+import * as Planner from "./Planner.ts"
 import * as Route from "./Route.ts"
 import * as RouteTree from "./RouteTree.ts"
 
@@ -212,6 +213,10 @@ export interface Branch<Routes extends ReadonlyArray<Route.Any> = ReadonlyArray<
   readonly transitionId: TransitionId
   readonly location: Option.Option<History.Location>
   readonly notFound: boolean
+  /**
+   * Navigation lifecycle outcome for the whole branch. Successful navigation
+   * carries no value: the resolved data lives in `matches` and `lastSuccess`.
+   */
   readonly result: AsyncResult.AsyncResult<void, NavigationError<Routes> | E>
   readonly lastSuccess: Option.Option<SuccessfulBranch<Routes>>
   readonly matches: ReadonlyArray<MatchStates<Routes>>
@@ -330,19 +335,22 @@ export interface Router<Routes extends ReadonlyArray<Route.Any>, LayerError> {
   /** The leaf (deepest matched route) resolution across all transitions. @since 0.1.0 */
   readonly state: Atom.Atom<AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes> | LayerError>>
   /**
-   * Compatibility projection of the latest dispatched navigation operation,
-   * including operations started through `execute` or the host history. Writes
-   * accept `Command`s plus the `Atom.Reset` and `Atom.Interrupt` control
-   * symbols; the projected `AsyncResult` waits while an operation is in flight
-   * and settles when that operation's transition finishes. Cancelling a write
-   * through `Atom.Interrupt` or `Atom.Reset` interrupts and finalizes the exact
-   * transition it started. Writing `Atom.Reset` returns the projection to
-   * `Initial`; the settling of the operation it replaced stays hidden, and the
-   * projection tracks the next dispatched operation from then on.
+   * Read-only observation of the latest navigation operation, including
+   * operations started through `execute` or the host history. It waits while an
+   * operation is in flight and settles when that operation's transition
+   * finishes; operations that never reach a transition (an invalid
+   * destination, or a history traversal that fails, dies, or is interrupted)
+   * settle it directly with their exact Cause. The newest claimed operation
+   * owns this projection: a superseded or older transition may still settle
+   * the branch without reviving its own outcome here. Its success value is
+   * always `undefined`: resolved data lives in `branch.matches` and
+   * `branch.lastSuccess`. Cancelling an operation started through `execute`
+   * interrupts and finalizes the exact transition it started.
    *
-   * @since 0.1.0
+   * @since 0.3.0
+   * @category observation
    */
-  readonly navigate: Atom.AtomResultFn<Command<Routes>, void, NavigationError<Routes> | LayerError>
+  readonly navigation: Atom.Atom<AsyncResult.AsyncResult<void, NavigationError<Routes> | LayerError>>
   /** The active branch snapshot for all matched routes. @since 0.2.0 */
   readonly branch: Atom.Atom<Branch<Routes, LayerError>>
   /** The latest fully successful navigation, if any. @since 0.2.0 */
@@ -354,15 +362,20 @@ export interface Router<Routes extends ReadonlyArray<Route.Any>, LayerError> {
   /** The compiled route tree for tree routers; `undefined` for flat routers. @since 0.2.0 */
   readonly compiled: RouteTree.Compiled | undefined
   /**
-   * Dispatches a navigation command and joins the exact transition fiber it
-   * starts, with typed failures and without routing through any shared atom.
+   * The only navigation command interface. Dispatches a navigation command
+   * and joins the exact transition fiber it starts, with typed failures and
+   * without routing through any shared atom.
    * `To` and `Refresh` complete when their transition settles; `Back`,
-   * `Forward`, and `Go` complete once the host accepts the traversal.
+   * `Forward`, and `Go` complete once the host accepts the traversal. When a
+   * traversal emits a history change whose transition starts before the
+   * acknowledgment lands, that transition owns `navigation` and the projection
+   * keeps waiting for it.
    * Interrupting the caller interrupts exactly the transition it started and
    * awaits its cleanup. The scoped engine stays mounted for the lifetime of
    * the call, so headless callers keep long-running loaders alive.
    *
    * @since 0.2.0
+   * @category navigation
    */
   readonly execute: (command: Command<Routes>) => Effect.Effect<
     void,
@@ -410,7 +423,8 @@ interface Snapshot<Routes extends ReadonlyArray<Route.Any>> {
   readonly branch: Branch<Routes, never>
   readonly leaf: AsyncResult.AsyncResult<Resolved<Routes>, NavigationError<Routes>>
   readonly operation: AsyncResult.AsyncResult<void, NavigationError<Routes>>
-  readonly operationTick: number
+  /** Identity of the operation that most recently claimed the projection. */
+  readonly operationClaim: number
 }
 
 interface Engine<Routes extends ReadonlyArray<Route.Any>> {
@@ -428,10 +442,6 @@ const makeTransitionId = (): TransitionId => ({
   _tag: "@effect-stack/router/TransitionId",
   sequence: (transitionSequence += 1)
 })
-
-// Monotonic across engines so `Atom.Reset` boundaries remain meaningful after
-// a runtime rebuild.
-let operationEpoch = 0
 
 const emptyBranch = <Routes extends ReadonlyArray<Route.Any>>(transitionId: TransitionId): Branch<Routes, never> => ({
   transitionId,
@@ -461,27 +471,6 @@ const validateRoutes = (routes: ReadonlyArray<Route.Any>): Result.Result<void, R
   return Result.succeed(undefined)
 }
 
-const pathSegments = (path: string): ReadonlyArray<string> => path === "/" ? [] : path.slice(1).split("/")
-
-const structurallyMatches = (route: Route.Any, pathname: string): boolean => {
-  const expected = pathSegments(route.path)
-  const actual = pathSegments(pathname)
-  if (expected.length !== actual.length) {
-    return false
-  }
-  return expected.every((segment, index) => {
-    if (segment.startsWith(":")) {
-      return true
-    }
-    try {
-      return decodeURIComponent(actual[index]) === segment
-    } catch {
-      // Malformed encoding is reported by the route's own decoder.
-      return true
-    }
-  })
-}
-
 const incomingFromMatch = (matched: Route.Match<Route.Any>): IncomingRoute<Route.Any> => ({
   route: matched.route,
   params: matched.params,
@@ -497,33 +486,17 @@ const matchFromIncoming = (incoming: IncomingRoute<Route.Any>): Route.Match<Rout
   hash: incoming.hash
 })
 
-const planFlatRoutes = (routes: ReadonlyArray<Route.Any>, location: History.Location): NavigationPlan => {
-  for (const route of routes) {
-    if (!structurallyMatches(route, location.pathname)) {
-      continue
-    }
-    const matched = Route.match(route, location)
-    if (Result.isFailure(matched)) {
-      return { notFound: false, entries: [{ route, incoming: Result.fail(matched.failure) }] }
-    }
-    if (Option.isNone(matched.success)) {
-      continue
-    }
-    return { notFound: false, entries: [{ route, incoming: Result.succeed(incomingFromMatch(matched.success.value)) }] }
-  }
-  return { notFound: true, entries: [] }
-}
-
-const planTreeRoutes = (compiled: RouteTree.Compiled, location: History.Location): NavigationPlan => {
-  const planned = compiled.plan(location)
-  return {
-    notFound: planned.notFound,
-    entries: planned.entries.map((entry) => ({
-      route: entry.route,
-      incoming: Result.map(entry.match, incomingFromMatch)
-    }))
-  }
-}
+// The canonical routing planner: compiled trees plan through their cached
+// index; flat routers plan the same static-before-dynamic model directly over
+// their validated route list (routes without tree metadata are ordinary
+// exact-match endpoints with no ancestors).
+const navigationPlan = (planned: Planner.Plan): NavigationPlan => ({
+  notFound: planned.notFound,
+  entries: planned.entries.map((entry) => ({
+    route: entry.route,
+    incoming: Result.map(entry.match, incomingFromMatch)
+  }))
+})
 
 // Structural comparison for decoded URL values, falling back to reference
 // equality for values Effect's `Equal` does not recognize.
@@ -591,7 +564,7 @@ const loadMatch = Effect.fn("Router.loadMatch")(function*<Routes extends Readonl
   Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
 > {
   const route = matched.route
-  const load = route.load as
+  const lazy = route.lazy as
     | undefined
     | (() => Effect.Effect<
       Route.Route.Module<RouteUnion<Routes>>,
@@ -613,7 +586,7 @@ const loadMatch = Effect.fn("Router.loadMatch")(function*<Routes extends Readonl
       Route.Route.LoaderError<RouteUnion<Routes>>,
       Scope.Scope | Route.Route.LoaderServices<RouteUnion<Routes>>
     >)
-  const moduleEffect = load === undefined ? Effect.void : Effect.suspend(load).pipe(
+  const moduleEffect = lazy === undefined ? Effect.void : Effect.suspend(lazy).pipe(
     Effect.mapError((error) => routeLoadError(route, error) as NavigationError<Routes>)
   )
   const dataEffect = loader === undefined ? Effect.void : Effect.suspend(() => loader({ ...matched, location })).pipe(
@@ -637,6 +610,16 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
   History.Service | Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
 > {
   if (compiled === undefined) yield* Effect.fromResult(validateRoutes(routes))
+  // The canonical routing planner: compiled trees plan through their cached
+  // index; flat routers plan the same static-before-dynamic model directly
+  // over their validated route list (routes without tree metadata are
+  // ordinary exact-match endpoints with no ancestors). The identity-keyed
+  // index lookup is a weak-map read, so the flat branch stays cheap per
+  // navigation.
+  const planRoutes = (location: History.Location): NavigationPlan =>
+    navigationPlan(
+      compiled === undefined ? Planner.planFor(Planner.indexFor(routes), location) : compiled.plan(location)
+    )
   const history = yield* History.Service
   const services = yield* Effect.context<History.Service | Route.Route.Services<RouteUnion<Routes>>>()
   const opening = makeTransitionId()
@@ -645,7 +628,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     branch: emptyBranch(opening),
     leaf: AsyncResult.initial(true),
     operation: AsyncResult.initial(true),
-    operationTick: 0
+    operationClaim: 0
   })
   const transitions = yield* FiberMap.make<"navigation", Resolved<Routes>, NavigationError<Routes>>()
   // v4's `FiberMap.run` forks eagerly and installs the fiber in the map from a
@@ -659,7 +642,52 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
   const withOperation = (
     current: Snapshot<Routes>,
     operation: AsyncResult.AsyncResult<void, NavigationError<Routes>>
-  ): Snapshot<Routes> => ({ ...current, operation, operationTick: (operationEpoch += 1) })
+  ): Snapshot<Routes> => ({ ...current, operation })
+  // Operation ownership is separate from the branch's active transition token.
+  // Every operation start, command-scoped rejection, and traversal request
+  // claims a strictly newer monotonic revision inside the snapshot's serial
+  // update, and a claimed operation may only revise `Snapshot.operation` while
+  // its claim is current. An older transition can therefore settle its branch
+  // and leaf after a newer command failed or was accepted without resurrecting
+  // its own outcome in the shared projection.
+  const claimOperation = Effect.fn("Router.claimOperation")(function*(
+    update: (current: Snapshot<Routes>, claim: number) => Snapshot<Routes>
+  ) {
+    return yield* SubscriptionRef.modify(snapshot, (current) => {
+      const claim = current.operationClaim + 1
+      return [claim, update(current, claim)] as const
+    })
+  })
+  // A claimed operation settles with the exact outcome of its own work: an
+  // acceptance, a typed failure, a defect, and an interruption all
+  // terminalize `Snapshot.operation` only while the claim is current. A late
+  // settlement of a superseded operation is therefore suppressed instead of
+  // stealing the projection from its newer owner.
+  const settleOperation = Effect.fn("Router.settleOperation")(function*(
+    claim: number,
+    exit: Exit.Exit<void, NavigationError<Routes>>
+  ) {
+    yield* SubscriptionRef.update(snapshot, (current) =>
+      current.operationClaim === claim
+        ? withOperation(current, AsyncResult.fromExitWithPrevious(exit, Option.some(current.operation)))
+        : current)
+  })
+  // A pre-claim rejection has no pending section: claiming and publishing in
+  // one update makes it the current owner by construction. Commands that
+  // already claimed (traversals) must settle through `settleOperation` with
+  // their own claim instead, so a generic handler can never reclaim them.
+  const rejectOperation = Effect.fn("Router.rejectOperation")(function*(failure: ErasedError) {
+    yield* SubscriptionRef.update(snapshot, (current) =>
+      withOperation(
+        { ...current, operationClaim: current.operationClaim + 1 },
+        AsyncResult.fail(failure) as AsyncResult.AsyncResult<void, NavigationError<Routes>>
+      ))
+  })
+  const waitingOperation = (current: Snapshot<Routes>, claim: number): Snapshot<Routes> =>
+    withOperation(
+      { ...current, operationClaim: claim },
+      AsyncResult.waitingFrom(Option.some(current.operation))
+    )
 
   const guarded = Effect.fn("Router.guarded")(function*(
     transition: TransitionId,
@@ -742,15 +770,9 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     })
   })
 
-  const commitOperation = Effect.fn("Router.commitOperation")(function*(failure: ErasedError | undefined) {
-    const result: AsyncResult.AsyncResult<void, NavigationError<Routes>> = failure === undefined
-      ? AsyncResult.success(undefined)
-      : AsyncResult.fail(failure) as AsyncResult.AsyncResult<void, NavigationError<Routes>>
-    yield* SubscriptionRef.update(snapshot, (current) => withOperation(current, result))
-  })
-
   const settle = Effect.fn("Router.settle")(function*(
     transition: TransitionId,
+    claim: number,
     exit: Exit.Exit<Resolved<Routes>, NavigationError<Routes>>
   ) {
     yield* guarded(transition, (current) => {
@@ -770,7 +792,11 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
         }
       })
       const settled = AsyncResult.fromExitWithPrevious(exit, Option.some(current.leaf))
-      const operation = settled as unknown as AsyncResult.AsyncResult<void, NavigationError<Routes>>
+      // The operation projection follows the `AsyncResult<void, ...>` contract:
+      // map the leaf value away instead of casting, so success and any
+      // failure-retained previous success carry `undefined`, never the
+      // resolved route.
+      const operation = AsyncResult.map(settled, (): void => undefined)
       const location = current.branch.location
       const lastSuccess = Exit.isSuccess(exit) && Option.isSome(location)
         ? Option.some<SuccessfulBranch<Routes>>({
@@ -781,10 +807,6 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
           ) as unknown as ReadonlyArray<Resolved<Routes>>
         })
         : current.branch.lastSuccess
-      // The operation revision advances only on dispatch/acceptance (start,
-      // commitOperation). Settlement keeps the accepted operation's tick, so a
-      // reset written while an operation was in flight remains in effect after
-      // that same operation settles.
       return {
         ...current,
         branch: {
@@ -796,7 +818,10 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
           matches: matches as unknown as ReadonlyArray<MatchStates<Routes>>
         },
         leaf: settled,
-        operation
+        // Settling the branch is guarded by the active transition; settling
+        // the shared projection additionally requires that no newer claim
+        // (a pre-acceptance rejection or a traversal supersession) took it.
+        operation: current.operationClaim === claim ? operation : current.operation
       }
     })
   })
@@ -809,19 +834,19 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
       Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
     >
   ) {
-    const provided = work.pipe(
-      Effect.scoped,
-      Effect.provide(services),
-      Effect.onExit((exit) => settle(transition, exit))
-    )
     return yield* startLock.withPermits(1)(
       Effect.uninterruptible(Effect.gen(function*() {
-        yield* SubscriptionRef.update(snapshot, (current) =>
-          withOperation({
-            ...current,
-            active: transition,
-            leaf: AsyncResult.waitingFrom(Option.some(current.leaf))
-          }, AsyncResult.waitingFrom(Option.some(current.operation))))
+        const claim = yield* claimOperation((current, next) =>
+          waitingOperation(
+            { ...current, active: transition, leaf: AsyncResult.waitingFrom(Option.some(current.leaf)) },
+            next
+          )
+        )
+        const provided = work.pipe(
+          Effect.scoped,
+          Effect.provide(services),
+          Effect.onExit((exit) => settle(transition, claim, exit))
+        )
         return yield* FiberMap.run(transitions, "navigation", provided, { startImmediately: true })
       }))
     )
@@ -835,7 +860,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     NavigationError<Routes>,
     Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
   > {
-    const plan = compiled === undefined ? planFlatRoutes(routes, location) : planTreeRoutes(compiled, location)
+    const plan = planRoutes(location)
     yield* accept(transition, location, plan)
     const results = yield* Effect.forEach(plan.entries, (entry, index) => {
       // The plan only returns members of this validated route set.
@@ -861,13 +886,34 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     return results[results.length - 1]
   })
 
+  // Traversal commands claim the operation projection before asking the host
+  // to move, and settle that claim with the exact outcome of `history.go`:
+  // acceptance publishes the void success, while a typed history failure, a
+  // defect, or an interruption terminalizes the projection with the original
+  // Cause. Settlement is claim-guarded in every direction: if the emitted
+  // history change started its destination transition while `go` still ran,
+  // that newer claim owns the projection, the traversal outcome is suppressed,
+  // and `navigation` keeps waiting for the destination instead. The caller
+  // still observes the traversal's exact failure through the re-raised Cause.
+  const traverse = Effect.fn("Router.traverse")(function*(delta: number) {
+    const claim = yield* claimOperation(waitingOperation)
+    const exit = yield* history.go(delta).pipe(Effect.exit)
+    yield* settleOperation(claim, exit)
+    if (Exit.isFailure(exit)) return yield* Effect.failCause(exit.cause)
+  })
+
   // Erased once for dispatching; the public `Command<Routes>` retains each
   // route's correlated input, while the runtime only needs the member union.
   const dispatch = Effect.fn("Router.dispatch")(function*(input: Command<Routes>) {
     const command = input as unknown as Command<ReadonlyArray<Route.Any>>
     switch (command._tag) {
       case "To": {
-        const href = yield* Effect.fromResult(Route.href(command.route, command.input))
+        // Encoding runs before any claim: the rejection itself claims, so it
+        // is the newest owner by construction and nothing newer can race this
+        // command's own pre-acceptance failure.
+        const href = yield* Effect.fromResult(Route.href(command.route, command.input)).pipe(
+          Effect.tapError(rejectOperation)
+        )
         const destination = History.destinationFromHref(href, command.state)
         const transition = makeTransitionId()
         const work = (command.replace ? history.replace(destination) : history.push(destination)).pipe(
@@ -876,16 +922,13 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
         return Option.some(yield* start(transition, work))
       }
       case "Back":
-        yield* history.go(-1)
-        yield* commitOperation(undefined)
+        yield* traverse(-1)
         return Option.none()
       case "Forward":
-        yield* history.go(1)
-        yield* commitOperation(undefined)
+        yield* traverse(1)
         return Option.none()
       case "Go":
-        yield* history.go(command.delta)
-        yield* commitOperation(undefined)
+        yield* traverse(command.delta)
         return Option.none()
       case "Refresh": {
         const transition = makeTransitionId()
@@ -901,18 +944,19 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
       return start(transition, navigateTo(transition, location)).pipe(Effect.asVoid)
     }),
     Effect.catch((error) =>
-      SubscriptionRef.update(snapshot, (current) => {
-        const withFailedOperation = withOperation(
-          current,
+      SubscriptionRef.update(snapshot, (current) =>
+        withOperation(
+          {
+            ...current,
+            // The stream failure ends the engine's change intake: claim the
+            // newest operation so no in-flight transition republishes over it.
+            operationClaim: current.operationClaim + 1,
+            leaf: AsyncResult.failWithPrevious(error, { previous: Option.some(current.leaf) })
+          },
           AsyncResult.failWithPrevious(error, {
             previous: Option.some(current.operation)
           })
-        )
-        return {
-          ...withFailedOperation,
-          leaf: AsyncResult.failWithPrevious(error, { previous: Option.some(current.leaf) })
-        }
-      })
+        ))
     ),
     Effect.forkScoped
   )
@@ -923,9 +967,11 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
   return {
     snapshot,
     awaitInitial: joinVoid(initialFiber),
+    // No generic error handler here: every dispatch failure either settled
+    // its own claim (traversals, transition fibers) or claimed and published
+    // as a pre-claim rejection (destination encoding).
     dispatch: (command) =>
       dispatch(command).pipe(
-        Effect.tapError((failure) => commitOperation(failure)),
         Effect.map((fiber) => fiber as Option.Option<Fiber.Fiber<Resolved<Routes>, NavigationError<Routes>>>)
       )
   }
@@ -967,9 +1013,6 @@ const makeRuntime = <
     )
   )
   const fallbackTransition = makeTransitionId()
-  // The operation epoch observed when `Atom.Reset` was last written;
-  // operations at or before this boundary project as `Initial`.
-  const resetBoundary = Atom.make(0)
 
   const unwrap = <A, E>(result: AsyncResult.AsyncResult<A, E>): AsyncResult.AsyncResult<void, E> => {
     switch (result._tag) {
@@ -1009,42 +1052,16 @@ const makeRuntime = <
 
   const completed = Atom.map(branch, (value) => value.lastSuccess)
 
-  // Command intake shared by `navigate` writes; writing before the engine is
-  // ready queues the command, and its per-call result is superseded by the
-  // engine's authoritative operation projection. Cancelling a submission
-  // (a new command, `Atom.Interrupt`, `Atom.Reset`, or atom teardown)
-  // interrupts and finalizes the exact transition it started, mirroring
-  // `execute`.
-  const submitted = runtime.fn((command: Command<Routes>, get) =>
-    get.result(engine).pipe(
-      Effect.flatMap((value) => dispatchAndJoin(value, command))
-    )
-  )
-
-  const navigate: Atom.AtomResultFn<Command<Routes>, void, NavigationError<Routes> | LayerError> = Atom.writable(
+  // Read-only observation of the latest navigation operation: operations
+  // started through `execute` or the host history publish the same
+  // `Snapshot.operation` projection; dispatch itself has no atom path anymore.
+  const navigation = Atom.make(
     (get): AsyncResult.AsyncResult<void, NavigationError<Routes> | LayerError> => {
-      const submission = get(submitted)
       const result = get(snapshotView)
       if (result._tag === "Success") {
-        if (result.value.operationTick <= get(resetBoundary)) {
-          return AsyncResult.initial()
-        }
         return result.value.operation
       }
-      if (submission._tag === "Failure") {
-        return submission
-      }
-      if (result._tag === "Failure") {
-        return AsyncResult.failure(result.cause, { waiting: result.waiting })
-      }
-      return submission
-    },
-    (ctx, value) => {
-      if (value === Atom.Reset) {
-        const snapshot = ctx.get(snapshotView)
-        ctx.set(resetBoundary, snapshot._tag === "Success" ? snapshot.value.operationTick : 0)
-      }
-      ctx.set(submitted, value)
+      return unwrap(result)
     }
   )
 
@@ -1142,7 +1159,7 @@ const makeRuntime = <
   return {
     routes: options.routes,
     state,
-    navigate,
+    navigation,
     branch,
     completed,
     href: Route.href,
@@ -1153,18 +1170,32 @@ const makeRuntime = <
   }
 }
 
-/** Creates a flat router. @since 0.1.0 */
+/**
+ * Creates a flat router.
+ *
+ * Flat routes use the canonical routing model: static segments rank ahead of
+ * dynamic ones, malformed percent-encoding never matches a segment, and a URL
+ * no route answers settles as `RouteNotFound`. Routes with equal ranking keep
+ * declaration order, so prefer `Router.fromTree` whenever more than one
+ * template can match the same URL and the ancestor chain should render.
+ *
+ * @since 0.1.0
+ * @category constructors
+ */
 export const make = <const Routes extends ReadonlyArray<Route.Any>, LayerError>(options: {
   readonly routes: Routes
   readonly layer: Layer.Layer<History.Service | Route.Route.Services<Routes[number]>, LayerError>
 }): Router<Routes, LayerError> => makeRuntime(options)
 
 /**
- * Creates a nested router from a route tree. The compiled tree is validated
- * once and cached by root identity, so adapters may call `RouteTree.compile`
- * themselves and share the same value.
+ * Creates a nested router from a route tree. The compiled tree is the
+ * canonical routing model: it is validated once, with static-before-dynamic
+ * segment ranking, ambiguous-template rejection, and ancestor-preserving
+ * branch planning, and cached by root identity, so adapters may call
+ * `RouteTree.compile` themselves and share the same value.
  *
  * @since 0.2.0
+ * @category constructors
  */
 export const fromTree = <T extends RouteTree.Any, LayerError>(options: {
   readonly routeTree: T

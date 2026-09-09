@@ -71,29 +71,29 @@ describe("Solid review type regressions", () => {
     expect(createRoute).type.not.toBeCallableWith({
       getParentRoute: () => root,
       path: "null-default",
-      load: () => Effect.succeed({ default: null })
+      lazy: () => Effect.succeed({ default: null })
     })
     expect(createRoute).type.not.toBeCallableWith({
       getParentRoute: () => root,
       path: "null-component",
-      load: () => Effect.succeed({ component: null })
+      lazy: () => Effect.succeed({ component: null })
     })
     // A union member without view keys must not shield an invalid view member.
     expect(createRoute).type.not.toBeCallableWith({
       getParentRoute: () => root,
       path: "union-default",
-      load: () => Effect.succeed<{ default: 42 } | { title: string }>({ title: "descriptor" })
+      lazy: () => Effect.succeed<{ default: 42 } | { title: string }>({ title: "descriptor" })
     })
     expect(createRoute).type.toBeCallableWith({
       getParentRoute: () => root,
       path: "union-component",
-      load: () => Effect.succeed<{ component: Component } | { title: string }>({ title: "descriptor" })
+      lazy: () => Effect.succeed<{ component: Component } | { title: string }>({ title: "descriptor" })
     })
     // Optional undefined exports still count as absent.
     expect(createRoute).type.toBeCallableWith({
       getParentRoute: () => root,
       path: "optional-default",
-      load: () => Effect.succeed<{ default?: Component; title: string }>({ title: "descriptor" })
+      lazy: () => Effect.succeed<{ default?: Component; title: string }>({ title: "descriptor" })
     })
   })
 })

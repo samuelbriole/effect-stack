@@ -28,7 +28,7 @@ const project = Route.make({
   params: { projectId: ProjectId },
   search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
   hash: Schema.Literals(["", "details"]),
-  load: () => Effect.tryPromise(() => import("./project-module.js"))
+  lazy: () => Effect.tryPromise(() => import("./project-module.js"))
 })
 
 export const router = Router.make({
@@ -37,17 +37,22 @@ export const router = Router.make({
 })
 ```
 
-`router.href(route, input)` builds a typed URL without throwing. `router.state` is an Atom of Effect `AsyncResult`, and
-`router.navigate` is an action Atom accepting `Router.push`, `Router.replace`, `Router.back`, `Router.forward`,
-`Router.go`, and `Router.refresh` commands.
+`router.href(route, input)` builds a typed URL without throwing. `router.state` is an Atom of Effect `AsyncResult`,
+and `router.branch`, `router.completed`, and `router.navigation` are read-only Atom observations of navigation state.
 
-`router.execute(command)` exposes the underlying operation as an Effect requiring `AtomRegistry.AtomRegistry`.
+`router.execute(command)` is the only navigation command interface: it exposes the operation as an Effect requiring
+`AtomRegistry.AtomRegistry`.
 Push/replace/refresh await their own navigation and scoped cleanup; superseding navigation interrupts the previous
 operation. Traversal commands acknowledge the history request. `router.retry` rebuilds failed initialization or refreshes
-a healthy runtime. See [navigation and match snapshots](../../docs/router-navigation.md) for the full contract.
+a healthy runtime. `router.navigation` is a read-only projection of the latest navigation operation; its successful
+projection carries no value. See
+[navigation and match snapshots](../../docs/router-navigation.md) for the full contract.
 
-Routes are checked in declaration order. The first structurally matching route wins; malformed values on that route
-produce `RouteDecodeError` rather than falling through. This release supports exact static segments and required named
+Routes are planned by the canonical routing model: static segments rank ahead of dynamic ones, malformed
+percent-encoding never matches a segment, and routes with equal ranking keep declaration order. `Router.fromTree`
+additionally resolves ancestor chains and rejects ambiguous templates; prefer a tree when two templates can match the
+same URL and the ancestor views should render.
+This release supports exact static segments and required named
 segments only; trailing and repeated slashes remain significant. `Route.make` rejects invalid untyped definitions with
 `RouteDefinitionError`, while URL matching and construction return typed `Result` failures.
 
@@ -65,19 +70,19 @@ adapter examples.
 segments, and indexes ahead of the ancestors sharing their URL.
 
 Route-tree builders support `.pipe(...)` and `RouteTree.isNode` identification. `RouteTree.compile(tree)` validates the
-static tree and precomputes ranking, path segments, ancestry, and destination endpoints for reuse across navigations.
+static tree and exposes a small operation-oriented interface: the flattened route list, `plan` for branch matching, and
+`target` for destination resolution. Ranking, path segments, ancestry, and endpoint indexes are precomputed once but
+stay private.
 
 `RouteTree.Destination<typeof tree>` supplies the common typed destination model for renderer adapters. It includes the
 ranked endpoint's inherited params, search, and hash, requiring inputs only when their Schemas require them. An index's
-requirements cannot be bypassed by targeting an ancestor at the same URL.
+requirements cannot be bypassed by targeting an ancestor at the same URL. `Compiled["target"]` selects that endpoint and
+fills omitted empty inputs; adapters then pass its `route` and `input` to `Route.href` for Schema validation and
+encoding before dispatching a navigation command. This keeps destination interpretation shared across React, Solid, and
+future adapters.
 
-`RouteTree.target(router.routes, destination)` selects that endpoint and fills omitted empty inputs. Adapters then pass its
-`route` and `input` to `Route.href` for Schema validation and encoding before dispatching a navigation command. This keeps
-destination interpretation shared across React, Solid, and future adapters.
-
-Compiled trees and the flattened arrays passed to legacy `RouteTree.plan`/`RouteTree.target` are static, immutable
-definitions. Build a new tree with `addChildren` when changing definitions; identity-based setup caches then compile the
-new value independently.
+Compiled trees and the route arrays passed to `Router.make` are static, immutable definitions. Build a new tree with
+`addChildren` when changing definitions; identity-based setup caches then compile the new value independently.
 
 The typed `router.branch` preserves each route's inputs, module, data, and errors through a distributive match union.
 Discriminate entries by `routeId`. Incoming decoded matches, retained resolved matches, incoming location, transition
@@ -87,7 +92,7 @@ allow custom adapters and application subscriptions to observe only their releva
 ## Effect data loaders
 
 Use `loader` to prepare data from the decoded URL. Its result is inferred as `loaderData` on the resolved route;
-`load` independently imports route code and exposes its result as `module`.
+`lazy` independently imports route code and exposes its result as `module`.
 
 ```ts
 import { MemoryHistory, Route, Router } from "@effect-stack/router"

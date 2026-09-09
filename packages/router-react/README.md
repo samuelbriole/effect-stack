@@ -90,7 +90,8 @@ Layer value when composing shared dependencies so Effect can memoize its constru
 
 `loader` returns an Effect using decoded URL inputs. Supply its services through `createRouter({ layer })`.
 `history` is a separate Layer option, defaulting to BrowserHistory; MemoryHistory is useful in tests.
-`load` imports a lazy view module with a `default` or `component` export. An explicit `component` takes precedence.
+`lazy` imports a lazy view module with a `default` or `component` export. An explicit
+`component` takes precedence.
 
 Ancestors resolve before descendants. Within each route, code and data load concurrently. Navigation supersession and
 registry disposal interrupt the branch. Successful results are retained while that route refreshes; resources opened

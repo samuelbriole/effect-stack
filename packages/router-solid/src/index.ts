@@ -36,18 +36,10 @@ export interface Views {
 
 type SolidModuleView = NonNullable<Views["component"]>
 
-// Distribute over module unions so one invalid view export member cannot hide
-// behind another member that merely lacks the view keys.
-type InvalidLazyModuleExport<M> = M extends unknown ?
-    | ("default" extends keyof M ? ([Exclude<M["default"], undefined>] extends [SolidModuleView] ? never : true)
-      : never)
-    | ("component" extends keyof M ? ([Exclude<M["component"], undefined>] extends [SolidModuleView] ? never : true)
-      : never)
-  : never
-
 // A lazy module may carry renderer-neutral data, but a present view export must be a Solid component.
-// Optional undefined exports stay absent; a present null is invalid.
-type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown : { readonly load?: never }
+// Optional undefined exports stay absent; a present null is invalid. Distribution over module
+// unions keeps one invalid member from hiding behind another member that merely lacks the view keys.
+type CheckedLazyModule<M> = RouteTree.CheckedLazyModule<M, SolidModuleView>
 /** @since 0.2.0 */
 export interface SelectorOptions<A> {
   readonly equals?: (left: A, right: A) => boolean
@@ -188,7 +180,7 @@ export function createRoute(
     readonly params?: RouteTree.Fields
     readonly search?: RouteTree.Fields
     readonly hash?: RouteTree.HashCodec
-    readonly load?: () => Effect.Effect<unknown, unknown, unknown>
+    readonly lazy?: () => Effect.Effect<unknown, unknown, unknown>
     readonly loader?: (input: never) => Effect.Effect<unknown, unknown, unknown>
   }
 ): unknown {
@@ -439,7 +431,7 @@ type Startup = { readonly _tag: "Active" | "Pending" } | { readonly _tag: "Failu
 function RouterView(): JSX.Element {
   const { core } = useRuntime()
   const registry = useContext(RegistryContext)
-  onCleanup(registry.mount(core.navigate))
+  onCleanup(registry.mount(core.navigation))
   const retry = useRetry()
   const startup = Atom.map(core.branch, (branch): Startup =>
     branch.matches.length > 0

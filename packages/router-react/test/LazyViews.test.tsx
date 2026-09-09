@@ -46,13 +46,13 @@ const invalidModule = { default: 42 } as unknown as { readonly default: React.Co
 describe.sequential("React lazy view validation", () => {
   it("accepts forwardRef module views and rejects a present null view", async () => {
     const Forward = React.forwardRef<HTMLParagraphElement>((_, ref) => <p ref={ref}>Forward view</p>)
-    const valid = createRootRoute({ load: () => Effect.succeed({ default: Forward }) })
+    const valid = createRootRoute({ lazy: () => Effect.succeed({ default: Forward }) })
     const { container } = await mount(createRouter({ routeTree: valid, history: MemoryHistory.layer() }))
     expect(container.textContent).toBe("Forward view")
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       const route = createRootRoute({
-        load: () => Effect.succeed({ default: null } as unknown as { readonly default: React.ComponentType }),
+        lazy: () => Effect.succeed({ default: null } as unknown as { readonly default: React.ComponentType }),
         errorComponent: ({ error }) => <p>{String(error)}</p>
       })
       const broken = await mount(createRouter({ routeTree: route, history: MemoryHistory.layer() }))
@@ -87,7 +87,7 @@ describe.sequential("React lazy view validation", () => {
       const broken = createRoute({
         getParentRoute: () => section,
         path: "broken",
-        load: () => Effect.succeed(invalidModule),
+        lazy: () => Effect.succeed(invalidModule),
         errorComponent: ({ error }) => <p>{`Child boundary: ${String(error)}`}</p>
       })
       const router = createRouter({
@@ -120,7 +120,7 @@ describe.sequential("React lazy view validation", () => {
       getParentRoute: () => rootRoute,
       path: "explicit",
       component: () => <p>Explicit view</p>,
-      load: () => Effect.succeed(invalidModule)
+      lazy: () => Effect.succeed(invalidModule)
     })
     const router = createRouter({
       routeTree: rootRoute.addChildren([explicit]),
@@ -142,7 +142,7 @@ describe.sequential("React lazy view validation", () => {
     const neutral = createRoute({
       getParentRoute: () => rootRoute,
       path: "neutral",
-      load: () => Effect.succeed({ title: "descriptor" })
+      lazy: () => Effect.succeed({ title: "descriptor" })
     })
     const router = createRouter({
       routeTree: rootRoute.addChildren([neutral]),
@@ -164,12 +164,12 @@ describe.sequential("React lazy view validation", () => {
     const lazy = createRoute({
       getParentRoute: () => rootRoute,
       path: "lazy",
-      load: () => Effect.succeed({ default: () => <p>Lazy view</p> })
+      lazy: () => Effect.succeed({ default: () => <p>Lazy view</p> })
     })
     const memoized = createRoute({
       getParentRoute: () => rootRoute,
       path: "memo",
-      load: () => Effect.succeed({ component: React.memo(() => <p>Memoized view</p>) })
+      lazy: () => Effect.succeed({ component: React.memo(() => <p>Memoized view</p>) })
     })
     const tree = rootRoute.addChildren([lazy, memoized])
     const lazyRouter = createRouter({ routeTree: tree, history: MemoryHistory.layer("/lazy") })

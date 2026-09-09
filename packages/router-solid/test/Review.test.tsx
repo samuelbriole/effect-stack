@@ -295,7 +295,7 @@ describe.sequential("Solid review regressions", () => {
       getParentRoute: () => rootRoute,
       path: "broken",
       // Simulates an untyped JS module that claims a component export but resolves null.
-      load: () => Effect.succeed({ default: null as unknown as Component })
+      lazy: () => Effect.succeed({ default: null as unknown as Component })
     })
     const router = createRouter({
       routeTree: rootRoute.addChildren([broken]),

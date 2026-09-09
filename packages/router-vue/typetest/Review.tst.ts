@@ -51,26 +51,26 @@ test("present-null lazy module views stay invalid while optional undefined expor
   expect(createRoute).type.not.toBeCallableWith({
     getParentRoute: () => root,
     path: "null-default",
-    load: () => Effect.succeed({ default: null })
+    lazy: () => Effect.succeed({ default: null })
   })
   expect(createRoute).type.not.toBeCallableWith({
     getParentRoute: () => root,
     path: "null-component",
-    load: () => Effect.succeed({ component: null })
+    lazy: () => Effect.succeed({ component: null })
   })
   expect(createRoute).type.not.toBeCallableWith({
     getParentRoute: () => root,
     path: "union-invalid",
-    load: () => Effect.succeed({ default: 42 } as { readonly default: number } | { readonly title: string })
+    lazy: () => Effect.succeed({ default: 42 } as { readonly default: number } | { readonly title: string })
   })
   expect(createRoute).type.not.toBeCallableWith({
     getParentRoute: () => root,
     path: "array-default",
-    load: () => Effect.succeed({ default: [] })
+    lazy: () => Effect.succeed({ default: [] })
   })
   expect(createRoute).type.toBeCallableWith({
     getParentRoute: () => root,
     path: "optional-view",
-    load: () => Effect.succeed({ default: undefined as Component | undefined })
+    lazy: () => Effect.succeed({ default: undefined as Component | undefined })
   })
 })

@@ -21,7 +21,7 @@ describe.sequential("Vue runtime ownership", () => {
       getParentRoute: () => parent,
       path: "lazy",
       pendingComponent: () => h("p", "Pending"),
-      load: () =>
+      lazy: () =>
         Effect.gen(function*() {
           yield* Effect.addFinalizer(() => Deferred.succeed(stopped, undefined))
           yield* Deferred.succeed(started, undefined)
@@ -39,8 +39,11 @@ describe.sequential("Vue runtime ownership", () => {
       await Effect.runPromise(Deferred.await(started))
       await nextTick()
       expect(container.textContent).toBe("ShellPending")
-      registry.set(router.core.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+      await Effect.runPromise(
+        router.core
+          .execute(Router.push(home, { params: {}, search: {}, hash: "" }))
+          .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+      )
       await Effect.runPromise(Deferred.await(stopped))
       await nextTick()
       expect(container.textContent).toBe("ShellHome")
@@ -111,8 +114,9 @@ describe.sequential("Vue runtime ownership", () => {
           entry.result._tag === "Success" ? entry.result.value.loaderData : undefined
         )
       ).toEqual([1, 1])
-      registry.set(router.core.navigate, Router.refresh)
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+      await Effect.runPromise(
+        router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+      )
       expect(acquired).toBe(1)
       render(h(provider, { router, registry: other }), second)
       expect(

@@ -11,7 +11,8 @@ EffectStack is a set of headless modules with explicit ownership. Applications m
 - Future **DB** is authoritative for normalized entities, indexes, transactions, and live queries.
 
 History is an infrastructure seam beneath Router, not a competing owner. Browser and memory adapters implement the same
-small Effect service. Atom observes and controls the Router runtime across renderers; it does not duplicate state.
+small Effect service. Atom observes the Router runtime across renderers; commands enter through the Effect `execute`
+interface. It does not duplicate state.
 
 ## Dependency direction
 
@@ -73,6 +74,10 @@ so loader results must not depend on transition-scoped resources remaining open.
 loaders again. Applications can supply resource caching through Layer services without transferring cache ownership to
 Router. Expected data-loader failures preserve route identity separately from lazy-module failures.
 
-Flat `Router.make` routes are matched in declaration order. Duplicate IDs and exact path templates are rejected; otherwise
-the first structural match wins. Nested `Router.fromTree` branches use static-before-dynamic ranking and reject ambiguous
-templates.
+The canonical routing planner is the single matching model for every router: static segments rank ahead of dynamic
+ones, malformed percent-encoding never matches a segment, not-found branches retain the covering route entry, and routes
+with equal ranking keep declaration order. Flat `Router.make` plans that model directly over its validated route list
+(duplicate IDs and exact path templates are rejected). Nested `Router.fromTree` adds ancestor-preserving branches and
+ambiguous-template rejection through the compiled tree, which is the canonical routing model. A compiled tree exposes
+only its validated route list, branch planning, and destination resolution; ranking, segment, ancestry, and endpoint
+indexes stay private in the shared internal planner.

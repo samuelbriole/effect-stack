@@ -20,7 +20,7 @@ const project = Route.make({
   path: "/projects/:id",
   params: { id: Schema.FiniteFromString },
   search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
-  load: () => Effect.fail(new LoadIssue()).pipe(Effect.as({ title: "project" } as const)),
+  lazy: () => Effect.fail(new LoadIssue()).pipe(Effect.as({ title: "project" } as const)),
   loader: (input: Route.LoaderInput<{ id: number }, { tab?: "overview" | "activity" }, string>) =>
     input.params.id === 1 ? Effect.succeed({ id: input.params.id }) : Effect.fail(new DataIssue())
 })
