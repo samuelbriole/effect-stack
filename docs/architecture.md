@@ -6,7 +6,7 @@ EffectStack is a set of headless modules with explicit ownership. Applications m
 
 - **Router** is authoritative for URL interpretation, route matching, navigation history, navigation commands, and
   navigation lifecycle state.
-- Future **Query** is authoritative for remote-resource lifecycle, caching, staleness, and mutations.
+- **Effect Atom** provides remote-resource state and mutations as an existing Effect-native alternative to TanStack Query.
 - Future **Form** is authoritative for editing, validation, and submission state.
 - Future **DB** is authoritative for normalized entities, indexes, transactions, and live queries.
 
@@ -64,7 +64,8 @@ for completion, interruption, and recovery semantics.
 ## Route loading versus remote state
 
 A lazy route module is renderer-neutral code splitting. Native dynamic import caching is allowed, but Router does not own
-preloading, eviction, request deduplication, or remote cache policy. Those resource concerns belong to Query.
+preloading, eviction, request deduplication, or remote cache policy. Applications manage remote resources through Effect
+Atom and application services.
 
 Route `loader` effects prepare data from decoded params, search, hash, and the current location. Router coordinates their
 execution alongside lazy code loading and retains `loaderData` on the resolved match. Both effects run concurrently in

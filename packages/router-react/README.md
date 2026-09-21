@@ -94,7 +94,8 @@ Layer value when composing shared dependencies so Effect can memoize its constru
 
 Ancestors resolve before descendants. Within each route, code and data load concurrently. Navigation supersession and
 registry disposal interrupt the branch. Successful results are retained while that route refreshes; resources opened
-in a loader's scope close before its result is published. Remote-resource caching belongs in application services or Query.
+in a loader's scope close before its result is published. Remote-resource caching belongs in application services or Effect
+Atom.
 
 `pendingComponent`, `errorComponent`, and `notFoundComponent` bubble to the nearest declaring ancestor, replacing that
 route's view and descendants. Layouts above the boundary remain mounted. Error components receive `{ error, reset }`;

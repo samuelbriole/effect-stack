@@ -124,4 +124,4 @@ Defects and interruption remain in `Cause`.
 Data loaders run on every matched resolution, including refresh and history navigation. Superseding navigation or
 disposing the registry interrupts pending work. Loader scopes close when the transition finishes, so returned data must
 not depend on resources kept open by that scope. The active match retains the result; resource caching and reuse can be
-provided by the application's services or a future Query integration.
+provided by the application's services or Effect Atom.

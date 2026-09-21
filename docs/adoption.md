@@ -1,6 +1,7 @@
 # Adoption
 
-EffectStack packages are incremental. Installing Router does not require adopting future Query, Form, or DB packages.
+EffectStack packages are incremental. Installing Router does not require adopting future Form or DB packages.
+For remote state, use Effect Atom, the existing Effect-native alternative to TanStack Query.
 
 ## Install
 
