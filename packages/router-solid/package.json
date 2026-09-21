@@ -1,6 +1,6 @@
 {
   "name": "@effect-stack/router-solid",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "MIT",
   "description": "First-party Solid adapter for EffectStack Router",
@@ -33,7 +33,7 @@
     }
   },
   "peerDependencies": {
-    "@effect-stack/router": "^0.2.0",
+    "@effect-stack/router": "^0.3.0",
     "@effect/atom-solid": "^4.0.0-rc.116",
     "effect": "^4.0.0-rc.116",
     "solid-js": "^1.9.15"

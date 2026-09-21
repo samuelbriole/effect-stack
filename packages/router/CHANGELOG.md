@@ -1,5 +1,30 @@
 # @effect-stack/router
 
+## 0.3.0
+
+### Minor Changes
+
+- [#15](https://github.com/samuelbriole/effect-stack/pull/15) [`1c1232e`](https://github.com/samuelbriole/effect-stack/commit/1c1232ef781afa73b1d88f4996fe10da558925e6) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Raise the minimum Effect and Effect atom peer versions to 4.0.0-rc.116. The React adapter now requires React 19.3.0 or newer, and the Vue adapter requires Vue 3.5.43 or newer within their existing major versions.
+
+- [#12](https://github.com/samuelbriole/effect-stack/pull/12) [`4de4cd9`](https://github.com/samuelbriole/effect-stack/commit/4de4cd954f9ada1019b2dbda8eda6545f8c3ac47) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Simplify Router's public API and fix navigation result values. Breaking changes:
+  
+  - Replace writable `router.navigate` with `router.execute(command)`, supplying `AtomRegistry.AtomRegistry`.
+    Observe `router.navigation`; cancel through Effect interruption or `useNavigate`'s `AbortSignal`. `Atom.Reset` is removed.
+  - Navigation and branch successes, including retained previous successes, now contain `undefined` as declared.
+    Resolved data remains in route snapshots. Older operations cannot overwrite newer navigation outcomes.
+  - Flat routes now rank static segments ahead of dynamic ones; equal-ranking patterns keep declaration order.
+    Malformed static segments no longer match, dynamic decoding failures remain typed, and not-found branches retain
+    covering matches.
+  - Rename the code-loading option and stored route field from `load` to `lazy`. `loader` still prepares data.
+  - Use `RouteTree.compile(tree).plan` and `.target` instead of standalone `RouteTree.plan` and `.target`.
+    Compiled values expose only `routes`, `plan`, and `target`; use `routes.find` for ID lookup. `flatten` remains available.
+  
+  Invocation-specific cleanup, history-acceptance completion, and initialization retry are preserved.
+
+### Patch Changes
+
+- [#15](https://github.com/samuelbriole/effect-stack/pull/15) [`1c1232e`](https://github.com/samuelbriole/effect-stack/commit/1c1232ef781afa73b1d88f4996fe10da558925e6) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Require a string initial URL in `MemoryHistory.make` instead of allowing an inferred `any` parameter. Omitting the URL still defaults to `/`.
+
 ## 0.2.0
 
 ### Minor Changes
