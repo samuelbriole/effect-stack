@@ -357,7 +357,11 @@ const normalizeSearch = (
     if (value === undefined) {
       continue
     }
-    if (typeof value === "string" && Result.isFailure(Schema.decodeUnknownResult(fields[key])(value))) {
+    const codec = fields[key]
+    if (codec === undefined) {
+      continue
+    }
+    if (typeof value === "string" && Result.isFailure(Schema.decodeUnknownResult(codec)(value))) {
       output[key] = [value]
     } else {
       output[key] = value
@@ -387,6 +391,9 @@ export const match = <R extends Any>(
   for (let index = 0; index < expected.length; index++) {
     const expectedSegment = expected[index]
     const actualSegment = actual[index]
+    if (expectedSegment === undefined || actualSegment === undefined) {
+      return Result.succeed(Option.none())
+    }
     const decoded = decodeUriPart(route.id, "path", actualSegment)
     if (Result.isFailure(decoded)) {
       return Result.fail(decoded.failure)
@@ -500,7 +507,8 @@ const encodeSearch = (routeId: string, fields: UrlFields, value: unknown): Resul
           })
         )
       }
-      if (item.length === 1 && Result.isSuccess(Schema.decodeUnknownResult(fields[key])(item[0]))) {
+      const codec = fields[key]
+      if (item.length === 1 && codec !== undefined && Result.isSuccess(Schema.decodeUnknownResult(codec)(item[0]))) {
         return Result.fail(
           new RouteEncodeError({
             routeId,

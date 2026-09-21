@@ -88,8 +88,10 @@ const buildIndex = <T extends Route.Any>(routes: ReadonlyArray<T>): Index<T> => 
   ranked.sort((a, b) => {
     const left = a.segments
     const right = b.segments
-    for (let i = 0; i < Math.min(left.length, right.length); i++) {
-      const difference = Number(left[i].startsWith(":")) - Number(right[i].startsWith(":"))
+    for (const [i, leftSegment] of left.entries()) {
+      const rightSegment = right[i]
+      if (rightSegment === undefined) break
+      const difference = Number(leftSegment.startsWith(":")) - Number(rightSegment.startsWith(":"))
       if (difference !== 0) return difference
     }
     return right.length - left.length || b.depth - a.depth
@@ -116,8 +118,10 @@ const structural = (expected: ReadonlyArray<string>, actual: ReadonlyArray<strin
   if (exact ? actual.length !== expected.length : actual.length < expected.length) return false
   return expected.every((part, index) => {
     if (part.startsWith(":")) return true
+    const candidate = actual[index]
+    if (candidate === undefined) return false
     try {
-      return decodeURIComponent(actual[index]) === part
+      return decodeURIComponent(candidate) === part
     } catch {
       return false
     }

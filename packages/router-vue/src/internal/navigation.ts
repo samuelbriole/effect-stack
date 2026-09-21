@@ -99,10 +99,12 @@ export const Link = defineComponent({
           || (!props.exact && pathname !== "/" && current.value.pathname.startsWith(`${pathname}/`)))
       // Vue dispatches event arrays with its native error handling and
       // stopImmediatePropagation semantics; interception runs last.
-      const handlers =
-        attrs.onClick === undefined
-          ? [onClick]
-          : [...(Array.isArray(attrs.onClick) ? attrs.onClick : [attrs.onClick]), onClick]
+      const external: ReadonlyArray<unknown> = Array.isArray(attrs.onClick)
+        ? attrs.onClick
+        : attrs.onClick === undefined
+          ? []
+          : [attrs.onClick]
+      const handlers = [...external, onClick]
       return h(
         "a",
         {

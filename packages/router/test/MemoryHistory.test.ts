@@ -25,8 +25,8 @@ describe("MemoryHistory", () => {
 
       const entries = yield* history.entries
       expect(entries).toHaveLength(2)
-      expect(entries[1].pathname).toBe("/replacement")
-      expect(entries[1].hash).toBe("#details")
+      expect(entries[1]?.pathname).toBe("/replacement")
+      expect(entries[1]?.hash).toBe("#details")
     })
   )
 

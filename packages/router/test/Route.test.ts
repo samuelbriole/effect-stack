@@ -32,7 +32,9 @@ describe("Route", () => {
 
     const matched = Route.match(project, new URL(href.success, "https://example.test"))
     expect(Result.isSuccess(matched)).toBe(true)
-    if (Result.isFailure(matched) || Option.isNone(matched.success)) return
+    if (Result.isFailure(matched)) return
+    expect(Option.isSome(matched.success)).toBe(true)
+    if (Option.isNone(matched.success)) return
     expect(matched.success.value.params).toEqual({ projectId: 42 })
     expect(matched.success.value.search).toEqual({ tab: "activity", tag: ["effect", "web"] })
     expect(matched.success.value.hash).toBe("details")

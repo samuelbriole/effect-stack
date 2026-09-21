@@ -69,9 +69,10 @@ describe("BrowserHistory", { concurrent: false }, () => {
       window.history.replaceState(externalState, "", "/external?from=pop#state")
       window.dispatchEvent(new PopStateEvent("popstate", { state: externalState }))
       yield* Effect.yieldNow
-      expect((yield* Ref.get(changes)).map(History.toHref)).toEqual(["/external?from=pop#state"])
-      expect((yield* Ref.get(changes))[0].state).toEqual(externalState)
-      expect((yield* history.current).key).toBe((yield* Ref.get(changes))[0].key)
+      const emitted = yield* Ref.get(changes)
+      expect(emitted.map(History.toHref)).toEqual(["/external?from=pop#state"])
+      expect(emitted[0]?.state).toEqual(externalState)
+      expect((yield* history.current).key).toBe(emitted[0]?.key)
 
       yield* Fiber.interrupt(listener)
       expect(tracked.addEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)

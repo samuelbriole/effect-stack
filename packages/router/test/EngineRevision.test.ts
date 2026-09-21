@@ -163,7 +163,9 @@ describe("EngineRevision", () => {
         getParentRoute: () => root,
         path: "child/:id",
         params: { id: Schema.FiniteFromString },
-        loader: Effect.fn("EngineRevision.childLoader")(function* ({ params }) {
+        loader: Effect.fn("EngineRevision.childLoader")(function* ({
+          params
+        }: Route.LoaderInput<{ readonly id: number }, {}, string>) {
           if (params.id === 2) {
             yield* Deferred.succeed(childReloading, undefined)
             yield* Deferred.await(childGate)
@@ -316,25 +318,25 @@ describe("EngineRevision", () => {
       yield* AtomRegistry.mount(registry, router.state)
       yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(router.routeAtoms(home)).toBe(router.routeAtoms(home))
-      const events = yield* Ref.make<number>(0)
-      const unsubscribe = registry.subscribe(router.routeAtoms(project).params, () =>
-        Effect.runSync(Ref.update(events, (count) => count + 1))
-      )
+      let events = 0
+      const unsubscribe = registry.subscribe(router.routeAtoms(project).params, () => {
+        events += 1
+      })
       yield* runRegistryEffect(
         registry,
         router.execute(Router.push(project, { params: { id: 42 }, search: {}, hash: "" }))
       )
       expect(registry.get(router.routeAtoms(project).params)).toEqual(Option.some({ id: 42 }))
-      const eventsAfterNavigation = yield* Ref.get(events)
+      const eventsAfterNavigation = events
       // Refresh republishes the incoming input, but an equal selection must not
       // notify subscribers.
       yield* runRegistryEffect(registry, router.execute(Router.refresh))
-      expect(yield* Ref.get(events)).toBe(eventsAfterNavigation)
+      expect(events).toBe(eventsAfterNavigation)
       yield* runRegistryEffect(
         registry,
         router.execute(Router.push(project, { params: { id: 43 }, search: {}, hash: "" }))
       )
-      expect(yield* Ref.get(events)).toBe(eventsAfterNavigation + 1)
+      expect(events).toBe(eventsAfterNavigation + 1)
       expect(registry.get(router.routeAtoms(project).params)).toEqual(Option.some({ id: 43 }))
       const resolved = registry.get(router.routeAtoms(project).resolved)
       expect(Option.map(resolved, (value) => value.params.id)).toEqual(Option.some(43))

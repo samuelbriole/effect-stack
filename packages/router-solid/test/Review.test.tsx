@@ -39,6 +39,12 @@ const mount = <T extends RouteTree.Any, E>(router: ClientRouter<T, E>) => {
 // any fire-and-forget transition started from an effect before the next read.
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
+const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
+  const element = container.querySelector<T>(selector)
+  if (element === null) throw new Error(`Missing element: ${selector}`)
+  return element
+}
+
 describe("Solid review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views", async () => {
     const started = Effect.runSync(Deferred.make<void>())
@@ -97,7 +103,7 @@ describe("Solid review regressions", { concurrent: false }, () => {
     try {
       await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
       expect(container.textContent).toBe("Retry")
-      container.querySelector("button")!.click()
+      requireElement(container, "button").click()
       await flush()
       // The latched boundary survives Retry while the asynchronous load runs.
       expect(container.textContent).toBe("Retry")
@@ -134,7 +140,7 @@ describe("Solid review regressions", { concurrent: false }, () => {
     )
     await flush()
     expect(container.textContent).toBe("Retry startup")
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     await flush()
     // Startup Retry rebuilds the failed Layer instead of re-reading cached failure.
@@ -218,13 +224,14 @@ describe("Solid review regressions", { concurrent: false }, () => {
     })
     const { container, registry } = mount(router)
     await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
-    container.querySelector<HTMLButtonElement>("#go")!.click()
+    requireElement<HTMLButtonElement>(container, "#go").click()
     await Effect.runPromise(Deferred.await(started))
     await flush()
     // The bridge stays pending while its own transition loads.
     expect(settled).toBe(false)
     Effect.runSync(Deferred.succeed(ready, undefined))
-    await navigation!
+    if (navigation === undefined) throw new Error("Expected navigation")
+    await navigation
     // It resolves only after its transition published terminal state.
     expect(settled).toBe(true)
     const match = await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))

@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
@@ -42,13 +43,14 @@ const location = (destination: History.Destination, key: string, index: number):
  * @since 0.1.0
  * @category constructors
  */
-export const make = Effect.fn("MemoryHistory.make")(function* (initialHref = "/") {
+export const make = Effect.fn("MemoryHistory.make")(function* (initialHref: string = "/") {
   const changes = yield* Effect.acquireRelease(PubSub.unbounded<History.Location>(), PubSub.shutdown)
   const initial = location(History.destinationFromHref(initialHref), "memory-0", 0)
   const state = yield* Ref.make<State>({ entries: [initial], index: 0, nextKey: 1 })
 
+  // Every state update preserves a non-empty entry list and an in-range index.
   const current: Effect.Effect<History.Location> = Ref.get(state).pipe(
-    Effect.map((value) => value.entries[value.index])
+    Effect.map((value) => Arr.getUnsafe(value.entries, value.index))
   )
 
   const push = Effect.fn("MemoryHistory.push")(function* (destination: History.Destination) {
@@ -68,7 +70,8 @@ export const make = Effect.fn("MemoryHistory.make")(function* (initialHref = "/"
 
   const replace = Effect.fn("MemoryHistory.replace")(function* (destination: History.Destination) {
     return yield* Ref.modify(state, (value) => {
-      const next = location(destination, value.entries[value.index].key, value.index)
+      const entry = Arr.getUnsafe(value.entries, value.index)
+      const next = location(destination, entry.key, value.index)
       const entries = [...value.entries]
       entries[value.index] = next
       return [next, { ...value, entries }]

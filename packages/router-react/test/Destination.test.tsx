@@ -134,7 +134,8 @@ describe("Shared-URL destinations", { concurrent: false }, () => {
       root.render(<RouterProvider router={router} registry={registry} />)
       await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     })
-    const anchor = container.querySelector("a")!
+    const anchor = container.querySelector("a")
+    if (anchor === null) throw new Error("Expected anchor")
     expect(anchor.getAttribute("href")).toBe("/dashboard?page=5#details")
     await React.act(async () => {
       anchor.click()

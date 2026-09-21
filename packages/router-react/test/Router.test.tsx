@@ -21,6 +21,12 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
 })
 
+const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
+  const element = container.querySelector<T>(selector)
+  if (element === null) throw new Error(`Missing element: ${selector}`)
+  return element
+}
+
 describe("React router", { concurrent: false }, () => {
   it("does not repeat redirects when a root pending fallback remounts the layout", async () => {
     const started = Effect.runSync(Deferred.make<void>())
@@ -227,8 +233,9 @@ describe("React router", { concurrent: false }, () => {
       await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     })
     expect(container.textContent).toContain("Home")
-    await React.act(async () => container.querySelector("button")!.click())
-    const anchor = container.querySelector("a")!
+    await React.act(async () => requireElement(container, "button").click())
+    const anchor = container.querySelector("a")
+    if (anchor === null) throw new Error("Expected anchor")
     expect(anchor.getAttribute("href")).toBe("/project")
     const modified = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true })
     await React.act(async () => {
@@ -241,7 +248,7 @@ describe("React router", { concurrent: false }, () => {
     })
     expect(container.textContent).toContain("Project data")
     expect(container.textContent).toContain("Count 1")
-    expect(container.querySelector("a")!.getAttribute("aria-current")).toBe("page")
+    expect(container.querySelector("a")?.getAttribute("aria-current")).toBe("page")
   })
 
   it("bubbles loader errors to a route boundary and retries on refresh", async () => {

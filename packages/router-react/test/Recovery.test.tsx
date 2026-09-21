@@ -9,6 +9,12 @@ import { describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
+const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
+  const element = container.querySelector<T>(selector)
+  if (element === null) throw new Error(`Missing element: ${selector}`)
+  return element
+}
+
 describe("React route recovery", { concurrent: false }, () => {
   it("recovers from a render error through reset and subsequent navigation", async () => {
     let broken = true
@@ -47,7 +53,7 @@ describe("React route recovery", { concurrent: false }, () => {
       expect(errors).toHaveBeenCalled()
       broken = false
       await React.act(async () => {
-        container.querySelector("button")!.click()
+        requireElement(container, "button").click()
         await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
       })
       expect(container.textContent).toBe("ShellRecovered")

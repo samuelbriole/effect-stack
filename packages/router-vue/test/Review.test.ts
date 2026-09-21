@@ -50,6 +50,12 @@ const settle = async <T extends RouteTree.Any, E>(
 const readState = async <T extends RouteTree.Any, E>(router: ClientRouter<T, E>, registry: AtomRegistry.AtomRegistry) =>
   await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
 
+const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
+  const element = container.querySelector<T>(selector)
+  if (element === null) throw new Error(`Missing element: ${selector}`)
+  return element
+}
+
 describe("Vue review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views before the loader settles", async () => {
     const ready = Effect.runSync(Deferred.make<void>())
@@ -107,7 +113,7 @@ describe("Vue review regressions", { concurrent: false }, () => {
     const { container, registry } = mount(router)
     await settle(router, registry)
     expect(container.textContent).toBe("Retry")
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await nextTick()
     // The refresh is still loading; the ancestor boundary keeps its latched failure
     // instead of flashing stale bad data or a generic pending view.
@@ -138,7 +144,7 @@ describe("Vue review regressions", { concurrent: false }, () => {
     const { container, registry } = mount(router)
     await settle(router, registry)
     expect(container.textContent).toBe("Retry startup")
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await nextTick()
     await settle(router, registry)
     expect(attempts).toBe(2)

@@ -26,10 +26,10 @@ describe("navigation review regressions", () => {
       yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
       yield* AtomRegistry.mount(registry, router.branch)
       yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true }).pipe(Effect.exit)
-      const result = registry.get(router.branch).matches[0].result
-      expect(result._tag).toBe("Failure")
-      if (result._tag === "Failure") expect(Cause.hasInterruptsOnly(result.cause)).toBe(true)
-      expect(result.waiting).toBe(false)
+      const result = registry.get(router.branch).matches[0]?.result
+      expect(result?._tag).toBe("Failure")
+      if (result?._tag === "Failure") expect(Cause.hasInterruptsOnly(result.cause)).toBe(true)
+      expect(result?.waiting).toBe(false)
     })
   )
 

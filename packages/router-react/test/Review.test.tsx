@@ -19,6 +19,12 @@ import { describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
+const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
+  const element = container.querySelector<T>(selector)
+  if (element === null) throw new Error(`Missing element: ${selector}`)
+  return element
+}
+
 describe("React review regressions", { concurrent: false }, () => {
   it("exposes incoming params and retained data together in a failed-refresh view", async () => {
     const rootRoute = createRootRoute({ component: Outlet })
@@ -253,7 +259,7 @@ describe("React review regressions", { concurrent: false }, () => {
     try {
       await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
       expect(container.textContent).toBe("Retry")
-      await React.act(async () => container.querySelector("button")!.click())
+      await React.act(async () => requireElement(container, "button").click())
       expect(container.textContent).toBe("Retry")
       await React.act(async () => {
         Effect.runSync(Deferred.succeed(ready, undefined))
@@ -289,7 +295,7 @@ describe("React review regressions", { concurrent: false }, () => {
     try {
       await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
       expect(container.textContent).toBe("Retry startup")
-      await React.act(async () => container.querySelector("button")!.click())
+      await React.act(async () => requireElement(container, "button").click())
       expect(attempts).toBe(2)
       expect(container.textContent).toBe("ready")
     } finally {

@@ -50,6 +50,12 @@ const run = async (self: Effect.Effect<unknown, unknown, never>) => {
   await nextTick()
 }
 
+const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
+  const element = container.querySelector<T>(selector)
+  if (element === null) throw new Error(`Missing element: ${selector}`)
+  return element
+}
+
 describe("Vue router", { concurrent: false }, () => {
   it("preserves layouts while params, search, loader data, and link hrefs react", async () => {
     class Projects extends Context.Service<Projects, { readonly get: (id: number) => Effect.Effect<string> }>()(
@@ -96,15 +102,15 @@ describe("Vue router", { concurrent: false }, () => {
     })
     const { container, registry } = mount(router)
     await settle(router, registry)
-    container.querySelector<HTMLButtonElement>("#root-count")!.click()
-    container.querySelector<HTMLButtonElement>("#project-count")!.click()
+    requireElement<HTMLButtonElement>(container, "#root-count").click()
+    requireElement<HTMLButtonElement>(container, "#project-count").click()
     expect(container.textContent).toContain("Project 1:overview")
-    expect(container.querySelector("a")!.getAttribute("href")).toBe("/projects/2?tab=activity")
-    container.querySelector("a")!.click()
+    expect(requireElement(container, "a").getAttribute("href")).toBe("/projects/2?tab=activity")
+    requireElement(container, "a").click()
     await settle(router, registry)
     expect(container.textContent).toContain("Project 2:activity")
     expect(container.textContent).toContain("Root 1Local 1")
-    expect(container.querySelector("a")!.getAttribute("href")).toBe("/projects/3?tab=activity")
+    expect(requireElement(container, "a").getAttribute("href")).toBe("/projects/3?tab=activity")
     await run(router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
     expect(container.textContent).toContain("Root 1Local 1")
   })
@@ -167,11 +173,11 @@ describe("Vue router", { concurrent: false }, () => {
         },
         { once: true }
       )
-      container.querySelector(`#${id}`)!.dispatchEvent(event)
+      requireElement(container, `#${id}`).dispatchEvent(event)
       return prevented
     }
-    expect(container.querySelector("#home")!.getAttribute("aria-current")).toBe("page")
-    expect(container.querySelector("#home")!.className).toBe("nav")
+    expect(requireElement(container, "#home").getAttribute("aria-current")).toBe("page")
+    expect(requireElement(container, "#home").className).toBe("nav")
     expect(click("normal", { ctrlKey: true })).toBe(false)
     expect(click("normal", { button: 1 })).toBe(false)
     expect(click("blank")).toBe(false)
@@ -179,14 +185,14 @@ describe("Vue router", { concurrent: false }, () => {
     expect(click("prevented")).toBe(true)
     expect(handlers).toBe(1)
     const stopped = new MouseEvent("click", { bubbles: true, cancelable: true })
-    container.querySelector("#stopped")!.dispatchEvent(stopped)
+    requireElement(container, "#stopped").dispatchEvent(stopped)
     expect(stopped.defaultPrevented).toBe(true)
     expect(stoppedHandlers).toBe(0)
     expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).id).toBe(home.id)
     expect(click("normal")).toBe(true)
     await settle(router, registry)
-    expect(container.querySelector("#normal")!.getAttribute("data-active")).toBe("true")
-    expect(container.querySelector("#home")!.hasAttribute("aria-current")).toBe(false)
+    expect(requireElement(container, "#normal").getAttribute("data-active")).toBe("true")
+    expect(requireElement(container, "#home").hasAttribute("aria-current")).toBe(false)
   })
 
   it("renders nested lazy pending/success views and nearest not-found boundaries", async () => {
@@ -249,11 +255,11 @@ describe("Vue router", { concurrent: false }, () => {
     await settle(router, registry)
     expect(container.textContent).toBe("ShellRetry")
     loadFails = false
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await settle(router, registry, true)
     expect(container.textContent).toBe("ShellRetry")
     renderFails = false
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await settle(router, registry, true)
     expect(container.textContent).toBe("ShellLoaded")
   })

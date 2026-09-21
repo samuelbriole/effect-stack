@@ -61,13 +61,19 @@ export const select = (
   }
   if (problem >= 0) {
     let boundary = problem
-    while (boundary > 0 && !declares(entries[boundary].route, kind)) boundary--
+    while (boundary > 0) {
+      const candidate = entries[boundary]
+      if (candidate === undefined || declares(candidate.route, kind)) break
+      boundary--
+    }
     if (depth > boundary) return { _tag: "Empty" }
-    if (boundary === depth) {
-      const failure = globalFailure ?? entries[problem].result
+    const boundaryEntry = entries[boundary]
+    const problemEntry = entries[problem]
+    if (boundary === depth && boundaryEntry !== undefined && problemEntry !== undefined) {
+      const failure = globalFailure ?? problemEntry.result
       return {
         _tag: "Boundary",
-        routeId: entries[boundary].route.id,
+        routeId: boundaryEntry.route.id,
         kind,
         error: failure._tag === "Failure" ? Cause.squash(failure.cause) : undefined
       }

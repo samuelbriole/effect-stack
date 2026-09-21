@@ -2,8 +2,20 @@ import { execFileSync } from "node:child_process"
 import { readFile, readdir } from "node:fs/promises"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { Result, Schema } from "effect"
 
-/** @type {Array<[string, string[]]>} */
+const decodePack = Schema.decodeResult(
+  Schema.fromJsonString(Schema.Struct({ files: Schema.Array(Schema.Struct({ path: Schema.String })) }))
+)
+
+const forbiddenDependencies = {
+  router: ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"],
+  "router-react": ["solid-js", "vue", "@effect/atom-solid", "@effect/atom-vue", "@tanstack/"],
+  "router-solid": ["react", "vue", "@effect/atom-react", "@effect/atom-vue", "@tanstack/"],
+  "router-vue": ["react", "solid-js", "@effect/atom-react", "@effect/atom-solid", "@tanstack/"]
+}
+
+/** @type {Array<[keyof typeof forbiddenDependencies, string[]]>} */
 const packages = [
   ["router", ["index", "Route", "RouteTree", "RenderPolicy", "History", "BrowserHistory", "MemoryHistory", "Router"]],
   ["router-react", ["index"]],
@@ -16,11 +28,13 @@ await Promise.all(
     const packageRoot = resolve(import.meta.dirname, `../packages/${name}`)
     const root = resolve(packageRoot, "dist")
 
-    const pack = JSON.parse(
-      execFileSync("pnpm", ["pack", "--dry-run", "--json"], {
-        cwd: packageRoot,
-        encoding: "utf8"
-      })
+    const pack = Result.getOrThrow(
+      decodePack(
+        execFileSync("pnpm", ["pack", "--dry-run", "--json"], {
+          cwd: packageRoot,
+          encoding: "utf8"
+        })
+      )
     )
     const packedFiles = new Set(pack.files.map((file) => file.path))
     for (const file of packedFiles) {
@@ -54,12 +68,7 @@ await Promise.all(
       )
     ).join("\n")
 
-    const forbidden = {
-      router: ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"],
-      "router-react": ["solid-js", "vue", "@effect/atom-solid", "@effect/atom-vue", "@tanstack/"],
-      "router-solid": ["react", "vue", "@effect/atom-react", "@effect/atom-vue", "@tanstack/"],
-      "router-vue": ["react", "solid-js", "@effect/atom-react", "@effect/atom-solid", "@tanstack/"]
-    }[name]
+    const forbidden = forbiddenDependencies[name]
     for (const dependency of forbidden) {
       if (source.includes(`from "${dependency}`) || source.includes(`from '${dependency}`)) {
         throw new Error(`Renderer dependency found in ${name} output: ${dependency}`)

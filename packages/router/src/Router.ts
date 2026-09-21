@@ -888,14 +888,15 @@ const makeEngine = Effect.fn("Router.makeEngine")(function* <Routes extends Read
         Effect.onExit((exit) => commitEntry(transition, index, exit))
       )
     })
-    if (plan.notFound || results.length === 0) {
+    const last = results[results.length - 1]
+    if (plan.notFound || last === undefined) {
       return yield* new RouteNotFound({
         pathname: location.pathname,
         search: location.search,
         hash: location.hash
       })
     }
-    return results[results.length - 1]
+    return last
   })
 
   // Traversal commands claim the operation projection before asking the host
