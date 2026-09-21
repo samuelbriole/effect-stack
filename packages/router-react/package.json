@@ -13,7 +13,7 @@
   "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
   "sideEffects": false,
   "exports": { ".": "./src/index.tsx", "./package.json": "./package.json" },
-  "files": ["src/**/*.tsx", "dist/**", "README.md", "LICENSE"],
+  "files": ["src/**/*.ts", "src/**/*.tsx", "dist/**", "README.md", "LICENSE"],
   "publishConfig": {
     "access": "public",
     "provenance": true,
