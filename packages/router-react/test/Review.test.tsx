@@ -16,22 +16,27 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
 import { describe, expect, it, vi } from "vitest"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-describe.sequential("React review regressions", () => {
+describe("React review regressions", { concurrent: false }, () => {
   it("exposes incoming params and retained data together in a failed-refresh view", async () => {
     const rootRoute = createRootRoute({ component: Outlet })
     const project = createRoute({
       getParentRoute: () => rootRoute,
       path: "projects/:id",
       params: { id: Schema.FiniteFromString },
-      loader: ({ params }) => params.id === 1 ? Effect.succeed("one") : Effect.fail("unavailable"),
+      loader: ({ params }) => (params.id === 1 ? Effect.succeed("one") : Effect.fail("unavailable")),
       component: () => <p>Ready</p>,
       errorComponent: Failure
     })
     function Failure() {
-      return <p>Incoming {project.useParams().id}, last {project.useLoaderData()}</p>
+      return (
+        <p>
+          Incoming {project.useParams().id}, last {project.useLoaderData()}
+        </p>
+      )
     }
     const router = createRouter({
       routeTree: rootRoute.addChildren([project]),
@@ -44,10 +49,9 @@ describe.sequential("React review regressions", () => {
       await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
       await React.act(async () => {
         await Effect.runPromise(
-          router.core.execute(Router.push(project, { params: { id: 2 }, search: {}, hash: "" })).pipe(
-            Effect.provideService(AtomRegistry.AtomRegistry, registry),
-            Effect.exit
-          )
+          router.core
+            .execute(Router.push(project, { params: { id: 2 }, search: {}, hash: "" }))
+            .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry), Effect.exit)
         )
       })
       expect(container.textContent).toBe("Incoming 2, last one")
@@ -64,11 +68,15 @@ describe.sequential("React review regressions", () => {
       getParentRoute: () => rootRoute,
       path: "projects/:id",
       params: { id: Schema.FiniteFromString },
-      loader: ({ params }) => params.id === 1 ? Effect.succeed("one") : Deferred.await(ready).pipe(Effect.as("two")),
+      loader: ({ params }) => (params.id === 1 ? Effect.succeed("one") : Deferred.await(ready).pipe(Effect.as("two"))),
       component: View
     })
     function View() {
-      return <p>{project.useParams().id}:{project.useLoaderData()}</p>
+      return (
+        <p>
+          {project.useParams().id}:{project.useLoaderData()}
+        </p>
+      )
     }
     const router = createRouter({
       routeTree: rootRoute.addChildren([project]),
@@ -82,9 +90,9 @@ describe.sequential("React review regressions", () => {
       let navigation!: Promise<void>
       await React.act(async () => {
         navigation = Effect.runPromise(
-          router.core.execute(Router.push(project, { params: { id: 2 }, search: {}, hash: "" })).pipe(
-            Effect.provideService(AtomRegistry.AtomRegistry, registry)
-          )
+          router.core
+            .execute(Router.push(project, { params: { id: 2 }, search: {}, hash: "" }))
+            .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
         )
       })
       expect(container.textContent).toBe("1:one")
@@ -113,7 +121,7 @@ describe.sequential("React review regressions", () => {
       getParentRoute: () => rootRoute,
       path: "child",
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.addFinalizer(() =>
             Effect.sync(() => {
               finalized = true
@@ -230,7 +238,7 @@ describe.sequential("React review regressions", () => {
     const child = createRoute({
       getParentRoute: () => rootRoute,
       path: "/",
-      loader: () => ++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good")),
+      loader: () => (++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good"))),
       component: Child
     })
     function Child() {
@@ -246,7 +254,7 @@ describe.sequential("React review regressions", () => {
     try {
       await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
       expect(container.textContent).toBe("Retry")
-      await React.act(async () => container.querySelector("button")!.click())
+      await React.act(async () => requireElement(container, "button").click())
       expect(container.textContent).toBe("Retry")
       await React.act(async () => {
         Effect.runSync(Deferred.succeed(ready, undefined))
@@ -265,7 +273,7 @@ describe.sequential("React review regressions", () => {
     let attempts = 0
     const layer = Layer.effect(
       Config,
-      Effect.suspend(() => ++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready"))
+      Effect.suspend(() => (++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready")))
     )
     const route = createRootRoute({
       loader: () => Config.use(Effect.succeed),
@@ -282,7 +290,7 @@ describe.sequential("React review regressions", () => {
     try {
       await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
       expect(container.textContent).toBe("Retry startup")
-      await React.act(async () => container.querySelector("button")!.click())
+      await React.act(async () => requireElement(container, "button").click())
       expect(attempts).toBe(2)
       expect(container.textContent).toBe("ready")
     } finally {
@@ -345,13 +353,11 @@ describe.sequential("React review regressions", () => {
       await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
       const initial = renders
       await React.act(async () => {
-        void Effect
-          .runPromise(
-            router.core
-              .execute(Router.push(child, { params: {}, search: {}, hash: "" }))
-              .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-          )
-          .catch(() => {})
+        void Effect.runPromise(
+          router.core
+            .execute(Router.push(child, { params: {}, search: {}, hash: "" }))
+            .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+        ).catch(() => {})
       })
       await React.act(async () => {
         Effect.runSync(Deferred.succeed(ready, undefined))

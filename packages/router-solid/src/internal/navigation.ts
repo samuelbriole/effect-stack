@@ -16,11 +16,13 @@ export function useNavigateEffect(): (destination: Destination) => Effect.Effect
   return (destination: Destination) =>
     Effect.suspend(() => {
       const { route, input } = router.compiled.target(destination)
-      return router.core.execute(
-        destination.replace
-          ? Router.replace<RouteTree.Any>(route, input, destination.state)
-          : Router.push<RouteTree.Any>(route, input, destination.state)
-      ).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+      return router.core
+        .execute(
+          destination.replace
+            ? Router.replace<RouteTree.Any>(route, input, destination.state)
+            : Router.push<RouteTree.Any>(route, input, destination.state)
+        )
+        .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
     }) as Effect.Effect<void, NavigationError>
 }
 /** Awaits this transition's resolution and scoped cleanup. @since 0.1.0 */
@@ -41,9 +43,10 @@ export function useRetry(): () => void {
 }
 
 /** @since 0.1.0 */
-export type LinkProps = Destination & Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
-  readonly exact?: boolean
-}
+export type LinkProps = Destination
+  & Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
+    readonly exact?: boolean
+  }
 
 /** A reactive real anchor with the shared typed destination model. @since 0.1.0 */
 export function Link(props: LinkProps): JSX.Element {
@@ -62,18 +65,26 @@ export function Link(props: LinkProps): JSX.Element {
     const current = location()
     if (Option.isNone(current)) return false
     const pathname = href().split(/[?#]/)[0]
-    return current.value.pathname === pathname ||
-      (!local.exact && pathname !== "/" && current.value.pathname.startsWith(`${pathname}/`))
+    return (
+      current.value.pathname === pathname
+      || (!local.exact && pathname !== "/" && current.value.pathname.startsWith(`${pathname}/`))
+    )
   })
   const onClick: JSX.EventHandler<HTMLAnchorElement, MouseEvent> = (event) => {
     const handler = local.onClick
     if (typeof handler === "function") handler(event)
     else if (handler !== undefined) handler[0](handler[1], event)
     if (
-      event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey ||
-      event.altKey || (event.currentTarget.target !== "" && event.currentTarget.target !== "_self") ||
-      event.currentTarget.hasAttribute("download")
-    ) return
+      event.defaultPrevented
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+      || (event.currentTarget.target !== "" && event.currentTarget.target !== "_self")
+      || event.currentTarget.hasAttribute("download")
+    )
+      return
     event.preventDefault()
     // Router state already renders operation failures; the anchor consumes the rejection.
     navigate(local as Destination).catch(() => {})
@@ -86,7 +97,7 @@ export function Link(props: LinkProps): JSX.Element {
         return href()
       },
       get "aria-current"() {
-        return active() ? "page" as const : undefined
+        return active() ? ("page" as const) : undefined
       },
       get "data-active"() {
         return active() ? "true" : undefined

@@ -18,6 +18,7 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import { type Component, createMemo, createSignal } from "solid-js"
 import { render } from "solid-js/web"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -39,7 +40,7 @@ const mount = <T extends RouteTree.Any, E>(router: ClientRouter<T, E>) => {
 // any fire-and-forget transition started from an effect before the next read.
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
-describe.sequential("Solid review regressions", () => {
+describe("Solid review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views", async () => {
     const started = Effect.runSync(Deferred.make<void>())
     const ready = Effect.runSync(Deferred.make<void>())
@@ -49,7 +50,7 @@ describe.sequential("Solid review regressions", () => {
       path: "projects/:id",
       params: { id: Schema.FiniteFromString },
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
         }),
@@ -80,7 +81,7 @@ describe.sequential("Solid review regressions", () => {
     const child = createRoute({
       getParentRoute: () => rootRoute,
       path: "/",
-      loader: () => ++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good")),
+      loader: () => (++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good"))),
       component: Child
     })
     function Child() {
@@ -97,7 +98,7 @@ describe.sequential("Solid review regressions", () => {
     try {
       await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
       expect(container.textContent).toBe("Retry")
-      container.querySelector("button")!.click()
+      requireElement(container, "button").click()
       await flush()
       // The latched boundary survives Retry while the asynchronous load runs.
       expect(container.textContent).toBe("Retry")
@@ -116,7 +117,7 @@ describe.sequential("Solid review regressions", () => {
     let attempts = 0
     const layer = Layer.effect(
       Config,
-      Effect.suspend(() => ++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready"))
+      Effect.suspend(() => (++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready")))
     )
     const route = createRootRoute({
       loader: () => Config.use(Effect.succeed),
@@ -134,7 +135,7 @@ describe.sequential("Solid review regressions", () => {
     )
     await flush()
     expect(container.textContent).toBe("Retry startup")
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     await flush()
     // Startup Retry rebuilds the failed Layer instead of re-reading cached failure.
@@ -157,8 +158,9 @@ describe.sequential("Solid review regressions", () => {
     const { container, registry } = mount(router)
     await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     await flush()
-    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.state)
-      .toEqual({ n: 1 })
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.state).toEqual({
+      n: 1
+    })
     update(2)
     await flush()
     const match = await Effect.runPromise(
@@ -205,7 +207,7 @@ describe.sequential("Solid review regressions", () => {
       getParentRoute: () => rootRoute,
       path: "slow",
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
         }),
@@ -217,13 +219,14 @@ describe.sequential("Solid review regressions", () => {
     })
     const { container, registry } = mount(router)
     await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
-    container.querySelector<HTMLButtonElement>("#go")!.click()
+    requireElement<HTMLButtonElement>(container, "#go").click()
     await Effect.runPromise(Deferred.await(started))
     await flush()
     // The bridge stays pending while its own transition loads.
     expect(settled).toBe(false)
     Effect.runSync(Deferred.succeed(ready, undefined))
-    await navigation!
+    if (navigation === undefined) throw new Error("Expected navigation")
+    await navigation
     // It resolves only after its transition published terminal state.
     expect(settled).toBe(true)
     const match = await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
@@ -267,11 +270,11 @@ describe.sequential("Solid review regressions", () => {
     )
     expect(encoded._tag).toBe("Failure")
     if (encoded._tag === "Failure") {
-      expect((Cause.squash(encoded.cause) as { readonly _tag: string })._tag)
-        .toBe("@effect-stack/router/RouteEncodeError")
+      expect((Cause.squash(encoded.cause) as { readonly _tag: string })._tag).toBe(
+        "@effect-stack/router/RouteEncodeError"
+      )
     }
-    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.pathname)
-      .toBe("/")
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.pathname).toBe("/")
     expect(container.textContent).toBe("Home")
     // Loader failures surface as typed Effect failures for imperative callers
     // while router state renders the boundary for declarative consumers.

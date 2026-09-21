@@ -8,6 +8,6 @@
   },
   "dependencies": {
     "@effect-stack/router": "workspace:*",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.116"
   }
 }

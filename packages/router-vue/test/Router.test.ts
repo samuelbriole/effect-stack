@@ -15,6 +15,7 @@ import { Context, Deferred, Effect, Layer, Schema } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
 import { afterEach, describe, expect, it } from "vitest"
 import { defineComponent, h, nextTick, ref, render, type VNode } from "vue"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -50,11 +51,11 @@ const run = async (self: Effect.Effect<unknown, unknown, never>) => {
   await nextTick()
 }
 
-describe.sequential("Vue router", () => {
+describe("Vue router", { concurrent: false }, () => {
   it("preserves layouts while params, search, loader data, and link hrefs react", async () => {
-    class Projects
-      extends Context.Service<Projects, { readonly get: (id: number) => Effect.Effect<string> }>()("test/Projects")
-    {}
+    class Projects extends Context.Service<Projects, { readonly get: (id: number) => Effect.Effect<string> }>()(
+      "test/Projects"
+    ) {}
     const Layout = defineComponent({
       setup() {
         const count = ref(0)
@@ -72,8 +73,11 @@ describe.sequential("Vue router", () => {
           h("section", [
             h("button", { id: "project-count", onClick: () => count.value++ }, `Local ${count.value}`),
             h("p", `${data.value}:${search.value.tab}`),
-            h(Link, { to: "/projects/:id", params: { id: params.value.id + 1 }, search: { tab: "activity" } }, () =>
-              "Next")
+            h(
+              Link,
+              { to: "/projects/:id", params: { id: params.value.id + 1 }, search: { tab: "activity" } },
+              () => "Next"
+            )
           ])
       }
     })
@@ -93,18 +97,16 @@ describe.sequential("Vue router", () => {
     })
     const { container, registry } = mount(router)
     await settle(router, registry)
-    container.querySelector<HTMLButtonElement>("#root-count")!.click()
-    container.querySelector<HTMLButtonElement>("#project-count")!.click()
+    requireElement<HTMLButtonElement>(container, "#root-count").click()
+    requireElement<HTMLButtonElement>(container, "#project-count").click()
     expect(container.textContent).toContain("Project 1:overview")
-    expect(container.querySelector("a")!.getAttribute("href")).toBe("/projects/2?tab=activity")
-    container.querySelector("a")!.click()
+    expect(requireElement(container, "a").getAttribute("href")).toBe("/projects/2?tab=activity")
+    requireElement(container, "a").click()
     await settle(router, registry)
     expect(container.textContent).toContain("Project 2:activity")
     expect(container.textContent).toContain("Root 1Local 1")
-    expect(container.querySelector("a")!.getAttribute("href")).toBe("/projects/3?tab=activity")
-    await run(
-      router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-    )
+    expect(requireElement(container, "a").getAttribute("href")).toBe("/projects/3?tab=activity")
+    await run(router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
     expect(container.textContent).toContain("Root 1Local 1")
   })
 
@@ -118,25 +120,36 @@ describe.sequential("Vue router", () => {
           h(Link, { to: "/child", id: "normal" }, () => "Child"),
           h(Link, { to: "/child", target: "_blank", id: "blank" }, () => "Blank"),
           h(Link, { to: "/child", download: "file", id: "download" }, () => "Download"),
-          h(Link, {
-            to: "/child",
-            id: "prevented",
-            onClick: (event: MouseEvent) => {
-              handlers++
-              event.preventDefault()
-            }
-          }, () => "Prevented"),
+          h(
+            Link,
+            {
+              to: "/child",
+              id: "prevented",
+              onClick: (event: MouseEvent) => {
+                handlers++
+                event.preventDefault()
+              }
+            },
+            () => "Prevented"
+          ),
           h(Outlet),
-          h(Link, {
-            to: "/child",
-            id: "stopped",
-            onClick: [(event: MouseEvent) => {
-              event.preventDefault()
-              event.stopImmediatePropagation()
-            }, () => {
-              stoppedHandlers++
-            }]
-          }, () => "Stopped")
+          h(
+            Link,
+            {
+              to: "/child",
+              id: "stopped",
+              onClick: [
+                (event: MouseEvent) => {
+                  event.preventDefault()
+                  event.stopImmediatePropagation()
+                },
+                () => {
+                  stoppedHandlers++
+                }
+              ]
+            },
+            () => "Stopped"
+          )
         ])
     })
     const home = createRoute({ getParentRoute: () => root, path: "/" })
@@ -147,15 +160,19 @@ describe.sequential("Vue router", () => {
     const click = (id: string, init: MouseEventInit = {}) => {
       const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init })
       let prevented = false
-      document.addEventListener("click", () => {
-        prevented = event.defaultPrevented
-        event.preventDefault()
-      }, { once: true })
-      container.querySelector(`#${id}`)!.dispatchEvent(event)
+      document.addEventListener(
+        "click",
+        () => {
+          prevented = event.defaultPrevented
+          event.preventDefault()
+        },
+        { once: true }
+      )
+      requireElement(container, `#${id}`).dispatchEvent(event)
       return prevented
     }
-    expect(container.querySelector("#home")!.getAttribute("aria-current")).toBe("page")
-    expect(container.querySelector("#home")!.className).toBe("nav")
+    expect(requireElement(container, "#home").getAttribute("aria-current")).toBe("page")
+    expect(requireElement(container, "#home").className).toBe("nav")
     expect(click("normal", { ctrlKey: true })).toBe(false)
     expect(click("normal", { button: 1 })).toBe(false)
     expect(click("blank")).toBe(false)
@@ -163,14 +180,14 @@ describe.sequential("Vue router", () => {
     expect(click("prevented")).toBe(true)
     expect(handlers).toBe(1)
     const stopped = new MouseEvent("click", { bubbles: true, cancelable: true })
-    container.querySelector("#stopped")!.dispatchEvent(stopped)
+    requireElement(container, "#stopped").dispatchEvent(stopped)
     expect(stopped.defaultPrevented).toBe(true)
     expect(stoppedHandlers).toBe(0)
     expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).id).toBe(home.id)
     expect(click("normal")).toBe(true)
     await settle(router, registry)
-    expect(container.querySelector("#normal")!.getAttribute("data-active")).toBe("true")
-    expect(container.querySelector("#home")!.hasAttribute("aria-current")).toBe(false)
+    expect(requireElement(container, "#normal").getAttribute("data-active")).toBe("true")
+    expect(requireElement(container, "#home").hasAttribute("aria-current")).toBe(false)
   })
 
   it("renders nested lazy pending/success views and nearest not-found boundaries", async () => {
@@ -188,7 +205,7 @@ describe.sequential("Vue router", () => {
       path: "lazy",
       pendingComponent: () => h("p", "Pending view"),
       lazy: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
           return { default: () => h("p", "Lazy view") }
@@ -216,7 +233,7 @@ describe.sequential("Vue router", () => {
     const child = createRoute({
       getParentRoute: () => root,
       path: "child",
-      loader: () => loadFails ? Effect.fail("missing") : Effect.succeed("Loaded"),
+      loader: () => (loadFails ? Effect.fail("missing") : Effect.succeed("Loaded")),
       component: defineComponent({
         setup() {
           const data = child.useLoaderData()
@@ -233,11 +250,11 @@ describe.sequential("Vue router", () => {
     await settle(router, registry)
     expect(container.textContent).toBe("ShellRetry")
     loadFails = false
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await settle(router, registry, true)
     expect(container.textContent).toBe("ShellRetry")
     renderFails = false
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await settle(router, registry, true)
     expect(container.textContent).toBe("ShellLoaded")
   })
@@ -255,7 +272,7 @@ describe.sequential("Vue router", () => {
       getParentRoute: () => parent,
       path: ":id",
       params: { id: Schema.FiniteFromString },
-      loader: ({ params }) => params.id === 3 ? Effect.fail("missing") : Effect.void,
+      loader: ({ params }) => (params.id === 3 ? Effect.fail("missing") : Effect.void),
       component: defineComponent({
         setup() {
           const params = child.useParams()
@@ -315,9 +332,7 @@ describe.sequential("Vue router", () => {
     expect(match.location.state).toEqual(state)
     expect(match.location.index).toBe(0)
     expect(visits).toBe(2)
-    await run(
-      router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-    )
+    await run(router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
     expect(visits).toBe(3)
   })
 
@@ -331,7 +346,7 @@ describe.sequential("Vue router", () => {
       getParentRoute: () => root,
       path: "child",
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           visits++
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)

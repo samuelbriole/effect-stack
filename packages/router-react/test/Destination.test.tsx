@@ -70,7 +70,7 @@ const sharedUrlTree = () => {
   }
 }
 
-describe.sequential("Shared-URL destinations", () => {
+describe("Shared-URL destinations", { concurrent: false }, () => {
   it("resolves a non-root index through pathless layouts and still rejects competing indexes", async () => {
     const rootRoute = createRootRoute()
     const dashboard = createRoute({ getParentRoute: () => rootRoute, path: "dashboard" })
@@ -102,8 +102,9 @@ describe.sequential("Shared-URL destinations", () => {
       registry.dispose()
     }
     const competing = createRoute({ getParentRoute: () => dashboard, path: "/" })
-    expect(() => createRouter({ routeTree: rootRoute.addChildren([dashboard.addChildren([children, competing])]) }))
-      .toThrow("Ambiguous route template")
+    expect(() =>
+      createRouter({ routeTree: rootRoute.addChildren([dashboard.addChildren([children, competing])]) })
+    ).toThrow("Ambiguous route template")
   })
 
   it("encodes hrefs against the ranked index match, not the last pathless layout", () => {
@@ -133,7 +134,8 @@ describe.sequential("Shared-URL destinations", () => {
       root.render(<RouterProvider router={router} registry={registry} />)
       await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     })
-    const anchor = container.querySelector("a")!
+    const anchor = container.querySelector("a")
+    if (anchor === null) throw new Error("Expected anchor")
     expect(anchor.getAttribute("href")).toBe("/dashboard?page=5#details")
     await React.act(async () => {
       anchor.click()

@@ -55,13 +55,10 @@ export class RouterConfigurationError extends Schema.TaggedError<RouterConfigura
  * @since 0.1.0
  * @category errors
  */
-class RouteLoadErrorBase extends Schema.TaggedError<RouteLoadErrorBase>()(
-  "RouteLoadError",
-  {
-    routeId: Schema.String,
-    error: Schema.Unknown
-  }
-) {}
+class RouteLoadErrorBase extends Schema.TaggedError<RouteLoadErrorBase>()("RouteLoadError", {
+  routeId: Schema.String,
+  error: Schema.Unknown
+}) {}
 
 /**
  * A lazy route module failed to load, typed with its route ID and load error.
@@ -72,6 +69,7 @@ class RouteLoadErrorBase extends Schema.TaggedError<RouteLoadErrorBase>()(
 export class RouteLoadError<Id extends string, Error> extends RouteLoadErrorBase {
   // Explicit constructor binds `Id`/`Error` inference at typed `new` sites;
   // declared fields alone are not inference positions.
+  // oxlint-disable-next-line effecttsgo/overridden-schema-constructor -- Forward the unchanged schema shape while inferring the route-specific types.
   constructor(options: { readonly routeId: Id; readonly error: Error }) {
     super({ routeId: options.routeId, error: options.error })
   }
@@ -79,10 +77,10 @@ export class RouteLoadError<Id extends string, Error> extends RouteLoadErrorBase
   declare readonly error: Error
 }
 
-class RouteLoaderErrorBase extends Schema.TaggedError<RouteLoaderErrorBase>()(
-  "@effect-stack/router/RouteLoaderError",
-  { routeId: Schema.String, error: Schema.Unknown }
-) {}
+class RouteLoaderErrorBase extends Schema.TaggedError<RouteLoaderErrorBase>()("@effect-stack/router/RouteLoaderError", {
+  routeId: Schema.String,
+  error: Schema.Unknown
+}) {}
 
 /**
  * A route's data loader failed. Defects and interruption remain in Cause.
@@ -93,6 +91,7 @@ class RouteLoaderErrorBase extends Schema.TaggedError<RouteLoaderErrorBase>()(
 export class RouteLoaderError<Id extends string, Error> extends RouteLoaderErrorBase {
   // Explicit constructor binds `Id`/`Error` inference at typed `new` sites;
   // declared fields alone are not inference positions.
+  // oxlint-disable-next-line effecttsgo/overridden-schema-constructor -- Forward the unchanged schema shape while inferring the route-specific types.
   constructor(options: { readonly routeId: Id; readonly error: Error }) {
     super({ routeId: options.routeId, error: options.error })
   }
@@ -139,11 +138,11 @@ export interface TransitionId {
   readonly sequence: number
 }
 
-type LoadFailure<R extends Route.Any> = Route.Route.LoadError<R> extends never ? never
-  : RouteLoadError<R["id"], Route.Route.LoadError<R>>
+type LoadFailure<R extends Route.Any> =
+  Route.Route.LoadError<R> extends never ? never : RouteLoadError<R["id"], Route.Route.LoadError<R>>
 
-type LoaderFailure<R extends Route.Any> = Route.Route.LoaderError<R> extends never ? never
-  : RouteLoaderError<R["id"], Route.Route.LoaderError<R>>
+type LoaderFailure<R extends Route.Any> =
+  Route.Route.LoaderError<R> extends never ? never : RouteLoaderError<R["id"], Route.Route.LoaderError<R>>
 
 /**
  * Failures this specific route can produce while resolving: malformed URL
@@ -185,8 +184,9 @@ export interface MatchState<R extends Route.Any> {
  * @category type utilities
  */
 export type MatchStates<Routes extends ReadonlyArray<Route.Any>> = Routes[number] extends infer R
-  ? R extends Route.Any ? MatchState<R>
-  : never
+  ? R extends Route.Any
+    ? MatchState<R>
+    : never
   : never
 
 /**
@@ -230,10 +230,8 @@ type RouteUnion<Routes extends ReadonlyArray<Route.Any>> = Routes[number]
  * @since 0.1.0
  * @category type utilities
  */
-export type Resolved<Routes extends ReadonlyArray<Route.Any>> = RouteUnion<Routes> extends infer R
-  ? R extends Route.Any ? ResolvedRoute<R>
-  : never
-  : never
+export type Resolved<Routes extends ReadonlyArray<Route.Any>> =
+  RouteUnion<Routes> extends infer R ? (R extends Route.Any ? ResolvedRoute<R> : never) : never
 
 /**
  * Failures that can occur after a navigation command has been accepted.
@@ -247,7 +245,7 @@ export type NavigationError<Routes extends ReadonlyArray<Route.Any>> =
   | Route.RouteEncodeError
   | RouteNotFound
   | RouterConfigurationError
-  | (RouteUnion<Routes> extends infer R ? R extends Route.Any ? LoadFailure<R> | LoaderFailure<R> : never : never)
+  | (RouteUnion<Routes> extends infer R ? (R extends Route.Any ? LoadFailure<R> | LoaderFailure<R> : never) : never)
 
 /**
  * A typed push or replace target for one route.
@@ -264,7 +262,9 @@ export interface To<R extends Route.Any> {
 }
 
 type ToUnion<Routes extends ReadonlyArray<Route.Any>> = Routes[number] extends infer R
-  ? R extends Route.Any ? To<R> : never
+  ? R extends Route.Any
+    ? To<R>
+    : never
   : never
 
 /**
@@ -318,11 +318,7 @@ export interface RouteAtoms<R extends Route.Any> {
  * @since 0.2.0
  * @category errors
  */
-export type EngineError<LayerError> =
-  | LayerError
-  | RouterConfigurationError
-  | History.HistoryError
-  | RouteNotFound
+export type EngineError<LayerError> = LayerError | RouterConfigurationError | History.HistoryError | RouteNotFound
 
 /**
  * The headless router interface shared by all renderers.
@@ -377,11 +373,9 @@ export interface Router<Routes extends ReadonlyArray<Route.Any>, LayerError> {
    * @since 0.2.0
    * @category navigation
    */
-  readonly execute: (command: Command<Routes>) => Effect.Effect<
-    void,
-    NavigationError<Routes> | LayerError,
-    AtomRegistry.AtomRegistry
-  >
+  readonly execute: (
+    command: Command<Routes>
+  ) => Effect.Effect<void, NavigationError<Routes> | LayerError, AtomRegistry.AtomRegistry>
   /**
    * Rebuilds a failed Layer, runtime, and engine when they are unhealthy and
    * awaits the rebuilt engine's initial transition; on a healthy runtime it
@@ -429,10 +423,9 @@ interface Snapshot<Routes extends ReadonlyArray<Route.Any>> {
 
 interface Engine<Routes extends ReadonlyArray<Route.Any>> {
   readonly snapshot: SubscriptionRef.SubscriptionRef<Snapshot<Routes>>
-  readonly dispatch: (command: Command<Routes>) => Effect.Effect<
-    Option.Option<Fiber.Fiber<Resolved<Routes>, NavigationError<Routes>>>,
-    NavigationError<Routes>
-  >
+  readonly dispatch: (
+    command: Command<Routes>
+  ) => Effect.Effect<Option.Option<Fiber.Fiber<Resolved<Routes>, NavigationError<Routes>>>, NavigationError<Routes>>
   readonly awaitInitial: Effect.Effect<void, NavigationError<Routes>>
 }
 
@@ -453,6 +446,7 @@ const emptyBranch = <Routes extends ReadonlyArray<Route.Any>>(transitionId: Tran
 })
 
 const routeLoadError = <R extends Route.Any>(route: R, error: Route.Route.LoadError<R>): LoadFailure<R> =>
+  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- The error's route ID and payload preserve the generic route correlation.
   new RouteLoadError({ routeId: route.id, error }) as LoadFailure<R>
 
 const validateRoutes = (routes: ReadonlyArray<Route.Any>): Result.Result<void, RouterConfigurationError> => {
@@ -506,15 +500,23 @@ const sameSelectedValue = (left: unknown, right: unknown): boolean =>
 const sameIncoming = (left: ErasedIncoming, right: ErasedIncoming): boolean => {
   if (Result.isFailure(left) || Result.isFailure(right)) {
     if (Result.isFailure(left) && Result.isFailure(right)) {
-      return left.failure.routeId === right.failure.routeId && left.failure.part === right.failure.part &&
-        left.failure.input === right.failure.input && left.failure.message === right.failure.message
+      return (
+        left.failure.routeId === right.failure.routeId
+        && left.failure.part === right.failure.part
+        && left.failure.input === right.failure.input
+        && left.failure.message === right.failure.message
+      )
     }
     return false
   }
   const a = left.success
   const b = right.success
-  return a.route === b.route && sameSelectedValue(a.params, b.params) && sameSelectedValue(a.search, b.search) &&
-    sameSelectedValue(a.hash, b.hash)
+  return (
+    a.route === b.route
+    && sameSelectedValue(a.params, b.params)
+    && sameSelectedValue(a.search, b.search)
+    && sameSelectedValue(a.hash, b.hash)
+  )
 }
 
 const withoutWaiting = <A, E>(result: AsyncResult.AsyncResult<A, E>): AsyncResult.AsyncResult<A, E> => {
@@ -542,56 +544,64 @@ const dispatchAndJoin = <Routes extends ReadonlyArray<Route.Any>>(
   engine: Engine<Routes>,
   command: Command<Routes>
 ): Effect.Effect<void, NavigationError<Routes>> =>
-  Effect.scoped(Effect.gen(function*() {
-    const fiber = yield* Effect.uninterruptible(Effect.gen(function*() {
-      const started = yield* engine.dispatch(command)
-      if (Option.isSome(started)) {
-        yield* Effect.addFinalizer(() => Fiber.interrupt(started.value))
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fiber = yield* Effect.uninterruptible(
+        Effect.gen(function* () {
+          const started = yield* engine.dispatch(command)
+          if (Option.isSome(started)) {
+            yield* Effect.addFinalizer(() => Fiber.interrupt(started.value))
+          }
+          return started
+        })
+      )
+      if (Option.isSome(fiber)) {
+        yield* joinVoid(fiber.value)
       }
-      return started
-    }))
-    if (Option.isSome(fiber)) {
-      yield* joinVoid(fiber.value)
-    }
-  }))
+    })
+  )
 
-const loadMatch = Effect.fn("Router.loadMatch")(function*<Routes extends ReadonlyArray<Route.Any>>(
+const loadMatch = Effect.fn("Router.loadMatch")(function* <Routes extends ReadonlyArray<Route.Any>>(
   matched: Route.Match<RouteUnion<Routes>>,
   location: History.Location
-): Effect.fn.Return<
-  Resolved<Routes>,
-  NavigationError<Routes>,
-  Scope.Scope | Route.Route.Services<RouteUnion<Routes>>
-> {
+): Effect.fn.Return<Resolved<Routes>, NavigationError<Routes>, Scope.Scope | Route.Route.Services<RouteUnion<Routes>>> {
   const route = matched.route
   const lazy = route.lazy as
     | undefined
     | (() => Effect.Effect<
-      Route.Route.Module<RouteUnion<Routes>>,
-      Route.Route.LoadError<RouteUnion<Routes>>,
-      Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
-    >)
+        Route.Route.Module<RouteUnion<Routes>>,
+        Route.Route.LoadError<RouteUnion<Routes>>,
+        Scope.Scope | Route.Route.LoadServices<RouteUnion<Routes>>
+      >)
   // The match was decoded with this exact route's schemas. Erasing the route
   // tuple for iteration must not erase the loader's data/error/service union.
   const loader = route.loader as
     | undefined
     | ((
-      input: Route.LoaderInput<
-        Route.Route.Params<RouteUnion<Routes>>,
-        Route.Route.Search<RouteUnion<Routes>>,
-        Route.Route.Hash<RouteUnion<Routes>>
-      >
-    ) => Effect.Effect<
-      Route.Route.LoaderData<RouteUnion<Routes>>,
-      Route.Route.LoaderError<RouteUnion<Routes>>,
-      Scope.Scope | Route.Route.LoaderServices<RouteUnion<Routes>>
-    >)
-  const moduleEffect = lazy === undefined ? Effect.void : Effect.suspend(lazy).pipe(
-    Effect.mapError((error) => routeLoadError(route, error) as NavigationError<Routes>)
-  )
-  const dataEffect = loader === undefined ? Effect.void : Effect.suspend(() => loader({ ...matched, location })).pipe(
-    Effect.mapError((error) => new RouteLoaderError({ routeId: route.id, error }) as NavigationError<Routes>)
-  )
+        input: Route.LoaderInput<
+          Route.Route.Params<RouteUnion<Routes>>,
+          Route.Route.Search<RouteUnion<Routes>>,
+          Route.Route.Hash<RouteUnion<Routes>>
+        >
+      ) => Effect.Effect<
+        Route.Route.LoaderData<RouteUnion<Routes>>,
+        Route.Route.LoaderError<RouteUnion<Routes>>,
+        Scope.Scope | Route.Route.LoaderServices<RouteUnion<Routes>>
+      >)
+  const moduleEffect =
+    lazy === undefined
+      ? Effect.void
+      : Effect.suspend(lazy).pipe(
+          // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- The iterated route belongs to Routes; restore its correlated error union.
+          Effect.mapError((error) => routeLoadError(route, error) as NavigationError<Routes>)
+        )
+  const dataEffect =
+    loader === undefined
+      ? Effect.void
+      : Effect.suspend(() => loader({ ...matched, location })).pipe(
+          // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- The iterated route belongs to Routes; restore its correlated error union.
+          Effect.mapError((error) => new RouteLoaderError({ routeId: route.id, error }) as NavigationError<Routes>)
+        )
   const [module, loaderData] = yield* Effect.all([moduleEffect, dataEffect], { concurrency: "unbounded" })
   return {
     ...matched,
@@ -601,7 +611,7 @@ const loadMatch = Effect.fn("Router.loadMatch")(function*<Routes extends Readonl
   } as Resolved<Routes>
 })
 
-const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends ReadonlyArray<Route.Any>>(
+const makeEngine = Effect.fn("Router.makeEngine")(function* <Routes extends ReadonlyArray<Route.Any>>(
   routes: Routes,
   compiled?: RouteTree.Compiled
 ): Effect.fn.Return<
@@ -650,7 +660,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
   // its claim is current. An older transition can therefore settle its branch
   // and leaf after a newer command failed or was accepted without resurrecting
   // its own outcome in the shared projection.
-  const claimOperation = Effect.fn("Router.claimOperation")(function*(
+  const claimOperation = Effect.fn("Router.claimOperation")(function* (
     update: (current: Snapshot<Routes>, claim: number) => Snapshot<Routes>
   ) {
     return yield* SubscriptionRef.modify(snapshot, (current) => {
@@ -663,44 +673,43 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
   // terminalize `Snapshot.operation` only while the claim is current. A late
   // settlement of a superseded operation is therefore suppressed instead of
   // stealing the projection from its newer owner.
-  const settleOperation = Effect.fn("Router.settleOperation")(function*(
+  const settleOperation = Effect.fn("Router.settleOperation")(function* (
     claim: number,
     exit: Exit.Exit<void, NavigationError<Routes>>
   ) {
     yield* SubscriptionRef.update(snapshot, (current) =>
       current.operationClaim === claim
         ? withOperation(current, AsyncResult.fromExitWithPrevious(exit, Option.some(current.operation)))
-        : current)
+        : current
+    )
   })
   // A pre-claim rejection has no pending section: claiming and publishing in
   // one update makes it the current owner by construction. Commands that
   // already claimed (traversals) must settle through `settleOperation` with
   // their own claim instead, so a generic handler can never reclaim them.
-  const rejectOperation = Effect.fn("Router.rejectOperation")(function*(failure: ErasedError) {
+  const rejectOperation = Effect.fn("Router.rejectOperation")(function* (failure: ErasedError) {
     yield* SubscriptionRef.update(snapshot, (current) =>
       withOperation(
         { ...current, operationClaim: current.operationClaim + 1 },
         AsyncResult.fail(failure) as AsyncResult.AsyncResult<void, NavigationError<Routes>>
-      ))
+      )
+    )
   })
   const waitingOperation = (current: Snapshot<Routes>, claim: number): Snapshot<Routes> =>
-    withOperation(
-      { ...current, operationClaim: claim },
-      AsyncResult.waitingFrom(Option.some(current.operation))
-    )
+    withOperation({ ...current, operationClaim: claim }, AsyncResult.waitingFrom(Option.some(current.operation)))
 
-  const guarded = Effect.fn("Router.guarded")(function*(
+  const guarded = Effect.fn("Router.guarded")(function* (
     transition: TransitionId,
     update: (current: Snapshot<Routes>) => Snapshot<Routes>
   ) {
-    yield* SubscriptionRef.update(snapshot, (current) => current.active === transition ? update(current) : current)
+    yield* SubscriptionRef.update(snapshot, (current) => (current.active === transition ? update(current) : current))
   })
 
   // Acceptance publishes every planned entry's decoded input and a fresh
   // waiting state before any module or data loader starts. Every rerun reuses
   // the stable decoded input object when the navigation input is unchanged,
   // but the per-route loading state is always truthful for the new transition.
-  const accept = Effect.fn("Router.accept")(function*(
+  const accept = Effect.fn("Router.accept")(function* (
     transition: TransitionId,
     location: History.Location,
     plan: NavigationPlan
@@ -709,12 +718,12 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
       const previous = erased(current.branch)
       const matches = plan.entries.map((entry): ErasedMatch => {
         const last = previous.find((candidate) => candidate.routeId === entry.route.id)
-        const incoming = last !== undefined && sameIncoming(last.incoming, entry.incoming)
-          ? last.incoming
-          : entry.incoming
-        const retained = last === undefined
-          ? Option.none<ErasedResolved>()
-          : Option.orElse(AsyncResult.value(last.result), () => last.retained)
+        const incoming =
+          last !== undefined && sameIncoming(last.incoming, entry.incoming) ? last.incoming : entry.incoming
+        const retained =
+          last === undefined
+            ? Option.none<ErasedResolved>()
+            : Option.orElse(AsyncResult.value(last.result), () => last.retained)
         return {
           routeId: entry.route.id,
           route: entry.route,
@@ -740,7 +749,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
 
   // Each entry settles independently; untouched entries keep their identity
   // while other entries are still loading.
-  const commitEntry = Effect.fn("Router.commitEntry")(function*(
+  const commitEntry = Effect.fn("Router.commitEntry")(function* (
     transition: TransitionId,
     index: number,
     exit: Exit.Exit<ErasedResolved, unknown>
@@ -770,7 +779,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     })
   })
 
-  const settle = Effect.fn("Router.settle")(function*(
+  const settle = Effect.fn("Router.settle")(function* (
     transition: TransitionId,
     claim: number,
     exit: Exit.Exit<Resolved<Routes>, NavigationError<Routes>>
@@ -798,15 +807,16 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
       // resolved route.
       const operation = AsyncResult.map(settled, (): void => undefined)
       const location = current.branch.location
-      const lastSuccess = Exit.isSuccess(exit) && Option.isSome(location)
-        ? Option.some<SuccessfulBranch<Routes>>({
-          transitionId: transition,
-          location: location.value,
-          matches: matches.flatMap((entry) =>
-            AsyncResult.isSuccess(entry.result) ? [entry.result.value] : []
-          ) as unknown as ReadonlyArray<Resolved<Routes>>
-        })
-        : current.branch.lastSuccess
+      const lastSuccess =
+        Exit.isSuccess(exit) && Option.isSome(location)
+          ? Option.some<SuccessfulBranch<Routes>>({
+              transitionId: transition,
+              location: location.value,
+              matches: matches.flatMap((entry) =>
+                AsyncResult.isSuccess(entry.result) ? [entry.result.value] : []
+              ) as unknown as ReadonlyArray<Resolved<Routes>>
+            })
+          : current.branch.lastSuccess
       return {
         ...current,
         branch: {
@@ -826,7 +836,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     })
   })
 
-  const start = Effect.fn("Router.start")(function*(
+  const start = Effect.fn("Router.start")(function* (
     transition: TransitionId,
     work: Effect.Effect<
       Resolved<Routes>,
@@ -835,24 +845,26 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
     >
   ) {
     return yield* startLock.withPermits(1)(
-      Effect.uninterruptible(Effect.gen(function*() {
-        const claim = yield* claimOperation((current, next) =>
-          waitingOperation(
-            { ...current, active: transition, leaf: AsyncResult.waitingFrom(Option.some(current.leaf)) },
-            next
+      Effect.uninterruptible(
+        Effect.gen(function* () {
+          const claim = yield* claimOperation((current, next) =>
+            waitingOperation(
+              { ...current, active: transition, leaf: AsyncResult.waitingFrom(Option.some(current.leaf)) },
+              next
+            )
           )
-        )
-        const provided = work.pipe(
-          Effect.scoped,
-          Effect.provide(services),
-          Effect.onExit((exit) => settle(transition, claim, exit))
-        )
-        return yield* FiberMap.run(transitions, "navigation", provided, { startImmediately: true })
-      }))
+          const provided = work.pipe(
+            Effect.scoped,
+            Effect.provide(services),
+            Effect.onExit((exit) => settle(transition, claim, exit))
+          )
+          return yield* FiberMap.run(transitions, "navigation", provided, { startImmediately: true })
+        })
+      )
     )
   })
 
-  const navigateTo = Effect.fn("Router.navigateTo")(function*(
+  const navigateTo = Effect.fn("Router.navigateTo")(function* (
     transition: TransitionId,
     location: History.Location
   ): Effect.fn.Return<
@@ -876,14 +888,15 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
         Effect.onExit((exit) => commitEntry(transition, index, exit))
       )
     })
-    if (plan.notFound || results.length === 0) {
+    const last = results[results.length - 1]
+    if (plan.notFound || last === undefined) {
       return yield* new RouteNotFound({
         pathname: location.pathname,
         search: location.search,
         hash: location.hash
       })
     }
-    return results[results.length - 1]
+    return last
   })
 
   // Traversal commands claim the operation projection before asking the host
@@ -895,7 +908,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
   // that newer claim owns the projection, the traversal outcome is suppressed,
   // and `navigation` keeps waiting for the destination instead. The caller
   // still observes the traversal's exact failure through the re-raised Cause.
-  const traverse = Effect.fn("Router.traverse")(function*(delta: number) {
+  const traverse = Effect.fn("Router.traverse")(function* (delta: number) {
     const claim = yield* claimOperation(waitingOperation)
     const exit = yield* history.go(delta).pipe(Effect.exit)
     yield* settleOperation(claim, exit)
@@ -904,7 +917,7 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
 
   // Erased once for dispatching; the public `Command<Routes>` retains each
   // route's correlated input, while the runtime only needs the member union.
-  const dispatch = Effect.fn("Router.dispatch")(function*(input: Command<Routes>) {
+  const dispatch = Effect.fn("Router.dispatch")(function* (input: Command<Routes>) {
     const command = input as unknown as Command<ReadonlyArray<Route.Any>>
     switch (command._tag) {
       case "To": {
@@ -956,7 +969,8 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
           AsyncResult.failWithPrevious(error, {
             previous: Option.some(current.operation)
           })
-        ))
+        )
+      )
     ),
     Effect.forkScoped
   )
@@ -980,7 +994,8 @@ const makeEngine = Effect.fn("Router.makeEngine")(function*<Routes extends Reado
 // --- atom-facing surface ---
 
 const sameOptionBy =
-  <A>(equals: (left: A, right: A) => boolean) => (left: Option.Option<A>, right: Option.Option<A>): boolean => {
+  <A>(equals: (left: A, right: A) => boolean) =>
+  (left: Option.Option<A>, right: Option.Option<A>): boolean => {
     if (Option.isSome(left) && Option.isSome(right)) {
       return equals(left.value, right.value)
     }
@@ -997,21 +1012,14 @@ const sameReference = <A>(left: A, right: A): boolean => left === right
  * @since 0.1.0
  * @category constructors
  */
-const makeRuntime = <
-  const Routes extends ReadonlyArray<Route.Any>,
-  LayerError
->(options: {
+const makeRuntime = <const Routes extends ReadonlyArray<Route.Any>, LayerError>(options: {
   readonly routes: Routes
   readonly layer: Layer.Layer<History.Service | Route.Route.Services<RouteUnion<Routes>>, LayerError>
   readonly compiled?: RouteTree.Compiled
 }): Router<Routes, LayerError> => {
   const runtime = Atom.runtime(options.layer)
   const engine = runtime.atom(makeEngine(options.routes, options.compiled))
-  const snapshotView = runtime.subscriptionRef((get) =>
-    get.result(engine).pipe(
-      Effect.map((value) => value.snapshot)
-    )
-  )
+  const snapshotView = runtime.subscriptionRef((get) => get.result(engine).pipe(Effect.map((value) => value.snapshot)))
   const fallbackTransition = makeTransitionId()
 
   const unwrap = <A, E>(result: AsyncResult.AsyncResult<A, E>): AsyncResult.AsyncResult<void, E> => {
@@ -1055,32 +1063,30 @@ const makeRuntime = <
   // Read-only observation of the latest navigation operation: operations
   // started through `execute` or the host history publish the same
   // `Snapshot.operation` projection; dispatch itself has no atom path anymore.
-  const navigation = Atom.make(
-    (get): AsyncResult.AsyncResult<void, NavigationError<Routes> | LayerError> => {
-      const result = get(snapshotView)
-      if (result._tag === "Success") {
-        return result.value.operation
-      }
-      return unwrap(result)
+  const navigation = Atom.make((get): AsyncResult.AsyncResult<void, NavigationError<Routes> | LayerError> => {
+    const result = get(snapshotView)
+    if (result._tag === "Success") {
+      return result.value.operation
     }
-  )
+    return unwrap(result)
+  })
 
-  const execute = (command: Command<Routes>): Effect.Effect<
-    void,
-    NavigationError<Routes> | LayerError,
-    AtomRegistry.AtomRegistry
-  > =>
-    Effect.scoped(Effect.gen(function*() {
-      const registry = yield* AtomRegistry.AtomRegistry
-      // Retain the scoped engine for the whole operation so headless callers
-      // (no other atom mounted) never lose a running transition to eviction.
-      yield* AtomRegistry.mount(registry, engine)
-      const value = yield* AtomRegistry.getResult(registry, engine, { suspendOnWaiting: true })
-      yield* dispatchAndJoin(value, command)
-    }))
+  const execute = (
+    command: Command<Routes>
+  ): Effect.Effect<void, NavigationError<Routes> | LayerError, AtomRegistry.AtomRegistry> =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        // Retain the scoped engine for the whole operation so headless callers
+        // (no other atom mounted) never lose a running transition to eviction.
+        yield* AtomRegistry.mount(registry, engine)
+        const value = yield* AtomRegistry.getResult(registry, engine, { suspendOnWaiting: true })
+        yield* dispatchAndJoin(value, command)
+      })
+    )
 
   const retry: Effect.Effect<void, NavigationError<Routes> | LayerError, AtomRegistry.AtomRegistry> = Effect.scoped(
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const registry = yield* AtomRegistry.AtomRegistry
       yield* AtomRegistry.mount(registry, engine)
       const settled = yield* AtomRegistry.getResult(registry, engine, { suspendOnWaiting: true }).pipe(Effect.exit)
@@ -1113,26 +1119,24 @@ const makeRuntime = <
     const stateAtom = Atom.make(entry).pipe(
       Atom.withEquality<Option.Option<MatchState<R>>>(sameOptionBy(sameReference))
     )
-    const incoming = Atom.make(
-      (get): Option.Option<Result.Result<IncomingRoute<R>, Route.RouteDecodeError>> =>
-        Option.map(get(stateAtom), (value) => value.incoming)
+    const incoming = Atom.make((get): Option.Option<Result.Result<IncomingRoute<R>, Route.RouteDecodeError>> =>
+      Option.map(get(stateAtom), (value) => value.incoming)
     ).pipe(
       Atom.withEquality<Option.Option<Result.Result<IncomingRoute<R>, Route.RouteDecodeError>>>(
-        sameOptionBy((left, right) =>
-          left === right || sameIncoming(left as unknown as ErasedIncoming, right as unknown as ErasedIncoming)
+        sameOptionBy(
+          (left, right) =>
+            left === right || sameIncoming(left as unknown as ErasedIncoming, right as unknown as ErasedIncoming)
         )
       )
     )
     const params = Atom.make((get): Option.Option<Route.Route.Params<R>> =>
-      Option.flatMap(
-        get(incoming),
-        (value) => Result.isSuccess(value) ? Option.some(value.success.params) : Option.none()
+      Option.flatMap(get(incoming), (value) =>
+        Result.isSuccess(value) ? Option.some(value.success.params) : Option.none()
       )
     ).pipe(Atom.withEquality<Option.Option<Route.Route.Params<R>>>(sameOptionBy(sameSelectedValue)))
     const search = Atom.make((get): Option.Option<Route.Route.Search<R>> =>
-      Option.flatMap(
-        get(incoming),
-        (value) => Result.isSuccess(value) ? Option.some(value.success.search) : Option.none()
+      Option.flatMap(get(incoming), (value) =>
+        Result.isSuccess(value) ? Option.some(value.success.search) : Option.none()
       )
     ).pipe(Atom.withEquality<Option.Option<Route.Route.Search<R>>>(sameOptionBy(sameSelectedValue)))
     const resolved = Atom.make((get): Option.Option<ResolvedRoute<R>> => {

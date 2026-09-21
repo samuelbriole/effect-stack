@@ -6,10 +6,11 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
 import { describe, expect, it, vi } from "vitest"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-describe.sequential("React route recovery", () => {
+describe("React route recovery", { concurrent: false }, () => {
   it("recovers from a render error through reset and subsequent navigation", async () => {
     let broken = true
     const rootRoute = createRootRoute({
@@ -47,10 +48,8 @@ describe.sequential("React route recovery", () => {
       expect(errors).toHaveBeenCalled()
       broken = false
       await React.act(async () => {
-        container.querySelector("button")!.click()
-        await Effect.runPromise(
-          AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-        )
+        requireElement(container, "button").click()
+        await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
       })
       expect(container.textContent).toBe("ShellRecovered")
       await React.act(async () => {
@@ -86,7 +85,7 @@ describe.sequential("React route recovery", () => {
       path: "child",
       pendingComponent: () => <p>Pending view</p>,
       lazy: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never

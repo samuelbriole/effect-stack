@@ -27,10 +27,8 @@ export type ReactRoute<
   R extends Route.Any,
   C extends ReadonlyArray<RouteTree.Any> = readonly [],
   K extends RouteTree.Kind = RouteTree.Kind
-> =
-  & Omit<RouteTree.Node<R, C, K>, "addChildren">
-  & Views
-  & {
+> = Omit<RouteTree.Node<R, C, K>, "addChildren">
+  & Views & {
     readonly addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(
       children: Children
     ) => ReactRoute<R, Children, K>
@@ -43,27 +41,32 @@ export type ReactRoute<
 const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K extends RouteTree.Kind>(
   route: RouteTree.Node<R, C, K>,
   views: Views
-): ReactRoute<R, C, K> => ({
-  ...route,
-  ...(views.component === undefined ? {} : { component: views.component }),
-  ...(views.pendingComponent === undefined ? {} : { pendingComponent: views.pendingComponent }),
-  ...(views.errorComponent === undefined ? {} : { errorComponent: views.errorComponent }),
-  ...(views.notFoundComponent === undefined ? {} : { notFoundComponent: views.notFoundComponent }),
-  addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(children: Children) =>
-    decorate(route.addChildren(children), views),
-  useMatch: <A = Router.ResolvedRoute<R>>(
-    select?: (value: Router.ResolvedRoute<R>) => A,
-    options?: SelectorOptions<A>
-  ) => useRouteValue(route, "match", select, options),
-  useParams: <A = Route.Route.Params<R>>(select?: (value: Route.Route.Params<R>) => A, options?: SelectorOptions<A>) =>
-    useRouteValue(route, "params", select, options),
-  useSearch: <A = Route.Route.Search<R>>(select?: (value: Route.Route.Search<R>) => A, options?: SelectorOptions<A>) =>
-    useRouteValue(route, "search", select, options),
-  useLoaderData: <A = Route.Route.LoaderData<R>>(
-    select?: (value: Route.Route.LoaderData<R>) => A,
-    options?: SelectorOptions<A>
-  ) => useRouteValue(route, "loaderData", select, options)
-} as ReactRoute<R, C, K>)
+): ReactRoute<R, C, K> =>
+  ({
+    ...route,
+    ...(views.component === undefined ? {} : { component: views.component }),
+    ...(views.pendingComponent === undefined ? {} : { pendingComponent: views.pendingComponent }),
+    ...(views.errorComponent === undefined ? {} : { errorComponent: views.errorComponent }),
+    ...(views.notFoundComponent === undefined ? {} : { notFoundComponent: views.notFoundComponent }),
+    addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(children: Children) =>
+      decorate(route.addChildren(children), views),
+    useMatch: <A = Router.ResolvedRoute<R>>(
+      select?: (value: Router.ResolvedRoute<R>) => A,
+      options?: SelectorOptions<A>
+    ) => useRouteValue(route, "match", select, options),
+    useParams: <A = Route.Route.Params<R>>(
+      select?: (value: Route.Route.Params<R>) => A,
+      options?: SelectorOptions<A>
+    ) => useRouteValue(route, "params", select, options),
+    useSearch: <A = Route.Route.Search<R>>(
+      select?: (value: Route.Route.Search<R>) => A,
+      options?: SelectorOptions<A>
+    ) => useRouteValue(route, "search", select, options),
+    useLoaderData: <A = Route.Route.LoaderData<R>>(
+      select?: (value: Route.Route.LoaderData<R>) => A,
+      options?: SelectorOptions<A>
+    ) => useRouteValue(route, "loaderData", select, options)
+  }) as ReactRoute<R, C, K>
 
 /** @since 0.1.0 */
 export function createRootRoute<
@@ -76,10 +79,7 @@ export function createRootRoute<
   E = never,
   R = never
 >(
-  options:
-    & Views
-    & { readonly search?: S; readonly hash?: H }
-    & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R>
+  options: Views & { readonly search?: S; readonly hash?: H } & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R>
     & CheckedLazyModule<M> = {}
 ): ReactRoute<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>, readonly [], "root"> {
   return decorate(RouteTree.root(options), options)
@@ -98,16 +98,13 @@ export function createRoute<
   E = never,
   R = never
 >(
-  options:
-    & Views
-    & {
-      readonly getParentRoute: () => Parent
-      readonly id: Id
-      readonly path?: never
-      readonly search?: S
-      readonly hash?: H
-    }
-    & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
+  options: Views & {
+    readonly getParentRoute: () => Parent
+    readonly id: Id
+    readonly path?: never
+    readonly search?: S
+    readonly hash?: H
+  } & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
     & CheckedLazyModule<M>
 ): ReactRoute<
   Route.Route<

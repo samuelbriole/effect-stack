@@ -67,8 +67,12 @@ function Layout() {
       <p className="eyebrow">First-party React adapter</p>
       <h1>EffectStack Router</h1>
       <nav>
-        <Link to="/" exact>Home</Link>
-        <Link to="/projects/:projectId" params={{ projectId: 42 }}>Project 42</Link>
+        <Link to="/" exact>
+          Home
+        </Link>
+        <Link to="/projects/:projectId" params={{ projectId: 42 }}>
+          Project 42
+        </Link>
       </nav>
       <button onClick={() => setCount(count + 1)}>Layout counter: {count}</button>
       <Outlet />
@@ -82,8 +86,12 @@ function ProjectLayout() {
     <section>
       <h2>{project.title}</h2>
       <nav>
-        <Link to="/projects/:projectId" params={params} exact>Overview</Link>
-        <Link to="/projects/:projectId/details" params={params}>Details</Link>
+        <Link to="/projects/:projectId" params={params} exact>
+          Overview
+        </Link>
+        <Link to="/projects/:projectId/details" params={params}>
+          Details
+        </Link>
       </nav>
       <Outlet />
     </section>

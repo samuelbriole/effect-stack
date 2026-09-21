@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
@@ -27,11 +28,7 @@ export interface MemoryHistory extends History.Interface {
   readonly entries: Effect.Effect<ReadonlyArray<History.Location>>
 }
 
-const location = (
-  destination: History.Destination,
-  key: string,
-  index: number
-): History.Location => ({
+const location = (destination: History.Destination, key: string, index: number): History.Location => ({
   pathname: destination.pathname,
   search: destination.search,
   hash: destination.hash,
@@ -46,40 +43,42 @@ const location = (
  * @since 0.1.0
  * @category constructors
  */
-export const make = Effect.fn("MemoryHistory.make")(function*(initialHref = "/") {
-  const changes = yield* Effect.acquireRelease(
-    PubSub.unbounded<History.Location>(),
-    PubSub.shutdown
-  )
+export const make = Effect.fn("MemoryHistory.make")(function* (initialHref: string = "/") {
+  const changes = yield* Effect.acquireRelease(PubSub.unbounded<History.Location>(), PubSub.shutdown)
   const initial = location(History.destinationFromHref(initialHref), "memory-0", 0)
   const state = yield* Ref.make<State>({ entries: [initial], index: 0, nextKey: 1 })
 
+  // Every state update preserves a non-empty entry list and an in-range index.
   const current: Effect.Effect<History.Location> = Ref.get(state).pipe(
-    Effect.map((value) => value.entries[value.index])
+    Effect.map((value) => Arr.getUnsafe(value.entries, value.index))
   )
 
-  const push = Effect.fn("MemoryHistory.push")(function*(destination: History.Destination) {
+  const push = Effect.fn("MemoryHistory.push")(function* (destination: History.Destination) {
     return yield* Ref.modify(state, (value) => {
       const entries = value.entries.slice(0, value.index + 1)
       const next = location(destination, `memory-${value.nextKey}`, entries.length)
-      return [next, {
-        entries: [...entries, next],
-        index: entries.length,
-        nextKey: value.nextKey + 1
-      }]
+      return [
+        next,
+        {
+          entries: [...entries, next],
+          index: entries.length,
+          nextKey: value.nextKey + 1
+        }
+      ]
     })
   })
 
-  const replace = Effect.fn("MemoryHistory.replace")(function*(destination: History.Destination) {
+  const replace = Effect.fn("MemoryHistory.replace")(function* (destination: History.Destination) {
     return yield* Ref.modify(state, (value) => {
-      const next = location(destination, value.entries[value.index].key, value.index)
+      const entry = Arr.getUnsafe(value.entries, value.index)
+      const next = location(destination, entry.key, value.index)
       const entries = [...value.entries]
       entries[value.index] = next
       return [next, { ...value, entries }]
     })
   })
 
-  const go = Effect.fn("MemoryHistory.go")(function*(delta: number) {
+  const go = Effect.fn("MemoryHistory.go")(function* (delta: number) {
     const changed = yield* Ref.modify(state, (value) => {
       const offset = Number.isFinite(delta) ? Math.trunc(delta) : 0
       const index = Math.max(0, Math.min(value.entries.length - 1, value.index + offset))

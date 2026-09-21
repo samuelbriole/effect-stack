@@ -39,15 +39,15 @@ describe("Router", () => {
   test("route ID discriminates route-specific data", () => {
     expect<Router.Resolved<typeof routes>>().type.toBeAssignableTo<
       | {
-        readonly id: "home"
-        readonly params: {}
-        readonly module: void
-      }
+          readonly id: "home"
+          readonly params: {}
+          readonly module: void
+        }
       | {
-        readonly id: "lazy"
-        readonly params: { readonly section: string }
-        readonly module: { readonly title: "Lazy" }
-      }
+          readonly id: "lazy"
+          readonly params: { readonly section: string }
+          readonly module: { readonly title: "Lazy" }
+        }
     >()
   })
 

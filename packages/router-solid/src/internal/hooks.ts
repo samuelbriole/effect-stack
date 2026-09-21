@@ -28,9 +28,8 @@ export function useRouterState<A = Atom.Type<RegisteredRouter["core"]["state"]>>
 ): Accessor<A> {
   const { core } = useRuntime()
   const equals = options?.equals ?? Object.is
-  const atom = Atom.map(
-    core.state,
-    (value) => select === undefined ? value as A : select(value as Atom.Type<RegisteredRouter["core"]["state"]>)
+  const atom = Atom.map(core.state, (value) =>
+    select === undefined ? (value as A) : select(value as Atom.Type<RegisteredRouter["core"]["state"]>)
   ).pipe(Atom.withEquality<A>(equals))
   return useAtomValue(() => atom) as Accessor<A>
 }
@@ -49,13 +48,11 @@ export function useRouteValue<R extends RouteTree.Any, K extends keyof RouteValu
   const { core } = useRuntime()
   const mode = useContext(SnapshotContext)
   const atoms = core.routeAtoms(route)
-  const equals = options?.equals ??
-    (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
+  const equals =
+    options?.equals ?? (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
   const selected = Atom.make((get) => {
     const resolved = get(atoms.resolved)
-    const incoming = mode === "incoming" && (key === "params" || key === "search")
-      ? get(atoms.incoming)
-      : Option.none()
+    const incoming = mode === "incoming" && (key === "params" || key === "search") ? get(atoms.incoming) : Option.none()
     // A failed incoming decode has no decoded input; it must not silently
     // present retained data. Only ordinary resolved-mode owners keep the
     // last snapshot (through the hold-last accessor below).
@@ -64,16 +61,16 @@ export function useRouteValue<R extends RouteTree.Any, K extends keyof RouteValu
         ? incoming.value.success
         : undefined
       : Option.isSome(resolved)
-      ? resolved.value
-      : undefined
+        ? resolved.value
+        : undefined
     if (snapshot === undefined) return Option.none<A>()
     const value = (key === "match" ? snapshot : snapshot[key as keyof typeof snapshot]) as RouteValues<R>[K]
-    return Option.some(select === undefined ? value as A : select(value))
-  }).pipe(Atom.withEquality<Option.Option<A>>((left, right) =>
-    Option.isSome(left)
-      ? Option.isSome(right) && equals(left.value, right.value)
-      : Option.isNone(right)
-  ))
+    return Option.some(select === undefined ? (value as A) : select(value))
+  }).pipe(
+    Atom.withEquality<Option.Option<A>>((left, right) =>
+      Option.isSome(left) ? Option.isSome(right) && equals(left.value, right.value) : Option.isNone(right)
+    )
+  )
   const value = useAtomValue(() => selected)
   let latest: A | undefined
   let settled = false

@@ -10,26 +10,42 @@
     "url": "https://github.com/samuelbriole/effect-stack.git",
     "directory": "packages/router-solid"
   },
-  "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
+  "bugs": {
+    "url": "https://github.com/samuelbriole/effect-stack/issues"
+  },
   "sideEffects": false,
-  "exports": { ".": "./src/index.ts", "./package.json": "./package.json" },
-  "files": ["src/**/*.ts", "dist/**", "README.md", "LICENSE"],
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true,
-    "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
+    "exports": {
+      ".": "./dist/index.js",
+      "./package.json": "./package.json"
+    }
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.2.0",
-    "@effect/atom-solid": "^4.0.0-rc.112",
-    "effect": "^4.0.0-rc.112",
+    "@effect/atom-solid": "^4.0.0-rc.116",
+    "effect": "^4.0.0-rc.116",
     "solid-js": "^1.9.15"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-solid": "4.0.0-rc.112",
-    "effect": "4.0.0-rc.112",
+    "@effect/atom-solid": "4.0.0-rc.116",
+    "effect": "4.0.0-rc.116",
     "solid-js": "1.9.15"
   },
-  "scripts": { "build": "tsc -b tsconfig.json", "check": "tsc -b tsconfig.json" }
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "check": "tsc -b tsconfig.json"
+  }
 }

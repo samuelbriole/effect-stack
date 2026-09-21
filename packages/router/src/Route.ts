@@ -98,23 +98,21 @@ export interface Route<
  * @since 0.1.0
  * @category models
  */
-export type Any =
-  & Omit<
-    Route<
-      string,
-      string,
-      UrlFields,
-      UrlFields,
-      Schema.ConstraintCodec<unknown, string, never, never>,
-      unknown,
-      unknown,
-      unknown
-    >,
-    "loader"
-  >
-  & {
-    readonly loader?: (input: never) => Effect.Effect<unknown, unknown, unknown>
-  }
+export type Any = Omit<
+  Route<
+    string,
+    string,
+    UrlFields,
+    UrlFields,
+    Schema.ConstraintCodec<unknown, string, never, never>,
+    unknown,
+    unknown,
+    unknown
+  >,
+  "loader"
+> & {
+  readonly loader?: (input: never) => Effect.Effect<unknown, unknown, unknown>
+}
 
 /**
  * Type helpers for route definitions.
@@ -135,10 +133,7 @@ export declare namespace Route {
   /** @since 0.1.0 */
   export type LoadError<R extends Any> = Effect.Error<ReturnType<NonNullable<R["lazy"]>>>
   /** @since 0.1.0 */
-  export type LoadServices<R extends Any> = Exclude<
-    Effect.Services<ReturnType<NonNullable<R["lazy"]>>>,
-    Scope.Scope
-  >
+  export type LoadServices<R extends Any> = Exclude<Effect.Services<ReturnType<NonNullable<R["lazy"]>>>, Scope.Scope>
   /** @since 0.1.0 */
   export type Input<R extends Any> = RouteInput<Params<R>, Search<R>, Hash<R>>
   /** @since 0.2.0 */
@@ -222,10 +217,9 @@ type UrlFields = {
 
 type PathCodec = Schema.ConstraintCodec<unknown, string, never, never>
 
-type ExactPathFields<Path extends string, Fields extends UrlFields> =
-  & Fields
-  & { readonly [K in PathParameters<Path>]: PathCodec }
-  & { readonly [K in Exclude<keyof Fields, PathParameters<Path>>]: never }
+type ExactPathFields<Path extends string, Fields extends UrlFields> = Fields & {
+  readonly [K in PathParameters<Path>]: PathCodec
+} & { readonly [K in Exclude<keyof Fields, PathParameters<Path>>]: never }
 
 interface BaseOptions<
   Id extends string,
@@ -241,7 +235,7 @@ interface BaseOptions<
   readonly hash?: HashSchema | undefined
 }
 
-const pathSegments = (path: string): ReadonlyArray<string> => path === "/" ? [] : path.slice(1).split("/")
+const pathSegments = (path: string): ReadonlyArray<string> => (path === "/" ? [] : path.slice(1).split("/"))
 
 const describeSchemaError = (error: Schema.SchemaError): string => error.message
 
@@ -305,14 +299,14 @@ export function make(options: {
   const expectedParameters = [...pathParameterNames(options.path)].sort()
   const actualParameters = Object.keys(options.params).sort()
   if (
-    expectedParameters.length !== actualParameters.length ||
-    expectedParameters.some((parameter, index) => parameter !== actualParameters[index])
+    expectedParameters.length !== actualParameters.length
+    || expectedParameters.some((parameter, index) => parameter !== actualParameters[index])
   ) {
     throw new RouteDefinitionError({
       routeId: options.id,
-      message: `Path parameters (${expectedParameters.join(", ")}) do not match Schema fields (${
-        actualParameters.join(", ")
-      })`
+      message: `Path parameters (${expectedParameters.join(", ")}) do not match Schema fields (${actualParameters.join(
+        ", "
+      )})`
     })
   }
   if (pathSegments(options.path).some((segment) => segment === "." || segment === "..")) {
@@ -332,11 +326,7 @@ export function make(options: {
   }
 }
 
-const decodeUriPart = (
-  routeId: string,
-  part: UrlPart,
-  input: string
-): Result.Result<string, RouteDecodeError> => {
+const decodeUriPart = (routeId: string, part: UrlPart, input: string): Result.Result<string, RouteDecodeError> => {
   try {
     return Result.succeed(decodeURIComponent(input))
   } catch {
@@ -344,11 +334,7 @@ const decodeUriPart = (
   }
 }
 
-const encodeUriPart = (
-  routeId: string,
-  part: UrlPart,
-  input: string
-): Result.Result<string, RouteEncodeError> => {
+const encodeUriPart = (routeId: string, part: UrlPart, input: string): Result.Result<string, RouteEncodeError> => {
   try {
     return Result.succeed(encodeURIComponent(input))
   } catch {
@@ -371,7 +357,11 @@ const normalizeSearch = (
     if (value === undefined) {
       continue
     }
-    if (typeof value === "string" && Result.isFailure(Schema.decodeUnknownResult(fields[key])(value))) {
+    const codec = fields[key]
+    if (codec === undefined) {
+      continue
+    }
+    if (typeof value === "string" && Result.isFailure(Schema.decodeUnknownResult(codec)(value))) {
       output[key] = [value]
     } else {
       output[key] = value
@@ -390,10 +380,7 @@ const normalizeSearch = (
 export const match = <R extends Any>(
   route: R,
   url: UrlParts
-): Result.Result<
-  Option.Option<Match<R>>,
-  RouteDecodeError
-> => {
+): Result.Result<Option.Option<Match<R>>, RouteDecodeError> => {
   const expected = pathSegments(route.path)
   const actual = pathSegments(url.pathname)
   if (expected.length !== actual.length) {
@@ -404,6 +391,9 @@ export const match = <R extends Any>(
   for (let index = 0; index < expected.length; index++) {
     const expectedSegment = expected[index]
     const actualSegment = actual[index]
+    if (expectedSegment === undefined || actualSegment === undefined) {
+      return Result.succeed(Option.none())
+    }
     const decoded = decodeUriPart(route.id, "path", actualSegment)
     if (Result.isFailure(decoded)) {
       return Result.fail(decoded.failure)
@@ -458,20 +448,18 @@ export const match = <R extends Any>(
     )
   }
 
-  return Result.succeed(Option.some({
-    id: route.id,
-    route,
-    params: params.success,
-    search: search.success,
-    hash: hash.success
-  }))
+  return Result.succeed(
+    Option.some({
+      id: route.id,
+      route,
+      params: params.success,
+      search: search.success,
+      hash: hash.success
+    })
+  )
 }
 
-const encodeSearch = (
-  routeId: string,
-  fields: UrlFields,
-  value: unknown
-): Result.Result<string, RouteEncodeError> => {
+const encodeSearch = (routeId: string, fields: UrlFields, value: unknown): Result.Result<string, RouteEncodeError> => {
   if (!Predicate.isObject(value)) {
     return Result.fail(
       new RouteEncodeError({
@@ -519,7 +507,8 @@ const encodeSearch = (
           })
         )
       }
-      if (item.length === 1 && Result.isSuccess(Schema.decodeUnknownResult(fields[key])(item[0]))) {
+      const codec = fields[key]
+      if (item.length === 1 && codec !== undefined && Result.isSuccess(Schema.decodeUnknownResult(codec)(item[0]))) {
         return Result.fail(
           new RouteEncodeError({
             routeId,
@@ -560,10 +549,7 @@ const encodeSearch = (
  * @since 0.1.0
  * @category encoding
  */
-export const href = <R extends Any>(
-  route: R,
-  input: Route.Input<R>
-): Result.Result<string, RouteEncodeError> => {
+export const href = <R extends Any>(route: R, input: Route.Input<R>): Result.Result<string, RouteEncodeError> => {
   const params = Schema.encodeResult(route.paramsSchema)(input.params)
   if (Result.isFailure(params)) {
     return Result.fail(
@@ -654,4 +640,6 @@ export const href = <R extends Any>(
  * @category utilities
  */
 export const pathParameterNames = (path: string): ReadonlyArray<string> =>
-  pathSegments(path).filter((segment) => segment.startsWith(":")).map((segment) => segment.slice(1))
+  pathSegments(path)
+    .filter((segment) => segment.startsWith(":"))
+    .map((segment) => segment.slice(1))

@@ -5,7 +5,7 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 
 const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
 
-const makeRegistry = Effect.fn("LoaderTest.makeRegistry")(function*() {
+const makeRegistry = Effect.fn("LoaderTest.makeRegistry")(function* () {
   const registry = AtomRegistry.make()
   yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
   return registry
@@ -15,7 +15,7 @@ class MissingProject extends Schema.TaggedError<MissingProject>()("MissingProjec
 
 describe("data loaders", () => {
   it.effect("decodes inputs, provides services, and reruns on refresh and navigation", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       class Projects extends Context.Service<Projects, { readonly title: string }>()("test/Projects") {}
       const calls: Array<number> = []
       const project = Route.make({
@@ -24,7 +24,7 @@ describe("data loaders", () => {
         params: { id: Schema.FiniteFromString },
         search: { tab: Schema.optionalKey(Schema.Literals(["activity", "overview"])) },
         hash: Schema.Literals(["", "details"]),
-        loader: Effect.fn("LoaderTest.project")(function*({ params, search, hash, location }) {
+        loader: Effect.fn("LoaderTest.project")(function* ({ params, search, hash, location }) {
           const projects = yield* Projects
           calls.push(params.id)
           return { title: projects.title, id: params.id, tab: search.tab, hash, pathname: location.pathname }
@@ -54,10 +54,11 @@ describe("data loaders", () => {
         .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
       expect(calls).toEqual([42, 42, 43])
       expect((yield* AtomRegistry.getResult(registry, router.state)).loaderData?.id).toBe(43)
-    }))
+    })
+  )
 
   it.effect("does not invoke loaders for unmatched or malformed URLs", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let calls = 0
       const project = Route.make({
         id: "project",
@@ -74,10 +75,11 @@ describe("data loaders", () => {
         expect(Exit.isSuccess(exit)).toBe(url === "/")
       }
       expect(calls).toBe(0)
-    }))
+    })
+  )
 
   it.effect("loads code and data concurrently and keeps their results separate", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const codeStarted = yield* Deferred.make<void>()
       const dataStarted = yield* Deferred.make<void>()
       const project = Route.make({
@@ -102,10 +104,11 @@ describe("data loaders", () => {
       const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(resolved.module).toEqual({ view: "Project" })
       expect(resolved.loaderData).toEqual({ title: "Project 42" })
-    }))
+    })
+  )
 
   it.effect("preserves typed data errors and supports refresh after failure", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const error = new MissingProject({ id: 42 })
       let fail = true
       const project = Route.make({
@@ -113,7 +116,7 @@ describe("data loaders", () => {
         path: "/",
         params: {},
         search: {},
-        loader: () => fail ? Effect.fail(error) : Effect.succeed({ id: 42 })
+        loader: () => (fail ? Effect.fail(error) : Effect.succeed({ id: 42 }))
       })
       const router = Router.make({ routes: [project], layer: MemoryHistory.layer() })
       const registry = yield* makeRegistry()
@@ -130,10 +133,11 @@ describe("data loaders", () => {
       fail = false
       yield* router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
       expect((yield* AtomRegistry.getResult(registry, router.state)).loaderData).toEqual({ id: 42 })
-    }))
+    })
+  )
 
   it.effect("interrupts and finalizes data loaders when superseded or disposed", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       for (const dispose of [false, true]) {
         const started = yield* Deferred.make<void>()
         const finalized = yield* Deferred.make<void>()
@@ -143,7 +147,7 @@ describe("data loaders", () => {
           params: {},
           search: {},
           loader: () =>
-            Effect.gen(function*() {
+            Effect.gen(function* () {
               yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
               yield* Deferred.succeed(started, undefined)
               return yield* Effect.never
@@ -157,9 +161,9 @@ describe("data loaders", () => {
         else {
           // A fresh invocation supersedes the router's still-running initial
           // transition; its caller keeps going independently.
-          yield* router.execute(Router.push(home, { params: {}, search: {}, hash: "" })).pipe(
-            Effect.provideService(AtomRegistry.AtomRegistry, registry)
-          )
+          yield* router
+            .execute(Router.push(home, { params: {}, search: {}, hash: "" }))
+            .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
         }
         yield* Deferred.await(finalized)
         if (!dispose) {
@@ -168,10 +172,11 @@ describe("data loaders", () => {
           expect(resolved.loaderData).toBeUndefined()
         }
       }
-    }))
+    })
+  )
 
   it.effect("interrupts sibling code loading when the data loader fails", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const codeStarted = yield* Deferred.make<void>()
       const finalized = yield* Deferred.make<void>()
       const project = Route.make({
@@ -180,7 +185,7 @@ describe("data loaders", () => {
         params: {},
         search: {},
         lazy: () =>
-          Effect.gen(function*() {
+          Effect.gen(function* () {
             yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
             yield* Deferred.succeed(codeStarted, undefined)
             return yield* Effect.never
@@ -193,17 +198,18 @@ describe("data loaders", () => {
       const exit = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true }).pipe(Effect.exit)
       expect(Exit.isFailure(exit)).toBe(true)
       yield* Deferred.await(finalized)
-    }))
+    })
+  )
 
   it.effect("ignores late success and failure from superseded non-cancelable promises", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       for (const reject of [false, true]) {
         const started = yield* Deferred.make<void>()
         let complete: () => void = () => {
           throw new Error("Promise executor did not initialize")
         }
         const completion = new Promise<{ readonly id: number }>((resolve, rejectPromise) => {
-          complete = () => reject ? rejectPromise(new MissingProject({ id: 42 })) : resolve({ id: 42 })
+          complete = () => (reject ? rejectPromise(new MissingProject({ id: 42 })) : resolve({ id: 42 }))
         })
         const slow = Route.make({
           id: "slow",
@@ -212,27 +218,26 @@ describe("data loaders", () => {
           search: {},
           loader: () =>
             Deferred.succeed(started, undefined).pipe(
-              Effect.andThen(
-                Effect.tryPromise({ try: () => completion, catch: () => new MissingProject({ id: 42 }) })
-              )
+              Effect.andThen(Effect.tryPromise({ try: () => completion, catch: () => new MissingProject({ id: 42 }) }))
             )
         })
         const router = Router.make({ routes: [home, slow], layer: MemoryHistory.layer("/slow") })
         const registry = yield* makeRegistry()
         yield* AtomRegistry.mount(registry, router.state)
         yield* Deferred.await(started)
-        yield* router.execute(Router.push(home, { params: {}, search: {}, hash: "" })).pipe(
-          Effect.provideService(AtomRegistry.AtomRegistry, registry)
-        )
+        yield* router
+          .execute(Router.push(home, { params: {}, search: {}, hash: "" }))
+          .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
         complete()
         yield* Effect.promise(() => completion.catch(() => undefined))
         yield* Effect.yieldNow
         expect((yield* AtomRegistry.getResult(registry, router.state)).id).toBe("home")
       }
-    }))
+    })
+  )
 
   it.effect("closes successful loader scopes before publishing their data", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let finalized = false
       const project = Route.make({
         id: "project",
@@ -240,7 +245,7 @@ describe("data loaders", () => {
         params: {},
         search: {},
         loader: () =>
-          Effect.gen(function*() {
+          Effect.gen(function* () {
             yield* Effect.addFinalizer(() =>
               Effect.sync(() => {
                 finalized = true
@@ -256,10 +261,11 @@ describe("data loaders", () => {
         id: 42
       })
       expect(finalized).toBe(true)
-    }))
+    })
+  )
 
   it.effect("keeps thrown loader defects out of the typed error channel", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const defect = new Error("loader defect")
       const project = Route.make({
         id: "project",
@@ -277,5 +283,6 @@ describe("data loaders", () => {
       if (Exit.isSuccess(exit)) return expect.fail("Expected defect")
       expect(Cause.findErrorOption(exit.cause)).toEqual(Option.none())
       expect(Cause.squash(exit.cause)).toBe(defect)
-    }))
+    })
+  )
 })

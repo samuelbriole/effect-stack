@@ -22,8 +22,9 @@ test("route hook selectors return computed projections of the selected output", 
   expect(project.useParams((params) => params.id)).type.toBe<ComputedRef<number>>()
   expect(project.useLoaderData((data) => data.name)).type.toBe<ComputedRef<string>>()
   expect(project.useMatch((match) => match.loaderData.count)).type.toBe<ComputedRef<number>>()
-  expect(project.useParams((params) => params.id, { equals: (left, right) => left === right }))
-    .type.toBe<ComputedRef<number>>()
+  expect(project.useParams((params) => params.id, { equals: (left, right) => left === right })).type.toBe<
+    ComputedRef<number>
+  >()
 })
 
 test("zero-argument route hooks preserve their plain computed output", () => {

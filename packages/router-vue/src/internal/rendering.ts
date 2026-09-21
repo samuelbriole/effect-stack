@@ -78,9 +78,13 @@ const RenderBoundary = defineComponent({
     // A latched render error releases only when a completed successful transition
     // covers this route, never the moment Retry dispatches its refresh.
     const recovery = computed(() => RenderPolicy.recoveryKey(branch.value, props.route.id))
-    watch(recovery, () => {
-      failure.value = undefined
-    }, { flush: "sync" })
+    watch(
+      recovery,
+      () => {
+        failure.value = undefined
+      },
+      { flush: "sync" }
+    )
     const reset = () => props.refresh()
     return () => {
       const latched = failure.value
@@ -116,23 +120,27 @@ export const Outlet = defineComponent({
     const refresh = () => {
       void Effect.runPromise(
         core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-      )
-        .catch(() => {})
+      ).catch(() => {})
     }
     return () => {
       const selected = selection.value
       if (selected._tag === "Empty") return null
-      const route = branch.value.matches[depth]?.route as Route.Any & Views | undefined
+      const route = branch.value.matches[depth]?.route as (Route.Any & Views) | undefined
       if (route === undefined) return null
       if (selected._tag === "Boundary") {
-        const view = selected.kind === "errorComponent"
-          ? route.errorComponent ?? DefaultError
-          : selected.kind === "pendingComponent"
-          ? route.pendingComponent ?? DefaultPending
-          : route.notFoundComponent ?? DefaultNotFound
-        return h(FallbackSnapshot, { key: `${route.id}:${selected.kind}` }, {
-          default: () => h(view, selected.kind === "errorComponent" ? { error: selected.error, reset: refresh } : {})
-        })
+        const view =
+          selected.kind === "errorComponent"
+            ? (route.errorComponent ?? DefaultError)
+            : selected.kind === "pendingComponent"
+              ? (route.pendingComponent ?? DefaultPending)
+              : (route.notFoundComponent ?? DefaultNotFound)
+        return h(
+          FallbackSnapshot,
+          { key: `${route.id}:${selected.kind}` },
+          {
+            default: () => h(view, selected.kind === "errorComponent" ? { error: selected.error, reset: refresh } : {})
+          }
+        )
       }
       const entry = branch.value.matches[depth]
       const module = entry?.result._tag === "Success" ? entry.result.value.module : undefined

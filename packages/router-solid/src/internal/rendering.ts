@@ -17,13 +17,11 @@ import { DepthContext, SnapshotContext, useRuntime } from "./context.ts"
 import { useRetry } from "./navigation.ts"
 import type { ErrorProps, Views } from "./route.ts"
 
-export function Keyed<T>(
-  props: {
-    readonly when: T | undefined
-    readonly children: (value: NonNullable<T>) => JSX.Element
-    readonly fallback?: JSX.Element
-  }
-): JSX.Element {
+export function Keyed<T>(props: {
+  readonly when: T | undefined
+  readonly children: (value: NonNullable<T>) => JSX.Element
+  readonly fallback?: JSX.Element
+}): JSX.Element {
   // Show uses callback arity to distinguish render functions from JSX accessors.
   // Always supply a one-argument callback, even when a caller ignores the value.
   return Show({
@@ -91,9 +89,12 @@ export function Outlet(): JSX.Element {
       recoveryKey: entry === undefined ? undefined : RenderPolicy.recoveryKey(branch, entry.route.id)
     }
   }).pipe(
-    Atom.withEquality<Presentation>((left, right) =>
-      RenderPolicy.sameSelection(left.selection, right.selection) &&
-      left.route === right.route && left.module === right.module && left.recoveryKey === right.recoveryKey
+    Atom.withEquality<Presentation>(
+      (left, right) =>
+        RenderPolicy.sameSelection(left.selection, right.selection)
+        && left.route === right.route
+        && left.module === right.module
+        && left.recoveryKey === right.recoveryKey
     )
   )
   const current = useAtomValue(() => presentation)
@@ -138,9 +139,10 @@ export function Outlet(): JSX.Element {
             })
           )
         }
-        const Fallback = kind === "pendingComponent"
-          ? route.pendingComponent ?? DefaultPending
-          : route.notFoundComponent ?? DefaultNotFound
+        const Fallback =
+          kind === "pendingComponent"
+            ? (route.pendingComponent ?? DefaultPending)
+            : (route.notFoundComponent ?? DefaultNotFound)
         return provideDepth(() =>
           createComponent(SnapshotContext.Provider, {
             value: "incoming" as const,
@@ -153,13 +155,14 @@ export function Outlet(): JSX.Element {
       const view = createMemo((): Component => {
         const snapshot = current()
         const lazy = snapshot.module as { readonly default?: unknown; readonly component?: unknown } | undefined
-        const selected: unknown = snapshot.route?.component !== undefined ?
-          snapshot.route.component
-          : lazy?.component !== undefined ?
-          lazy.component
-          : lazy?.default !== undefined ?
-          lazy.default
-          : Outlet
+        const selected: unknown =
+          snapshot.route?.component !== undefined
+            ? snapshot.route.component
+            : lazy?.component !== undefined
+              ? lazy.component
+              : lazy?.default !== undefined
+                ? lazy.default
+                : Outlet
         return isSolidView(selected) ? selected : invalidSolidView(snapshot.route?.id ?? "unknown", selected)
       })
       const contentView = () =>

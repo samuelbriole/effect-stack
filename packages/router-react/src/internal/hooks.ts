@@ -28,15 +28,13 @@ export function useRouterState<A = Atom.Type<RegisteredRouter["core"]["state"]>>
 ): A {
   const { core } = useRuntime()
   const equals = options?.equals ?? Object.is
-  const atom = React.useMemo(() =>
-    Atom.map(core.state, (value) =>
-      select === undefined
-        ? value as A :
-        select(value as Atom.Type<RegisteredRouter["core"]["state"]>)).pipe(Atom.withEquality<A>(equals)), [
-    core,
-    select,
-    equals
-  ])
+  const atom = React.useMemo(
+    () =>
+      Atom.map(core.state, (value) =>
+        select === undefined ? (value as A) : select(value as Atom.Type<RegisteredRouter["core"]["state"]>)
+      ).pipe(Atom.withEquality<A>(equals)),
+    [core, select, equals]
+  )
   return useAtomValue(atom)
 }
 
@@ -56,28 +54,31 @@ export function useRouteValue<R extends Route.Any, K extends keyof RouteValues<R
   const { core } = useRuntime()
   const mode = React.useContext(SnapshotContext)
   const atoms = core.routeAtoms(route)
-  const equals = options?.equals ??
-    (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
-  const selected = React.useMemo(() =>
-    Atom.make((get) => {
-      const resolved = get(atoms.resolved)
-      const useIncoming = mode === "incoming" && (key === "params" || key === "search")
-      const incoming = useIncoming
-        ? get(atoms.incoming)
-        : Option.none()
-      const snapshot = useIncoming
-        ? Option.isSome(incoming) && Result.isSuccess(incoming.value) ? incoming.value.success : undefined
-        : Option.isSome(resolved)
-        ? resolved.value
-        : undefined
-      if (snapshot === undefined) return Option.none<A>()
-      const value = (key === "match" ? snapshot : snapshot[key as keyof typeof snapshot]) as RouteValues<R>[K]
-      return Option.some(select === undefined ? value as A : select(value))
-    }).pipe(Atom.withEquality<Option.Option<A>>((left, right) =>
-      Option.isSome(left)
-        ? Option.isSome(right) && equals(left.value, right.value)
-        : Option.isNone(right)
-    )), [atoms, mode, key, select, equals])
+  const equals =
+    options?.equals ?? (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
+  const selected = React.useMemo(
+    () =>
+      Atom.make((get) => {
+        const resolved = get(atoms.resolved)
+        const useIncoming = mode === "incoming" && (key === "params" || key === "search")
+        const incoming = useIncoming ? get(atoms.incoming) : Option.none()
+        const snapshot = useIncoming
+          ? Option.isSome(incoming) && Result.isSuccess(incoming.value)
+            ? incoming.value.success
+            : undefined
+          : Option.isSome(resolved)
+            ? resolved.value
+            : undefined
+        if (snapshot === undefined) return Option.none<A>()
+        const value = (key === "match" ? snapshot : snapshot[key as keyof typeof snapshot]) as RouteValues<R>[K]
+        return Option.some(select === undefined ? (value as A) : select(value))
+      }).pipe(
+        Atom.withEquality<Option.Option<A>>((left, right) =>
+          Option.isSome(left) ? Option.isSome(right) && equals(left.value, right.value) : Option.isNone(right)
+        )
+      ),
+    [atoms, mode, key, select, equals]
+  )
   const value = useAtomValue(selected)
   if (Option.isNone(value)) {
     throw new Error(

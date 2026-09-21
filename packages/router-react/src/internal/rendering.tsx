@@ -34,13 +34,13 @@ class RenderBoundary extends React.Component<
   }
   override render() {
     const Fallback = this.props.fallback
-    return this.state.failed
-      ? (
-        <SnapshotContext.Provider value="incoming">
-          <Fallback error={this.state.error} reset={this.props.reset} />
-        </SnapshotContext.Provider>
-      )
-      : this.props.children
+    return this.state.failed ? (
+      <SnapshotContext.Provider value="incoming">
+        <Fallback error={this.state.error} reset={this.props.reset} />
+      </SnapshotContext.Provider>
+    ) : (
+      this.props.children
+    )
   }
 }
 
@@ -57,9 +57,8 @@ const ReactBuiltinViews = new Set([
 const isReactView = (value: unknown): value is React.ComponentType => {
   if (typeof value === "function") return true
   if (typeof value === "symbol") return ReactBuiltinViews.has(value)
-  const exotic = typeof value === "object" && value !== null
-    ? (value as { readonly $$typeof?: symbol }).$$typeof
-    : undefined
+  const exotic =
+    typeof value === "object" && value !== null ? (value as { readonly $$typeof?: symbol }).$$typeof : undefined
   return exotic === ReactMemoType || exotic === ReactLazyType || exotic === ReactForwardRefType
 }
 // Selection stays total; the actionable failure surfaces inside the render boundary so the
@@ -85,40 +84,52 @@ export function Outlet(): React.ReactNode {
   const depth = React.useContext(DepthContext)
   const { core } = useRuntime()
   const reset = useRetry()
-  const presentation = React.useMemo(() =>
-    Atom.map(core.branch, (branch) => {
-      const selection = RenderPolicy.select(branch, depth, (route, kind) => (route as Views)[kind] !== undefined)
-      const entry = branch.matches[depth]
-      return {
-        selection,
-        route: entry?.route,
-        module: entry?.result._tag === "Success" ? entry.result.value.module : undefined,
-        recoveryKey: entry === undefined ? undefined : RenderPolicy.recoveryKey(branch, entry.route.id)
-      }
-    }).pipe(Atom.withEquality<Presentation>((a, b) =>
-      RenderPolicy.sameSelection(a.selection, b.selection) && a.route === b.route && a.module === b.module &&
-      a.recoveryKey === b.recoveryKey
-    )), [core, depth])
+  const presentation = React.useMemo(
+    () =>
+      Atom.map(core.branch, (branch) => {
+        const selection = RenderPolicy.select(branch, depth, (route, kind) => (route as Views)[kind] !== undefined)
+        const entry = branch.matches[depth]
+        return {
+          selection,
+          route: entry?.route,
+          module: entry?.result._tag === "Success" ? entry.result.value.module : undefined,
+          recoveryKey: entry === undefined ? undefined : RenderPolicy.recoveryKey(branch, entry.route.id)
+        }
+      }).pipe(
+        Atom.withEquality<Presentation>(
+          (a, b) =>
+            RenderPolicy.sameSelection(a.selection, b.selection)
+            && a.route === b.route
+            && a.module === b.module
+            && a.recoveryKey === b.recoveryKey
+        )
+      ),
+    [core, depth]
+  )
   const { selection, route, module, recoveryKey } = useAtomValue(presentation)
   const views = (route ?? {}) as Views
   const View = React.useMemo(() => {
     const lazy = module as { readonly default?: unknown; readonly component?: unknown } | undefined
-    const selected: unknown = views.component !== undefined ?
-      views.component
-      : lazy?.component !== undefined
-      ? lazy.component
-      : lazy?.default !== undefined
-      ? lazy.default
-      : Outlet
+    const selected: unknown =
+      views.component !== undefined
+        ? views.component
+        : lazy?.component !== undefined
+          ? lazy.component
+          : lazy?.default !== undefined
+            ? lazy.default
+            : Outlet
     return isReactView(selected) ? selected : invalidReactView(route?.id ?? "unknown", selected)
   }, [views.component, module, route?.id])
-  const content = React.useMemo(() => (
-    <SnapshotContext.Provider value="resolved">
-      <DepthContext.Provider value={depth + 1}>
-        <View />
-      </DepthContext.Provider>
-    </SnapshotContext.Provider>
-  ), [depth, View, route?.id])
+  const content = React.useMemo(
+    () => (
+      <SnapshotContext.Provider value="resolved">
+        <DepthContext.Provider value={depth + 1}>
+          <View />
+        </DepthContext.Provider>
+      </SnapshotContext.Provider>
+    ),
+    [depth, View, route?.id]
+  )
   if (selection._tag === "Empty") return null
   if (selection._tag === "Boundary") {
     if (selection.kind === "errorComponent") {
@@ -129,25 +140,26 @@ export function Outlet(): React.ReactNode {
         </SnapshotContext.Provider>
       )
     }
-    const Fallback = selection.kind === "pendingComponent"
-      ? views.pendingComponent ?? DefaultPending
-      : views.notFoundComponent ?? DefaultNotFound
+    const Fallback =
+      selection.kind === "pendingComponent"
+        ? (views.pendingComponent ?? DefaultPending)
+        : (views.notFoundComponent ?? DefaultNotFound)
     return (
       <SnapshotContext.Provider value="incoming">
         <Fallback />
       </SnapshotContext.Provider>
     )
   }
-  return views.errorComponent !== undefined || depth === 0
-    ? (
-      <RenderBoundary
-        key={selection.routeId}
-        recoveryKey={recoveryKey}
-        fallback={views.errorComponent ?? DefaultError}
-        reset={reset}
-      >
-        {content}
-      </RenderBoundary>
-    )
-    : <React.Fragment key={selection.routeId}>{content}</React.Fragment>
+  return views.errorComponent !== undefined || depth === 0 ? (
+    <RenderBoundary
+      key={selection.routeId}
+      recoveryKey={recoveryKey}
+      fallback={views.errorComponent ?? DefaultError}
+      reset={reset}
+    >
+      {content}
+    </RenderBoundary>
+  ) : (
+    <React.Fragment key={selection.routeId}>{content}</React.Fragment>
+  )
 }

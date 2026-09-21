@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 120,
+  "tabWidth": 2,
+  "endOfLine": "lf",
+  "semi": false,
+  "singleQuote": false,
+  "trailingComma": "none",
+  "experimentalOperatorPosition": "start",
+  "sortImports": false,
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "dist-types",
+    "coverage",
+    "*.tsbuildinfo",
+    "pnpm-lock.yaml",
+    "CHANGELOG.md"
+  ]
+}

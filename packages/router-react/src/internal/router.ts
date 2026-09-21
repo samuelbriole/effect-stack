@@ -20,13 +20,12 @@ export type RuntimeRouter = ClientRouter<RouteTree.Any, unknown>
 
 /** Browser history is the default; application services are supplied independently. @since 0.1.0 */
 export function createRouter<T extends RouteTree.Any, E = never, HE = never>(
-  options:
-    & {
-      readonly routeTree: T
-      readonly history?: Layer.Layer<History.Service, HE>
-    }
-    & ([Route.Route.Services<RouteTree.All<T>>] extends [never] ? { readonly layer?: Layer.Layer<never, E> }
-      : { readonly layer: Layer.Layer<Route.Route.Services<RouteTree.All<T>>, E> })
+  options: {
+    readonly routeTree: T
+    readonly history?: Layer.Layer<History.Service, HE>
+  } & ([Route.Route.Services<RouteTree.All<T>>] extends [never]
+    ? { readonly layer?: Layer.Layer<never, E> }
+    : { readonly layer: Layer.Layer<Route.Route.Services<RouteTree.All<T>>, E> })
 ): ClientRouter<T, E | HE | History.HistoryError> {
   const history: Layer.Layer<History.Service, HE | History.HistoryError> = options.history ?? BrowserHistory.layer
   // The conditional options require this layer whenever the tree has requirements.

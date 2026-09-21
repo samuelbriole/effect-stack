@@ -23,27 +23,28 @@ type VueModuleView = NonNullable<Views["component"]>
 // interfaces structurally, so they are rejected ahead of the component check. Distribution
 // keeps union module types honest: one invalid member poisons the check even when other
 // members are renderer-neutral.
-type InvalidLazyModuleValue<V> = [V] extends [ReadonlyArray<unknown>] ? true
-  : ([V] extends [VueModuleView] ? never : true)
-type InvalidLazyModuleExport<M> = M extends unknown ?
-    | ("default" extends keyof M ? InvalidLazyModuleValue<Exclude<M["default"], undefined>> : never)
-    | ("component" extends keyof M ? InvalidLazyModuleValue<Exclude<M["component"], undefined>> : never)
+type InvalidLazyModuleValue<V> = [V] extends [ReadonlyArray<unknown>]
+  ? true
+  : [V] extends [VueModuleView]
+    ? never
+    : true
+type InvalidLazyModuleExport<M> = M extends unknown
+  ?
+      | ("default" extends keyof M ? InvalidLazyModuleValue<Exclude<M["default"], undefined>> : never)
+      | ("component" extends keyof M ? InvalidLazyModuleValue<Exclude<M["component"], undefined>> : never)
   : never
 
 // A lazy module may carry renderer-neutral data, but a present view export must be a Vue component.
 // Modules without `default`/`component` keep the Outlet fallback. This check is stricter than
 // `RouteTree.CheckedLazyModule` because Vue option objects match `Component` structurally.
-type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown
-  : { readonly lazy?: never }
+type CheckedLazyModule<M> = [InvalidLazyModuleExport<M>] extends [never] ? unknown : { readonly lazy?: never }
 /** @since 0.1.0 */
 export type VueRoute<
   R extends Route.Any,
   C extends ReadonlyArray<RouteTree.Any> = readonly [],
   K extends RouteTree.Kind = RouteTree.Kind
-> =
-  & Omit<RouteTree.Node<R, C, K>, "addChildren">
-  & Views
-  & {
+> = Omit<RouteTree.Node<R, C, K>, "addChildren">
+  & Views & {
     readonly addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(
       children: Children
     ) => VueRoute<R, Children, K>
@@ -56,19 +57,20 @@ export type VueRoute<
 const decorate = <R extends Route.Any, C extends ReadonlyArray<RouteTree.Any>, K extends RouteTree.Kind>(
   route: RouteTree.Node<R, C, K>,
   views: Views
-): VueRoute<R, C, K> => ({
-  ...route,
-  ...(views.component === undefined ? {} : { component: views.component }),
-  ...(views.pendingComponent === undefined ? {} : { pendingComponent: views.pendingComponent }),
-  ...(views.errorComponent === undefined ? {} : { errorComponent: views.errorComponent }),
-  ...(views.notFoundComponent === undefined ? {} : { notFoundComponent: views.notFoundComponent }),
-  addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(children: Children) =>
-    decorate(route.addChildren(children), views),
-  useMatch: routeHook(route, "match"),
-  useParams: routeHook(route, "params"),
-  useSearch: routeHook(route, "search"),
-  useLoaderData: routeHook(route, "loaderData")
-} as VueRoute<R, C, K>)
+): VueRoute<R, C, K> =>
+  ({
+    ...route,
+    ...(views.component === undefined ? {} : { component: views.component }),
+    ...(views.pendingComponent === undefined ? {} : { pendingComponent: views.pendingComponent }),
+    ...(views.errorComponent === undefined ? {} : { errorComponent: views.errorComponent }),
+    ...(views.notFoundComponent === undefined ? {} : { notFoundComponent: views.notFoundComponent }),
+    addChildren: <const Children extends ReadonlyArray<RouteTree.Any>>(children: Children) =>
+      decorate(route.addChildren(children), views),
+    useMatch: routeHook(route, "match"),
+    useParams: routeHook(route, "params"),
+    useSearch: routeHook(route, "search"),
+    useLoaderData: routeHook(route, "loaderData")
+  }) as VueRoute<R, C, K>
 
 /** @since 0.1.0 */
 export function createRootRoute<
@@ -81,10 +83,7 @@ export function createRootRoute<
   E = never,
   R = never
 >(
-  options:
-    & Views
-    & { readonly search?: S; readonly hash?: H }
-    & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R>
+  options: Views & { readonly search?: S; readonly hash?: H } & RouteTree.Loading<{}, S, H, M, ME, MR, D, E, R>
     & CheckedLazyModule<M> = {}
 ): VueRoute<Route.Route<"__root__", "/", {}, S, H, M, ME, MR, D, E, R>, readonly [], "root"> {
   return decorate(RouteTree.root(options), options)
@@ -103,16 +102,13 @@ export function createRoute<
   E = never,
   R = never
 >(
-  options:
-    & Views
-    & {
-      readonly getParentRoute: () => Parent
-      readonly id: Id
-      readonly path?: never
-      readonly search?: S
-      readonly hash?: H
-    }
-    & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
+  options: Views & {
+    readonly getParentRoute: () => Parent
+    readonly id: Id
+    readonly path?: never
+    readonly search?: S
+    readonly hash?: H
+  } & RouteTree.Loading<Parent["paramsSchema"]["fields"], Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
     & CheckedLazyModule<M>
 ): VueRoute<
   Route.Route<

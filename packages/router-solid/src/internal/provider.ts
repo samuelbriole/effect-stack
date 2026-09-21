@@ -11,9 +11,10 @@ import type { Views } from "./route.ts"
 import type { ClientRouter, RuntimeRouter } from "./router.ts"
 
 /** Owns a registry by default; caller-supplied registries remain caller-owned. @since 0.1.0 */
-export function RouterProvider<T extends RouteTree.Any, E>(
-  props: { readonly router: ClientRouter<T, E>; readonly registry?: AtomRegistry.AtomRegistry }
-): JSX.Element {
+export function RouterProvider<T extends RouteTree.Any, E>(props: {
+  readonly router: ClientRouter<T, E>
+  readonly registry?: AtomRegistry.AtomRegistry
+}): JSX.Element {
   const content = () =>
     createComponent(Keyed<ClientRouter<T, E>>, {
       get when() {
@@ -58,13 +59,15 @@ function RouterView(): JSX.Element {
     branch.matches.length > 0
       ? { _tag: "Active" }
       : branch.result._tag === "Failure"
-      ? { _tag: "Failure", error: Cause.squash(branch.result.cause) }
-      : { _tag: "Pending" }).pipe(
-      Atom.withEquality<Startup>((left, right) =>
-        left._tag === right._tag &&
-        (left._tag !== "Failure" || (right._tag === "Failure" && Object.is(left.error, right.error)))
-      )
+        ? { _tag: "Failure", error: Cause.squash(branch.result.cause) }
+        : { _tag: "Pending" }
+  ).pipe(
+    Atom.withEquality<Startup>(
+      (left, right) =>
+        left._tag === right._tag
+        && (left._tag !== "Failure" || (right._tag === "Failure" && Object.is(left.error, right.error)))
     )
+  )
   const status = useAtomValue(() => startup)
   return createComponent(Keyed<string>, {
     get when() {

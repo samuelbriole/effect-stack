@@ -8,7 +8,7 @@ class Projects extends Context.Service<Projects, { readonly title: string }>()("
 const connection = Layer.succeed(Connection, Connection.of({ name: "connection" }))
 const projects = Layer.effect(
   Projects,
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const service = yield* Connection
     return Projects.of({ title: service.name })
   })

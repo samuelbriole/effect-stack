@@ -17,6 +17,7 @@ import { Cause, Context, Deferred, Effect, Layer, Schema } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type Component, defineComponent, h, nextTick, ref, render, type VNode } from "vue"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -41,17 +42,16 @@ const settle = async <T extends RouteTree.Any, E>(
   command = false
 ) => {
   await Effect.runPromise(
-    AtomRegistry.getResult(registry, command ? router.core.navigation : router.core.state, { suspendOnWaiting: true })
-      .pipe(Effect.exit)
+    AtomRegistry.getResult(registry, command ? router.core.navigation : router.core.state, {
+      suspendOnWaiting: true
+    }).pipe(Effect.exit)
   )
   await nextTick()
 }
-const readState = async <T extends RouteTree.Any, E>(
-  router: ClientRouter<T, E>,
-  registry: AtomRegistry.AtomRegistry
-) => await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
+const readState = async <T extends RouteTree.Any, E>(router: ClientRouter<T, E>, registry: AtomRegistry.AtomRegistry) =>
+  await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
 
-describe.sequential("Vue review regressions", () => {
+describe("Vue review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views before the loader settles", async () => {
     const ready = Effect.runSync(Deferred.make<void>())
     let decoded: number | undefined
@@ -93,7 +93,7 @@ describe.sequential("Vue review regressions", () => {
     const child = createRoute({
       getParentRoute: () => root,
       path: "/",
-      loader: () => ++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good")),
+      loader: () => (++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good"))),
       component: defineComponent({
         setup() {
           const data = child.useLoaderData()
@@ -108,7 +108,7 @@ describe.sequential("Vue review regressions", () => {
     const { container, registry } = mount(router)
     await settle(router, registry)
     expect(container.textContent).toBe("Retry")
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await nextTick()
     // The refresh is still loading; the ancestor boundary keeps its latched failure
     // instead of flashing stale bad data or a generic pending view.
@@ -123,7 +123,7 @@ describe.sequential("Vue review regressions", () => {
     let attempts = 0
     const layer = Layer.effect(
       Config,
-      Effect.suspend(() => ++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready"))
+      Effect.suspend(() => (++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready")))
     )
     const route = createRootRoute({
       loader: () => Config.use((config) => Effect.succeed(config)),
@@ -139,7 +139,7 @@ describe.sequential("Vue review regressions", () => {
     const { container, registry } = mount(router)
     await settle(router, registry)
     expect(container.textContent).toBe("Retry startup")
-    container.querySelector("button")!.click()
+    requireElement(container, "button").click()
     await nextTick()
     await settle(router, registry)
     expect(attempts).toBe(2)

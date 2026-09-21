@@ -14,6 +14,7 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const cleanups: Array<() => Promise<void>> = []
@@ -21,7 +22,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
 })
 
-describe.sequential("React router", () => {
+describe("React router", { concurrent: false }, () => {
   it("does not repeat redirects when a root pending fallback remounts the layout", async () => {
     const started = Effect.runSync(Deferred.make<void>())
     const ready = Effect.runSync(Deferred.make<void>())
@@ -39,7 +40,7 @@ describe.sequential("React router", () => {
       getParentRoute: () => rootRoute,
       path: "child",
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           visits++
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
@@ -87,7 +88,7 @@ describe.sequential("React router", () => {
     const started = Effect.runSync(Deferred.make<void>())
     const route = createRootRoute({
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never
@@ -143,7 +144,7 @@ describe.sequential("React router", () => {
       path: "lazy",
       pendingComponent: () => <p>Waiting for view</p>,
       lazy: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
           return { default: () => <p>Lazy view</p> }
@@ -227,8 +228,9 @@ describe.sequential("React router", () => {
       await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     })
     expect(container.textContent).toContain("Home")
-    await React.act(async () => container.querySelector("button")!.click())
-    const anchor = container.querySelector("a")!
+    await React.act(async () => requireElement(container, "button").click())
+    const anchor = container.querySelector("a")
+    if (anchor === null) throw new Error("Expected anchor")
     expect(anchor.getAttribute("href")).toBe("/project")
     const modified = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true })
     await React.act(async () => {
@@ -241,7 +243,7 @@ describe.sequential("React router", () => {
     })
     expect(container.textContent).toContain("Project data")
     expect(container.textContent).toContain("Count 1")
-    expect(container.querySelector("a")!.getAttribute("aria-current")).toBe("page")
+    expect(container.querySelector("a")?.getAttribute("aria-current")).toBe("page")
   })
 
   it("bubbles loader errors to a route boundary and retries on refresh", async () => {
@@ -257,7 +259,7 @@ describe.sequential("React router", () => {
     const child = createRoute({
       getParentRoute: () => rootRoute,
       path: "child",
-      loader: () => fail ? Effect.fail("missing") : Effect.succeed("Recovered"),
+      loader: () => (fail ? Effect.fail("missing") : Effect.succeed("Recovered")),
       component: () => <p>{child.useLoaderData()}</p>,
       errorComponent: ({ reset }) => <button onClick={reset}>Try again</button>
     })
@@ -279,9 +281,7 @@ describe.sequential("React router", () => {
     fail = false
     await React.act(async () => {
       await Effect.runPromise(
-        router.core
-          .execute(Router.refresh)
-          .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+        router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
       )
     })
     expect(container.textContent).toBe("LayoutRecovered")

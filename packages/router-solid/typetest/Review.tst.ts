@@ -36,8 +36,7 @@ describe("Solid review type regressions", () => {
     expect(project.useMatch((match) => match.location.pathname)).type.toBe<Accessor<string>>()
     expect(
       project.useParams((params) => String(params.id), { equals: (left: string, right: string) => left === right })
-    )
-      .type.toBe<Accessor<string>>()
+    ).type.toBe<Accessor<string>>()
   })
   test("router state exposes a selected navigation status as an accessor", () => {
     expect(useRouterState((result) => result._tag)).type.toBe<Accessor<"Initial" | "Success" | "Failure">>()
@@ -45,8 +44,7 @@ describe("Solid review type regressions", () => {
       useRouterState((result) => result._tag === "Success", {
         equals: (left: boolean, right: boolean) => left === right
       })
-    )
-      .type.toBe<Accessor<boolean>>()
+    ).type.toBe<Accessor<boolean>>()
   })
   test("the navigate bridge exposes Promises and registry-free Effects", () => {
     const navigate = useNavigate()
@@ -61,9 +59,7 @@ describe("Solid review type regressions", () => {
     expect(router.compiled).type.toBe<RouteTree.Compiled<RouteTree.All<typeof tree>>>()
     expect(router.compiled.target).type.toBe<RouteTree.Compiled["target"]>()
     expect(router.compiled.routes).type.toBe<ReadonlyArray<RouteTree.All<typeof tree>>>()
-    expect<ReturnType<typeof router.compiled.target>["input"]>().type.toBe<
-      Route.Route.Input<Route.Any>
-    >()
+    expect<ReturnType<typeof router.compiled.target>["input"]>().type.toBe<Route.Route.Input<Route.Any>>()
     expect(router.href).type.toBeCallableWith({ to: "/projects/:id", params: { id } })
     expect(router.href).type.not.toBeCallableWith({ to: "/projects/:id", params: { id: 42 } })
   })

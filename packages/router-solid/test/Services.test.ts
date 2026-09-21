@@ -8,7 +8,7 @@ class Projects extends Context.Service<Projects, { readonly instance: number }>(
 
 describe("Solid Effect service injection", () => {
   it.effect("shares scoped services across matches and refreshes, isolates registries, and releases resources", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let acquired = 0
       let released = 0
       const layer = Layer.effect(
@@ -38,13 +38,11 @@ describe("Solid Effect service injection", () => {
       yield* AtomRegistry.mount(registry, router.core.navigation)
       yield* AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true })
       expect(
-        registry.get(router.core.branch).matches.map((entry) =>
-          entry.result._tag === "Success" ? entry.result.value.loaderData : undefined
-        )
+        registry
+          .get(router.core.branch)
+          .matches.map((entry) => (entry.result._tag === "Success" ? entry.result.value.loaderData : undefined))
       ).toEqual([1, 1])
-      yield* router.core.execute(Router.refresh).pipe(
-        Effect.provideService(AtomRegistry.AtomRegistry, registry)
-      )
+      yield* router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
       expect(acquired).toBe(1)
       expect(released).toBe(0)
       const other = AtomRegistry.make()
@@ -56,5 +54,6 @@ describe("Solid Effect service injection", () => {
       expect((yield* AtomRegistry.getResult(other, router.core.state)).loaderData).toBe(2)
       other.dispose()
       expect(released).toBe(2)
-    }))
+    })
+  )
 })
