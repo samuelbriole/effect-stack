@@ -1,15 +1,19 @@
 # EffectStack
 
-A family of Effect-native libraries with headless, framework-agnostic cores and first-party adapters. Inspired by
-[TanStack](https://tanstack.com/).
+Independently adoptable, Effect-native libraries with headless cores and first-party renderer adapters.
+Inspired by [TanStack](https://tanstack.com/).
 
 > EffectStack is an independent community project built on Effect. It is not maintained by Effectful Technologies Inc.
+
+## Get started
+
+Targets **Effect v4 RC**.
 
 ```sh
 pnpm add @effect-stack/router effect@rc
 ```
 
-> EffectStack targets Effect v4 RC.
+Use the [adoption guide](docs/adoption.md) to choose a headless or renderer integration.
 
 ## Packages
 
@@ -24,4 +28,5 @@ pnpm add @effect-stack/router effect@rc
 
 For remote state, use Effect Atom, Effect's alternative to TanStack Query.
 
-[Architecture](docs/architecture.md) · [Detailed roadmap](docs/roadmap.md)
+[Navigation contracts](docs/router-navigation.md) ·
+[Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md)

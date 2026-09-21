@@ -12,9 +12,9 @@ const project = createRoute({
 
 test("route hook selectors preserve their selected output", () => {
   expect(project.pipe((route) => route.useParams())).type.toBe<{ readonly id: number }>()
-  expect(createRootRoute).type.not.toBeCallableWith({ load: () => Effect.succeed({ default: null }) })
+  expect(createRootRoute).type.not.toBeCallableWith({ lazy: () => Effect.succeed({ default: null }) })
   const unionModule = () => Effect.succeed<{ readonly default: number } | { readonly title: string }>({ default: 42 })
-  expect(createRootRoute).type.not.toBeCallableWith({ load: unionModule })
+  expect(createRootRoute).type.not.toBeCallableWith({ lazy: unionModule })
   expect(project.useParams((params) => params.id)).type.toBe<number>()
   expect(project.useLoaderData((data) => data.name)).type.toBe<string>()
   expect(project.useMatch((match) => match.loaderData.count)).type.toBe<number>()

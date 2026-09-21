@@ -22,11 +22,15 @@ for (const file of packedFiles) {
     throw new Error(`Development file included in ${name} package: ${file}`)
   }
 }
+const builtFiles = (await readdir(root, { recursive: true })).filter((file) =>
+  file.endsWith(".js") || file.endsWith(".d.ts")
+)
 const requiredFiles = [
   "package.json",
   "README.md",
   "LICENSE",
-  ...publicModules.flatMap((module) => [`dist/${module}.js`, `dist/${module}.d.ts`])
+  ...publicModules.flatMap((module) => [`dist/${module}.js`, `dist/${module}.d.ts`]),
+  ...builtFiles.map((file) => `dist/${file}`)
 ]
 for (const file of requiredFiles) {
   if (!packedFiles.has(file)) {
@@ -38,9 +42,8 @@ JSON.parse(await readFile(resolve(packageRoot, "package.json"), "utf8"))
 
 await Promise.all(publicModules.map((module) => import(pathToFileURL(resolve(root, `${module}.js`)).href)))
 
-const files = await readdir(root)
 const source = (await Promise.all(
-  files.filter((file) => file.endsWith(".js")).map((file) => readFile(resolve(root, file), "utf8"))
+  builtFiles.filter((file) => file.endsWith(".js")).map((file) => readFile(resolve(root, file), "utf8"))
 )).join("\n")
 
 const forbidden = {

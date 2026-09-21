@@ -48,12 +48,17 @@ describe.sequential("React route recovery", () => {
       broken = false
       await React.act(async () => {
         container.querySelector("button")!.click()
-        await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+        await Effect.runPromise(
+          AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
+        )
       })
       expect(container.textContent).toBe("ShellRecovered")
       await React.act(async () => {
-        registry.set(router.core.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-        await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+        await Effect.runPromise(
+          router.core
+            .execute(Router.push(home, { params: {}, search: {}, hash: "" }))
+            .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+        )
       })
       expect(container.textContent).toBe("ShellHome")
     } finally {
@@ -80,7 +85,7 @@ describe.sequential("React route recovery", () => {
       getParentRoute: () => parent,
       path: "child",
       pendingComponent: () => <p>Pending view</p>,
-      load: () =>
+      lazy: () =>
         Effect.gen(function*() {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
@@ -100,8 +105,11 @@ describe.sequential("React route recovery", () => {
       await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
       expect(container.textContent).toBe("ShellPending view")
       await React.act(async () => {
-        registry.set(router.core.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-        await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+        await Effect.runPromise(
+          router.core
+            .execute(Router.push(home, { params: {}, search: {}, hash: "" }))
+            .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+        )
         await Effect.runPromise(Deferred.await(finalized))
       })
       expect(container.textContent).toBe("ShellHome")

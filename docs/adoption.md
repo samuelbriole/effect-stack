@@ -1,126 +1,87 @@
-# Adoption
+# Adopt Router
 
-EffectStack packages are incremental. Installing Router does not require adopting future Form or DB packages.
-For remote state, use Effect Atom, the existing Effect-native alternative to TanStack Query.
+Choose an integration; each package can be adopted independently. Router targets Effect v4 RC.
 
-## Install
+| Use case                              | Start here                                                                                     |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Nested React views                    | [React adapter](../packages/router-react) · [example](../packages/router-react/examples/basic) |
+| Nested Solid views                    | [Solid adapter](../packages/router-solid) · [example](../packages/router-solid/examples/basic) |
+| Nested Vue views                      | [Vue adapter](../packages/router-vue) · [example](../packages/router-vue/examples/basic)       |
+| Headless routing or a custom renderer | [Core API](../packages/router) and the examples below                                          |
 
-While Effect v4 is under the release-candidate tag:
+## Headless usage
 
 ```sh
 pnpm add @effect-stack/router effect@rc
 ```
 
-Define routes once with `Route.make`, then create a facade with a History Layer:
+This complete example uses memory history and owns its registry. Browser applications can use `BrowserHistory.layer`.
 
 ```ts
-import { BrowserHistory, Route, Router } from "@effect-stack/router"
-import { Schema } from "effect"
-
-const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
-const article = Route.make({
-  id: "article",
-  path: "/articles/:id",
-  params: { id: Schema.FiniteFromString },
-  search: { view: Schema.optionalKey(Schema.Literals(["full", "compact"])) }
-})
-
-export const router = Router.make({ routes: [home, article], layer: BrowserHistory.layer })
-```
-
-Use `MemoryHistory.layer("/initial")` in tests, SSR-like environments, and hosts without a DOM.
-
-## Direct Atom usage
-
-The public facade is ordinary Effect Atom state and an action Atom:
-
-```ts
-import { Router } from "@effect-stack/router"
+import { MemoryHistory, Route, Router } from "@effect-stack/router"
 import { Effect } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
+
+const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
+const router = Router.make({ routes: [home], layer: MemoryHistory.layer() })
 
 const state = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
   const registry = AtomRegistry.make()
   yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
   yield* AtomRegistry.mount(registry, router.state)
-  yield* AtomRegistry.mount(registry, router.navigate)
-  registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-  yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+  yield* router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
   return registry.get(router.state)
 })))
 ```
 
-## React
+Use the same registry for observations and commands. Dispose registries you create; borrowed registries remain owned by
+their caller. `execute` returns an Effect; observing an Atom does not dispatch a command.
 
-For code-based nested routing, use the [first-party React adapter](../packages/router-react). It provides typed links,
-route-local hooks, layouts, lazy views, and route boundaries, with a provider-owned Atom registry. See the
-[React example](../packages/router-react/examples/basic/src/App.tsx) for a complete application.
+## Direct renderer integration
 
-For direct integration with the flat core router above, install `@effect/atom-react@rc`, mount `RegistryProvider`, and use
-the official hooks:
+For a custom UI over the headless core, use the official Effect Atom adapters. First-party Router adapters add typed
+links, outlets, route hooks, and boundaries on top of these primitives.
+
+| Renderer | Package                 | Read state                                             | Access the registry                                              |
+| -------- | ----------------------- | ------------------------------------------------------ | ---------------------------------------------------------------- |
+| React    | `@effect/atom-react@rc` | `useAtomValue(router.state)`                           | `useContext(RegistryContext)` inside `RegistryProvider`          |
+| Solid    | `@effect/atom-solid@rc` | `useAtomValue(() => router.state)` returns an accessor | `useContext(RegistryContext)` inside `RegistryProvider`          |
+| Vue      | `@effect/atom-vue@rc`   | `useAtomValue(() => router.state)` returns a ref       | `inject(registryKey)` after `app.provide(registryKey, registry)` |
+
+For example, after exporting your core `router` from `./router.ts`, a React view can observe navigation and dispatch a
+refresh. Install `@effect/atom-react@rc` alongside the core and React:
 
 ```tsx
-import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react"
+import { Router } from "@effect-stack/router"
+import { RegistryContext, RegistryProvider, useAtomValue } from "@effect/atom-react"
+import { Effect } from "effect"
+import { AtomRegistry } from "effect/unstable/reactivity"
+import { useContext } from "react"
+import { router } from "./router.ts"
 
 const View = () => {
-  const state = useAtomValue(router.state)
-  const navigate = useAtomSet(router.navigate)
-  return <button onClick={() => navigate(Router.back)}>{state.waiting ? "Waiting" : "Back"}</button>
+  const navigation = useAtomValue(router.navigation)
+  const registry = useContext(RegistryContext)
+  const refresh = () =>
+    void Effect.runPromise(
+      router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+    ).catch(() => {}) // Failures are rendered from the observed result below.
+  return (
+    <>
+      <button onClick={refresh} disabled={navigation.waiting}>Refresh</button>
+      {navigation._tag === "Failure" && <p role="alert">Navigation failed.</p>}
+    </>
+  )
 }
 
-const App = () => (
+export const App = () => (
   <RegistryProvider>
     <View />
   </RegistryProvider>
 )
 ```
 
-## Solid
+Solid and Vue event handlers run `execute` with their registry in the same way. In Vue, register disposal with
+`app.onUnmount(() => registry.dispose())` when the application owns the registry.
 
-For code-based nested routing, use the [first-party Solid adapter](../packages/router-solid). Its route-local hooks return
-accessors, preserving Solid's fine-grained updates. The [Solid example](../packages/router-solid/examples/basic/src/App.tsx)
-demonstrates nested layouts, typed links, injected Effect services, and a lazy view.
-
-For direct integration with the flat core router above, install `@effect/atom-solid@rc` and use its accessor-based hooks:
-
-```tsx
-import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-solid"
-
-const View = () => {
-  const state = useAtomValue(() => router.state)
-  const navigate = useAtomSet(() => router.navigate)
-  return <button onClick={() => navigate(Router.back)}>{state().waiting ? "Waiting" : "Back"}</button>
-}
-```
-
-## Vue
-
-For code-based nested routing, use the [first-party Vue adapter](../packages/router-vue). Its route composables return
-computed refs that templates auto-unwrap, with a provider-owned Atom registry. The
-[Vue example](../packages/router-vue/examples/basic/src/ProjectLayout.vue) demonstrates nested layouts, typed links,
-injected Effect services, and a lazy view.
-
-For direct integration with the flat core router above, install `@effect/atom-vue@rc`, provide an Atom registry at the
-application boundary, and use its Ref-based composables:
-
-```ts
-import { AtomRegistry, registryKey, useAtomSet, useAtomValue } from "@effect/atom-vue"
-import { createApp, defineComponent, h } from "vue"
-
-const View = defineComponent({
-  setup() {
-    const state = useAtomValue(() => router.state)
-    const navigate = useAtomSet(() => router.navigate)
-    return () => h("button", { onClick: () => navigate(Router.back) }, state.value.waiting ? "Waiting" : "Back")
-  }
-})
-
-const registry = AtomRegistry.make()
-const app = createApp(View)
-app.provide(registryKey, registry)
-app.onUnmount(() => registry.dispose())
-app.mount("#root")
-```
-
-The React, Solid, and Vue examples exercise their first-party adapters; the
-[renderer-neutral definitions](../packages/router/examples/shared) remain a shared core fixture.
+See [navigation contracts](router-navigation.md) for completion, cancellation, retained data, and recovery.

@@ -41,7 +41,7 @@ const settle = async <T extends RouteTree.Any, E>(
   command = false
 ) => {
   await Effect.runPromise(
-    AtomRegistry.getResult(registry, command ? router.core.navigate : router.core.state, { suspendOnWaiting: true })
+    AtomRegistry.getResult(registry, command ? router.core.navigation : router.core.state, { suspendOnWaiting: true })
       .pipe(Effect.exit)
   )
   await nextTick()
@@ -239,7 +239,7 @@ describe.sequential("Vue review regressions", () => {
       const broken = createRoute({
         getParentRoute: () => root,
         path: "broken",
-        load: () => Effect.succeed(nullModule),
+        lazy: () => Effect.succeed(nullModule),
         errorComponent: (props: ErrorProps) => h("p", `Boundary: ${String(props.error)}`)
       })
       const router = createRouter({

@@ -12,7 +12,7 @@ const project = Route.make({
   params: { id: ProjectId },
   search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
   hash: Schema.Literals(["", "details"]),
-  load: () => Effect.succeed({ view: "Project" as const }),
+  lazy: () => Effect.succeed({ view: "Project" as const }),
   loader: ({ params, search, hash, location }) => {
     expect(params.id).type.toBe<typeof ProjectId.Type>()
     expect(search.tab).type.toBe<"overview" | "activity" | undefined>()

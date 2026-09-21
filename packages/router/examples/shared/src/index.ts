@@ -39,10 +39,10 @@ export const projectRoute = Route.make({
 
 const importModule = Effect.fn("RouterExample.importModule")(function*<A extends PageMetadata>(
   routeId: string,
-  load: () => Promise<{ readonly page: A }>
+  importPage: () => Promise<{ readonly page: A }>
 ) {
   const module = yield* Effect.tryPromise({
-    try: load,
+    try: importPage,
     catch: (cause) => new ModuleLoadError({ routeId, message: `Could not load ${routeId}`, cause })
   })
   return module.page
@@ -53,7 +53,7 @@ export const lazyRoute = Route.make({
   path: "/lazy",
   params: {},
   search: {},
-  load: () => importModule("lazy", () => import("./pages/lazy.ts"))
+  lazy: () => importModule("lazy", () => import("./pages/lazy.ts"))
 })
 
 export type SlowLoaderEvent = "started" | "finalized"
@@ -85,7 +85,7 @@ export const slowRoute = Route.make({
   path: "/slow",
   params: {},
   search: {},
-  load: loadSlowRoute
+  lazy: loadSlowRoute
 })
 
 export const routes = [homeRoute, projectRoute, lazyRoute, slowRoute] as const

@@ -59,7 +59,7 @@ describe.sequential("React router", () => {
     expect(container.textContent).toBe("Loading…")
     await React.act(async () => {
       Effect.runSync(Deferred.succeed(ready, undefined))
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     })
     expect(container.textContent).toBe("Arrived")
     expect(visits).toBe(1)
@@ -142,7 +142,7 @@ describe.sequential("React router", () => {
       getParentRoute: () => section,
       path: "lazy",
       pendingComponent: () => <p>Waiting for view</p>,
-      load: () =>
+      lazy: () =>
         Effect.gen(function*() {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
@@ -237,7 +237,7 @@ describe.sequential("React router", () => {
     expect(modified.defaultPrevented).toBe(false)
     await React.act(async () => {
       anchor.click()
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     })
     expect(container.textContent).toContain("Project data")
     expect(container.textContent).toContain("Count 1")
@@ -278,8 +278,11 @@ describe.sequential("React router", () => {
     expect(container.textContent).toBe("LayoutTry again")
     fail = false
     await React.act(async () => {
-      registry.set(router.core.navigate, Router.refresh)
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigate, { suspendOnWaiting: true }))
+      await Effect.runPromise(
+        router.core
+          .execute(Router.refresh)
+          .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+      )
     })
     expect(container.textContent).toBe("LayoutRecovered")
   })

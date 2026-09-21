@@ -39,7 +39,6 @@ describe("data loaders", () => {
       })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
-      yield* AtomRegistry.mount(registry, router.navigate)
       const initial = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(initial.loaderData).toEqual({
         title: "Project",
@@ -49,10 +48,10 @@ describe("data loaders", () => {
         pathname: "/projects/42"
       })
       expect(initial.module).toBeUndefined()
-      registry.set(router.navigate, Router.refresh)
-      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
-      registry.set(router.navigate, Router.push(project, { params: { id: 43 }, search: {}, hash: "" }))
-      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+      yield* router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+      yield* router
+        .execute(Router.push(project, { params: { id: 43 }, search: {}, hash: "" }))
+        .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
       expect(calls).toEqual([42, 42, 43])
       expect((yield* AtomRegistry.getResult(registry, router.state)).loaderData?.id).toBe(43)
     }))
@@ -86,7 +85,7 @@ describe("data loaders", () => {
         path: "/",
         params: {},
         search: {},
-        load: () =>
+        lazy: () =>
           Deferred.succeed(codeStarted, undefined).pipe(
             Effect.andThen(Deferred.await(dataStarted)),
             Effect.as({ view: "Project" })
@@ -119,7 +118,6 @@ describe("data loaders", () => {
       const router = Router.make({ routes: [project], layer: MemoryHistory.layer() })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
-      yield* AtomRegistry.mount(registry, router.navigate)
       const exit = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true }).pipe(Effect.exit)
       if (Exit.isSuccess(exit)) return expect.fail("Expected loader failure")
       const failure = Cause.findErrorOption(exit.cause)
@@ -130,8 +128,7 @@ describe("data loaders", () => {
         expect(failure.value.error).toBe(error)
       }
       fail = false
-      registry.set(router.navigate, Router.refresh)
-      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+      yield* router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
       expect((yield* AtomRegistry.getResult(registry, router.state)).loaderData).toEqual({ id: 42 })
     }))
 
@@ -155,10 +152,15 @@ describe("data loaders", () => {
         const router = Router.make({ routes: [home, slow], layer: MemoryHistory.layer("/slow") })
         const registry = yield* makeRegistry()
         yield* AtomRegistry.mount(registry, router.state)
-        yield* AtomRegistry.mount(registry, router.navigate)
         yield* Deferred.await(started)
         if (dispose) registry.dispose()
-        else registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
+        else {
+          // A fresh invocation supersedes the router's still-running initial
+          // transition; its caller keeps going independently.
+          yield* router.execute(Router.push(home, { params: {}, search: {}, hash: "" })).pipe(
+            Effect.provideService(AtomRegistry.AtomRegistry, registry)
+          )
+        }
         yield* Deferred.await(finalized)
         if (!dispose) {
           const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
@@ -177,7 +179,7 @@ describe("data loaders", () => {
         path: "/",
         params: {},
         search: {},
-        load: () =>
+        lazy: () =>
           Effect.gen(function*() {
             yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
             yield* Deferred.succeed(codeStarted, undefined)
@@ -218,10 +220,10 @@ describe("data loaders", () => {
         const router = Router.make({ routes: [home, slow], layer: MemoryHistory.layer("/slow") })
         const registry = yield* makeRegistry()
         yield* AtomRegistry.mount(registry, router.state)
-        yield* AtomRegistry.mount(registry, router.navigate)
         yield* Deferred.await(started)
-        registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-        yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+        yield* router.execute(Router.push(home, { params: {}, search: {}, hash: "" })).pipe(
+          Effect.provideService(AtomRegistry.AtomRegistry, registry)
+        )
         complete()
         yield* Effect.promise(() => completion.catch(() => undefined))
         yield* Effect.yieldNow

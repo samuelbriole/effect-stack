@@ -55,7 +55,7 @@ describe.sequential("Vue lazy view validation", () => {
       const broken = createRoute({
         getParentRoute: () => section,
         path: "broken",
-        load: () => Effect.succeed(invalidModule),
+        lazy: () => Effect.succeed(invalidModule),
         errorComponent: (props: ErrorProps) => h("p", `Child boundary: ${String(props.error)}`)
       })
       const router = createRouter({
@@ -82,7 +82,7 @@ describe.sequential("Vue lazy view validation", () => {
       getParentRoute: () => rootRoute,
       path: "explicit",
       component: () => h("p", "Explicit view"),
-      load: () => Effect.succeed(invalidModule)
+      lazy: () => Effect.succeed(invalidModule)
     })
     const router = createRouter({
       routeTree: rootRoute.addChildren([explicit]),
@@ -98,7 +98,7 @@ describe.sequential("Vue lazy view validation", () => {
     const neutral = createRoute({
       getParentRoute: () => rootRoute,
       path: "neutral",
-      load: () => Effect.succeed({ title: "descriptor" })
+      lazy: () => Effect.succeed({ title: "descriptor" })
     })
     const router = createRouter({
       routeTree: rootRoute.addChildren([neutral]),
@@ -114,12 +114,12 @@ describe.sequential("Vue lazy view validation", () => {
     const objectRoute = createRoute({
       getParentRoute: () => rootRoute,
       path: "object",
-      load: () => Effect.succeed({ default: defineComponent({ render: () => h("p", "Object view") }) })
+      lazy: () => Effect.succeed({ default: defineComponent({ render: () => h("p", "Object view") }) })
     })
     const functionalRoute = createRoute({
       getParentRoute: () => rootRoute,
       path: "functional",
-      load: () => Effect.succeed({ component: () => h("p", "Functional view") })
+      lazy: () => Effect.succeed({ component: () => h("p", "Functional view") })
     })
     const tree = rootRoute.addChildren([objectRoute, functionalRoute])
     const objectRouter = createRouter({ routeTree: tree, history: MemoryHistory.layer("/object") })

@@ -65,7 +65,7 @@ describe.sequential("Solid lazy view validation", () => {
       const broken = createRoute({
         getParentRoute: () => section,
         path: "broken",
-        load: () => Effect.succeed(invalidModule),
+        lazy: () => Effect.succeed(invalidModule),
         errorComponent: (props) => <p>{`Child boundary: ${String(props.error)}`}</p>
       })
       const router = createRouter({
@@ -99,7 +99,7 @@ describe.sequential("Solid lazy view validation", () => {
       getParentRoute: () => rootRoute,
       path: "explicit",
       component: () => <p>Explicit view</p>,
-      load: () => Effect.succeed(invalidModule)
+      lazy: () => Effect.succeed(invalidModule)
     })
     const router = createRouter({
       routeTree: rootRoute.addChildren([explicit]),
@@ -122,7 +122,7 @@ describe.sequential("Solid lazy view validation", () => {
     const neutral = createRoute({
       getParentRoute: () => rootRoute,
       path: "neutral",
-      load: () => Effect.succeed({ title: "descriptor" })
+      lazy: () => Effect.succeed({ title: "descriptor" })
     })
     const router = createRouter({
       routeTree: rootRoute.addChildren([neutral]),
@@ -145,12 +145,12 @@ describe.sequential("Solid lazy view validation", () => {
     const lazy = createRoute({
       getParentRoute: () => rootRoute,
       path: "lazy",
-      load: () => Effect.succeed({ default: () => <p>Lazy view</p> })
+      lazy: () => Effect.succeed({ default: () => <p>Lazy view</p> })
     })
     const named = createRoute({
       getParentRoute: () => rootRoute,
       path: "named",
-      load: () => Effect.succeed({ component: () => <p>Named view</p> })
+      lazy: () => Effect.succeed({ component: () => <p>Named view</p> })
     })
     const tree = rootRoute.addChildren([lazy, named])
     const lazyRouter = createRouter({ routeTree: tree, history: MemoryHistory.layer("/lazy") })

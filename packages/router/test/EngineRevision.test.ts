@@ -12,12 +12,12 @@ import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Queue from "effect/Queue"
 import * as Ref from "effect/Ref"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
-import * as Atom from "effect/unstable/reactivity/Atom"
 import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry"
 
 const makeRegistry = Effect.fn("EngineRevision.makeRegistry")(function*() {
@@ -385,7 +385,7 @@ describe("EngineRevision", () => {
         path: "/slow",
         params: {},
         search: {},
-        load: Effect.fn("EngineRevision.loadSlowUntilAborted")(function*() {
+        lazy: Effect.fn("EngineRevision.loadSlowUntilAborted")(function*() {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never
@@ -394,7 +394,7 @@ describe("EngineRevision", () => {
       const router = Router.make({ routes: [home, slow], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.branch)
-      yield* AtomRegistry.mount(registry, router.navigate)
+      yield* AtomRegistry.mount(registry, router.navigation)
       yield* AtomRegistry.mount(registry, router.state)
       yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       const running = yield* Effect.forkScoped(
@@ -414,16 +414,16 @@ describe("EngineRevision", () => {
       expect(entry?.result.waiting).toBe(false)
       expect(branch.result._tag).toBe("Failure")
       expect(branch.lastSuccess._tag).toBe("Some")
-      // The compatible navigate atom projected the same aborted operation.
-      const navigateResult = registry.get(router.navigate)
-      expect(navigateResult._tag).toBe("Failure")
-      if (navigateResult._tag === "Failure") {
-        expect(Cause.hasInterruptsOnly(navigateResult.cause)).toBe(true)
+      // The read-only navigation projection reports the same aborted operation.
+      const navigationResult = registry.get(router.navigation)
+      expect(navigationResult._tag).toBe("Failure")
+      if (navigationResult._tag === "Failure") {
+        expect(Cause.hasInterruptsOnly(navigationResult.cause)).toBe(true)
       }
-      expect(navigateResult.waiting).toBe(false)
+      expect(navigationResult.waiting).toBe(false)
     }))
 
-  it.effect("self-interruption is a terminal failure for the entry, branch, and navigate projection", () =>
+  it.effect("self-interruption is a terminal failure for the entry, branch, and navigation projection", () =>
     Effect.gen(function*() {
       const selfInterrupting = Route.make({
         id: "interrupted",
@@ -435,7 +435,7 @@ describe("EngineRevision", () => {
       const router = Router.make({ routes: [home, selfInterrupting], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.branch)
-      yield* AtomRegistry.mount(registry, router.navigate)
+      yield* AtomRegistry.mount(registry, router.navigation)
       yield* AtomRegistry.mount(registry, router.state)
       yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       const failed = yield* runRegistryEffect(
@@ -452,30 +452,366 @@ describe("EngineRevision", () => {
       expect(entry?.result.waiting).toBe(false)
       expect(branch.result._tag).toBe("Failure")
       expect(branch.result.waiting).toBe(false)
-      const navigateResult = registry.get(router.navigate)
-      expect(navigateResult._tag).toBe("Failure")
-      expect(navigateResult.waiting).toBe(false)
+      const navigationResult = registry.get(router.navigation)
+      expect(navigationResult._tag).toBe("Failure")
+      expect(navigationResult.waiting).toBe(false)
       // The healthy runtime can retry by re-dispatching the current location.
       expect(registry.get(router.completed)._tag).toBe("Some")
     }))
 
-  it.effect("navigate observes execute-driven operations for renderer compatibility", () =>
+  it.effect("the navigation projection observes execute-driven operations", () =>
     Effect.gen(function*() {
-      const router = Router.make({ routes: [home, project], layer: MemoryHistory.layer("/") })
+      let failNext = false
+      const tracked = Route.make({
+        id: "project",
+        path: "/projects/:id",
+        params: { id: Schema.FiniteFromString },
+        search: {},
+        loader: () => failNext ? Effect.fail(new MissingChild({ id: 0 })) : Effect.succeed("ok")
+      })
+      const router = Router.make({ routes: [home, tracked], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
-      yield* AtomRegistry.mount(registry, router.navigate)
+      yield* AtomRegistry.mount(registry, router.navigation)
       yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+      // A successful execute-driven transition settles the projection as a
+      // void success.
       yield* runRegistryEffect(
         registry,
-        router.execute(Router.push(project, { params: { id: 7 }, search: {}, hash: "" }))
+        router.execute(Router.push(tracked, { params: { id: 1 }, search: {}, hash: "" }))
       )
-      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+      const succeeded = registry.get(router.navigation)
+      expect(succeeded._tag).toBe("Success")
+      expect(AsyncResult.isSuccess(succeeded) && succeeded.value).toBe(undefined)
       expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("project")
-      // Legacy writes keep working after execute-driven operations.
-      registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
-      expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("home")
+      // A failed operation replaces the projection, retaining only the void
+      // success; resolved data stays in the branch snapshots.
+      failNext = true
+      const failed = yield* runRegistryEffect(registry, router.execute(Router.refresh).pipe(Effect.exit))
+      expect(Exit.isFailure(failed)).toBe(true)
+      const afterFailure = registry.get(router.navigation)
+      expect(afterFailure._tag).toBe("Failure")
+      if (AsyncResult.isFailure(afterFailure)) {
+        expect(Option.map(afterFailure.previousSuccess, (value) => value.value)).toEqual(Option.some(undefined))
+      }
+      // The projection tracks the most recent operation, not the first one.
+      failNext = false
+      yield* runRegistryEffect(registry, router.execute(Router.refresh))
+      expect(registry.get(router.navigation)._tag).toBe("Success")
+    }))
+
+  it.effect("a settling transition does not revive the projection over a newer rejection", () =>
+    Effect.gen(function*() {
+      const started = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const slow = Route.make({
+        id: "slow",
+        path: "/slow",
+        params: {},
+        search: {},
+        loader: () =>
+          Deferred.succeed(started, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.as("slow-data")
+          )
+      })
+      const paramRoute = Route.make({
+        id: "project",
+        path: "/projects/:id",
+        params: { id: Schema.FiniteFromString },
+        search: {}
+      })
+      const router = Router.make({ routes: [home, slow, paramRoute], layer: MemoryHistory.layer("/") })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.navigation)
+      yield* AtomRegistry.mount(registry, router.branch)
+      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+      const running = yield* Effect.forkScoped(
+        runRegistryEffect(registry, router.execute(Router.push(slow, { params: {}, search: {}, hash: "" })))
+      )
+      yield* Deferred.await(started)
+      // A second command fails before acceptance (NaN never encodes as a
+      // finite number) and claims the projection with its failure.
+      const rejected = yield* runRegistryEffect(
+        registry,
+        router.execute(Router.push(paramRoute, { params: { id: NaN }, search: {}, hash: "" })).pipe(Effect.exit)
+      )
+      expect(Exit.isFailure(rejected)).toBe(true)
+      expect(registry.get(router.navigation)._tag).toBe("Failure")
+      // Releasing the older transition: its caller and branch settle normally,
+      // but the newer rejection keeps ownership of the projection.
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(running)
+      const branch = registry.get(router.branch)
+      expect(branch.result._tag).toBe("Success")
+      expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("slow")
+      const operation = registry.get(router.navigation)
+      expect(operation._tag).toBe("Failure")
+      expect(operation.waiting).toBe(false)
+      if (AsyncResult.isFailure(operation)) {
+        const failure = Cause.findErrorOption(operation.cause)
+        expect(Option.isSome(failure) && failure.value).toMatchObject({
+          _tag: "@effect-stack/router/RouteEncodeError",
+          routeId: "project",
+          part: "path"
+        })
+      }
+    }))
+
+  it.effect("a traversal acknowledged after its transition started keeps navigation waiting", () =>
+    Effect.gen(function*() {
+      const destinationStarted = yield* Deferred.make<void>()
+      const releaseDestination = yield* Deferred.make<void>()
+      const traversals = yield* Ref.make<ReadonlyArray<number>>([])
+      const initial: History.Location = {
+        pathname: "/",
+        search: "",
+        hash: "",
+        state: undefined,
+        key: "initial",
+        index: 0
+      }
+      const destination: History.Location = {
+        pathname: "/slow",
+        search: "",
+        hash: "",
+        state: undefined,
+        key: "previous",
+        index: 0
+      }
+      const changes = yield* Queue.unbounded<History.Location>()
+      const history = History.Service.of({
+        current: Effect.succeed(initial),
+        push: (target) => Effect.succeed({ ...initial, ...target, key: "next", index: 1 }),
+        replace: (target) => Effect.succeed({ ...initial, ...target, key: "next", index: 0 }),
+        go: Effect.fn("EngineRevision.traverseUntilLoaded")(function*(delta: number) {
+          yield* Ref.update(traversals, (entries) => [...entries, delta])
+          yield* Queue.offer(changes, destination)
+          // The host only returns from `go` once the emitted change's loader
+          // started, so the acknowledgement lands after the newer claim.
+          yield* Deferred.await(destinationStarted)
+        }),
+        changes: Stream.fromQueue(changes)
+      })
+      const slow = Route.make({
+        id: "slow",
+        path: "/slow",
+        params: {},
+        search: {},
+        loader: () =>
+          Deferred.succeed(destinationStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseDestination)),
+            Effect.as("slow-data")
+          )
+      })
+      const router = Router.make({ routes: [home, slow], layer: Layer.succeed(History.Service, history) })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.navigation)
+      yield* AtomRegistry.mount(registry, router.state)
+      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+      // The traversal caller completes on acceptance even though `go` outlived
+      // the destination transition's start.
+      yield* runRegistryEffect(registry, router.execute(Router.back))
+      expect(yield* Ref.get(traversals)).toEqual([-1])
+      // The destination transition owns the projection now and still waits;
+      // the suppressed acknowledgement never claims success.
+      expect(registry.get(router.navigation).waiting).toBe(true)
+      yield* Deferred.succeed(releaseDestination, undefined)
+      expect(
+        yield* AtomRegistry.getResult(registry, router.navigation, { suspendOnWaiting: true })
+      ).toBe(undefined)
+      expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("slow")
+    }))
+
+  it.effect("a late traversal failure cannot steal the projection from a newer transition", () =>
+    Effect.gen(function*() {
+      const goStarted = yield* Deferred.make<void>()
+      const failGo = yield* Deferred.make<never, History.HistoryError>()
+      const loaderStarted = yield* Deferred.make<void>()
+      const releaseLoader = yield* Deferred.make<void>()
+      const slow = Route.make({
+        id: "slow",
+        path: "/slow",
+        params: {},
+        search: {},
+        loader: () =>
+          Deferred.succeed(loaderStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseLoader)),
+            Effect.as("slow-data")
+          )
+      })
+      const initial: History.Location = {
+        pathname: "/",
+        search: "",
+        hash: "",
+        state: undefined,
+        key: "initial",
+        index: 0
+      }
+      const history = History.Service.of({
+        current: Effect.succeed(initial),
+        push: (target) => Effect.succeed({ ...initial, ...target, key: "pushed", index: 1 }),
+        replace: (target) => Effect.succeed({ ...initial, ...target, key: "pushed", index: 0 }),
+        go: Effect.fn("EngineRevision.goFailsLate")(function*() {
+          yield* Deferred.succeed(goStarted, undefined)
+          return yield* Deferred.await(failGo)
+        }),
+        changes: Stream.empty
+      })
+      const router = Router.make({ routes: [home, slow], layer: Layer.succeed(History.Service, history) })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.navigation)
+      yield* AtomRegistry.mount(registry, router.state)
+      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
+      const back = yield* Effect.forkScoped(runRegistryEffect(registry, router.execute(Router.back)))
+      yield* Deferred.await(goStarted)
+      // A newer push claims the projection and its transition stays pending
+      // while the traversal is still blocked in `go`.
+      const pushing = yield* Effect.forkScoped(
+        runRegistryEffect(registry, router.execute(Router.push(slow, { params: {}, search: {}, hash: "" })))
+      )
+      yield* Deferred.await(loaderStarted)
+      yield* Deferred.fail(
+        failGo,
+        new History.HistoryError({ operation: "go", message: "late failure", cause: "late" })
+      )
+      // The traversal caller still observes its own exact typed failure...
+      const backExit = yield* Effect.exit(Fiber.join(back))
+      expect(Exit.isFailure(backExit)).toBe(true)
+      if (Exit.isFailure(backExit)) {
+        const failure = Cause.findErrorOption(backExit.cause)
+        expect(Option.isSome(failure) && failure.value).toMatchObject({
+          _tag: "@effect-stack/router/HistoryError",
+          operation: "go"
+        })
+      }
+      // ...but the stale failure settles only against the traversal's own
+      // claim: the newer pending transition keeps the projection waiting.
+      expect(registry.get(router.navigation).waiting).toBe(true)
+      yield* Deferred.succeed(releaseLoader, undefined)
+      yield* Fiber.join(pushing)
+      // And the pending transition settles the projection normally: the stale
+      // traversal failure never stole it.
+      const operation = registry.get(router.navigation)
+      expect(operation._tag).toBe("Success")
+      expect(operation.waiting).toBe(false)
+      expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("slow")
+    }))
+
+  it.effect("a defective traversal terminalizes the projection with the exact cause", () =>
+    Effect.gen(function*() {
+      const defect = new Error("go defect")
+      const initial: History.Location = {
+        pathname: "/",
+        search: "",
+        hash: "",
+        state: undefined,
+        key: "initial",
+        index: 0
+      }
+      const history = History.Service.of({
+        current: Effect.succeed(initial),
+        push: () => Effect.succeed(initial),
+        replace: () => Effect.succeed(initial),
+        go: () => Effect.die(defect),
+        changes: Stream.empty
+      })
+      const router = Router.make({ routes: [home], layer: Layer.succeed(History.Service, history) })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.navigation)
+      yield* AtomRegistry.getResult(registry, router.navigation, { suspendOnWaiting: true }).pipe(Effect.exit)
+      const callerExit = yield* runRegistryEffect(registry, router.execute(Router.back)).pipe(Effect.exit)
+      expect(Exit.isFailure(callerExit)).toBe(true)
+      if (Exit.isFailure(callerExit)) expect(Cause.squash(callerExit.cause)).toBe(defect)
+      // The defect terminalizes the claimed traversal operation instead of
+      // leaving `navigation` waiting forever.
+      const operation = registry.get(router.navigation)
+      expect(operation._tag).toBe("Failure")
+      expect(operation.waiting).toBe(false)
+      if (AsyncResult.isFailure(operation)) expect(Cause.squash(operation.cause)).toBe(defect)
+    }))
+
+  it.effect("a self-interrupted traversal terminalizes the projection as interrupted", () =>
+    Effect.gen(function*() {
+      const initial: History.Location = {
+        pathname: "/",
+        search: "",
+        hash: "",
+        state: undefined,
+        key: "initial",
+        index: 0
+      }
+      const history = History.Service.of({
+        current: Effect.succeed(initial),
+        push: () => Effect.succeed(initial),
+        replace: () => Effect.succeed(initial),
+        go: () => Effect.interrupt,
+        changes: Stream.empty
+      })
+      const router = Router.make({ routes: [home], layer: Layer.succeed(History.Service, history) })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.navigation)
+      yield* AtomRegistry.getResult(registry, router.navigation, { suspendOnWaiting: true }).pipe(Effect.exit)
+      const callerExit = yield* runRegistryEffect(registry, router.execute(Router.back)).pipe(Effect.exit)
+      expect(Exit.isFailure(callerExit)).toBe(true)
+      if (Exit.isFailure(callerExit)) expect(Cause.hasInterruptsOnly(callerExit.cause)).toBe(true)
+      const operation = registry.get(router.navigation)
+      expect(operation._tag).toBe("Failure")
+      expect(operation.waiting).toBe(false)
+      if (AsyncResult.isFailure(operation)) expect(Cause.hasInterruptsOnly(operation.cause)).toBe(true)
+    }))
+
+  it.effect("an external interrupt while go blocks finalizes after the traversal settles", () =>
+    Effect.gen(function*() {
+      const goStarted = yield* Deferred.make<void>()
+      const allowGo = yield* Deferred.make<void>()
+      const finalized = yield* Deferred.make<void>()
+      const initial: History.Location = {
+        pathname: "/",
+        search: "",
+        hash: "",
+        state: undefined,
+        key: "initial",
+        index: 0
+      }
+      const history = History.Service.of({
+        current: Effect.succeed(initial),
+        push: () => Effect.succeed(initial),
+        replace: () => Effect.succeed(initial),
+        go: Effect.fn("EngineRevision.goUntilReleased")(function*() {
+          yield* Deferred.succeed(goStarted, undefined)
+          yield* Deferred.await(allowGo)
+        }),
+        changes: Stream.empty
+      })
+      const router = Router.make({ routes: [home], layer: Layer.succeed(History.Service, history) })
+      const registry = yield* makeRegistry()
+      yield* AtomRegistry.mount(registry, router.navigation)
+      yield* AtomRegistry.getResult(registry, router.navigation, { suspendOnWaiting: true }).pipe(Effect.exit)
+      // An explicit caller scope proves finalization: its finalizer runs when
+      // the interrupted caller unwinds, after the traversal has settled.
+      const running = yield* Effect.forkScoped(
+        Effect.scoped(Effect.gen(function*() {
+          yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
+          yield* runRegistryEffect(registry, router.execute(Router.back))
+        }))
+      )
+      yield* Deferred.await(goStarted)
+      // The interrupt is held while `go` blocks inside the uninterruptible
+      // dispatch section; it lands only after the traversal settles.
+      const interrupting = yield* Effect.forkScoped(Fiber.interrupt(running))
+      yield* Effect.yieldNow
+      yield* Deferred.succeed(allowGo, undefined)
+      yield* Fiber.join(interrupting)
+      const callerExit = yield* Effect.exit(Fiber.join(running))
+      expect(Exit.isFailure(callerExit)).toBe(true)
+      if (Exit.isFailure(callerExit)) expect(Cause.hasInterruptsOnly(callerExit.cause)).toBe(true)
+      expect(yield* Deferred.isDone(finalized)).toBe(true)
+      // The projection terminalized with the traversal's acceptance instead of
+      // remaining waiting behind the interrupted caller.
+      const operation = registry.get(router.navigation)
+      expect(operation._tag).toBe("Success")
+      expect(operation.waiting).toBe(false)
     }))
 
   it.effect("retry rebuilds a failed Layer, re-executes it, and resolves the initial navigation", () =>
@@ -565,7 +901,7 @@ describe("EngineRevision", () => {
       const router = Router.make({ routes: [home], layer: Layer.succeed(History.Service, history) })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
-      yield* AtomRegistry.mount(registry, router.navigate)
+      yield* AtomRegistry.mount(registry, router.navigation)
       yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       // `changes: Stream.never` means no follow-up navigation can ever arrive;
       // acceptance-only commands must still complete.
@@ -573,8 +909,10 @@ describe("EngineRevision", () => {
       yield* runRegistryEffect(registry, router.execute(Router.forward))
       yield* runRegistryEffect(registry, router.execute(Router.go(-2)))
       expect(yield* Ref.get(traversals)).toEqual([-1, 1, -2])
-      registry.set(router.navigate, Router.back)
-      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
+      // Each accepted traversal settles the navigation projection without
+      // waiting for a transition that never arrives.
+      const navigationResult = registry.get(router.navigation)
+      expect(navigationResult._tag).toBe("Success")
       expect(AsyncResult.isSuccess(registry.get(router.state))).toBe(true)
     }))
 
@@ -604,130 +942,6 @@ describe("EngineRevision", () => {
       expect(branch.lastSuccess._tag).toBe("None")
       expect(registry.get(router.completed)._tag).toBe("None")
       expect(branch.matches.every((entry) => !entry.result.waiting)).toBe(true)
-    }))
-
-  it.effect("navigate resets to initial and tracks subsequent operations", () =>
-    Effect.gen(function*() {
-      let failNext = false
-      const tracked = Route.make({
-        id: "project",
-        path: "/projects/:id",
-        params: { id: Schema.FiniteFromString },
-        search: {},
-        loader: () => failNext ? Effect.fail(new MissingChild({ id: 0 })) : Effect.succeed("ok")
-      })
-      const router = Router.make({ routes: [home, tracked], layer: MemoryHistory.layer("/") })
-      const registry = yield* makeRegistry()
-      yield* AtomRegistry.mount(registry, router.state)
-      yield* AtomRegistry.mount(registry, router.navigate)
-      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
-      // An execute-driven success is projected, resettable to Initial, and the
-      // next operation is tracked again.
-      yield* runRegistryEffect(
-        registry,
-        router.execute(Router.push(tracked, { params: { id: 1 }, search: {}, hash: "" }))
-      )
-      expect(registry.get(router.navigate)._tag).toBe("Success")
-      registry.set(router.navigate, Atom.Reset)
-      expect(registry.get(router.navigate)._tag).toBe("Initial")
-      yield* runRegistryEffect(
-        registry,
-        router.execute(Router.push(tracked, { params: { id: 2 }, search: {}, hash: "" }))
-      )
-      expect(registry.get(router.navigate)._tag).toBe("Success")
-      // A failed operation projects as Failure; reset hides it until the next
-      // operation settles.
-      failNext = true
-      const failed = yield* runRegistryEffect(registry, router.execute(Router.refresh)).pipe(Effect.exit)
-      expect(Exit.isFailure(failed)).toBe(true)
-      expect(registry.get(router.navigate)._tag).toBe("Failure")
-      registry.set(router.navigate, Atom.Reset)
-      expect(registry.get(router.navigate)._tag).toBe("Initial")
-      failNext = false
-      yield* runRegistryEffect(registry, router.execute(Router.refresh))
-      expect(registry.get(router.navigate)._tag).toBe("Success")
-      // Legacy writes still work after resets.
-      registry.set(router.navigate, Router.push(home, { params: {}, search: {}, hash: "" }))
-      yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true })
-      expect(registry.get(router.navigate)._tag).toBe("Success")
-    }))
-
-  it.effect("Atom.Interrupt cancels the accepted transition and terminalizes it as interrupted", () =>
-    Effect.gen(function*() {
-      const started = yield* Deferred.make<void>()
-      const finalized = yield* Deferred.make<void>()
-      const slow = Route.make({
-        id: "slow",
-        path: "/slow",
-        params: {},
-        search: {},
-        loader: () =>
-          Effect.gen(function*() {
-            yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
-            yield* Deferred.succeed(started, undefined)
-            return yield* Effect.never
-          })
-      })
-      const router = Router.make({ routes: [home, slow], layer: MemoryHistory.layer("/") })
-      const registry = yield* makeRegistry()
-      yield* AtomRegistry.mount(registry, router.state)
-      yield* AtomRegistry.mount(registry, router.navigate)
-      yield* AtomRegistry.mount(registry, router.branch)
-      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
-      registry.set(router.navigate, Router.push(slow, { params: {}, search: {}, hash: "" }))
-      yield* Deferred.await(started)
-      registry.set(router.navigate, Atom.Interrupt)
-      // Settling the observer proves the transition reached a terminal failure;
-      // the blocked loader can never turn it into an eventual success.
-      const settled = yield* AtomRegistry.getResult(registry, router.navigate, { suspendOnWaiting: true }).pipe(
-        Effect.exit
-      )
-      expect(Exit.isFailure(settled)).toBe(true)
-      if (Exit.isFailure(settled)) {
-        expect(Cause.hasInterruptsOnly(settled.cause)).toBe(true)
-      }
-      expect(yield* Deferred.isDone(finalized)).toBe(true)
-      const operation = registry.get(router.navigate)
-      expect(operation._tag).toBe("Failure")
-      expect(operation.waiting).toBe(false)
-      const entry = childEntry(registry.get(router.branch), "slow")
-      expect(entry?.result._tag).toBe("Failure")
-      expect(entry?.result.waiting).toBe(false)
-    }))
-
-  it.effect("a reset during a running operation stays Initial past its settle and tracks the next one", () =>
-    Effect.gen(function*() {
-      const started = yield* Deferred.make<void>()
-      const release = yield* Deferred.make<void>()
-      const slow = Route.make({
-        id: "slow",
-        path: "/slow",
-        params: {},
-        search: {},
-        loader: () =>
-          Deferred.succeed(started, undefined).pipe(
-            Effect.andThen(Deferred.await(release)),
-            Effect.as("slow-data")
-          )
-      })
-      const router = Router.make({ routes: [home, slow], layer: MemoryHistory.layer("/") })
-      const registry = yield* makeRegistry()
-      yield* AtomRegistry.mount(registry, router.state)
-      yield* AtomRegistry.mount(registry, router.navigate)
-      yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
-      const running = yield* Effect.forkScoped(
-        runRegistryEffect(registry, router.execute(Router.push(slow, { params: {}, search: {}, hash: "" })))
-      )
-      yield* Deferred.await(started)
-      registry.set(router.navigate, Atom.Reset)
-      expect(registry.get(router.navigate)._tag).toBe("Initial")
-      yield* Deferred.succeed(release, undefined)
-      yield* Fiber.join(running)
-      // The superseded operation's settlement must not resurface.
-      expect(registry.get(router.navigate)._tag).toBe("Initial")
-      // The next dispatched operation is projected again.
-      yield* runRegistryEffect(registry, router.execute(Router.refresh))
-      expect(registry.get(router.navigate)._tag).toBe("Success")
     }))
 
   it.effect("resolved projection keeps the original inputs and data through a failed refresh", () =>
