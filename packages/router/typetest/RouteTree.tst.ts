@@ -24,9 +24,12 @@ describe("RouteTree.Node", () => {
   })
 
   test("threads the node through each stage", () => {
-    expect(root.pipe((node) => node.addChildren([child]), (node) => node.children)).type.toBe<
-      readonly [typeof child]
-    >()
+    expect(
+      root.pipe(
+        (node) => node.addChildren([child]),
+        (node) => node.children
+      )
+    ).type.toBe<readonly [typeof child]>()
     const decorated = { ...root.addChildren([child]), component: "stub" }
     expect(decorated.pipe((node) => node.to)).type.toBe<"/">()
     expect(decorated.pipe()).type.toBe<typeof decorated>()

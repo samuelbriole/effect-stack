@@ -37,7 +37,7 @@ export const projectRoute = Route.make({
   hash: Schema.Literals(["", "details"])
 })
 
-const importModule = Effect.fn("RouterExample.importModule")(function*<A extends PageMetadata>(
+const importModule = Effect.fn("RouterExample.importModule")(function* <A extends PageMetadata>(
   routeId: string,
   importPage: () => Promise<{ readonly page: A }>
 ) {
@@ -66,12 +66,12 @@ const publishSlowLoaderEvent = (event: SlowLoaderEvent): void => {
   }
 }
 
-export const subscribeToSlowLoader = (listener: (event: SlowLoaderEvent) => void): () => void => {
+export const subscribeToSlowLoader = (listener: (event: SlowLoaderEvent) => void): (() => void) => {
   slowLoaderListeners.add(listener)
   return () => slowLoaderListeners.delete(listener)
 }
 
-const loadSlowRoute = Effect.fn("RouterExample.loadSlowRoute")(function*() {
+const loadSlowRoute = Effect.fn("RouterExample.loadSlowRoute")(function* () {
   yield* Effect.acquireRelease(
     Effect.sync(() => publishSlowLoaderEvent("started")),
     () => Effect.sync(() => publishSlowLoaderEvent("finalized"))

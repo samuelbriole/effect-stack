@@ -14,9 +14,7 @@ const StateKey = "@effect-stack/router/history-state"
 
 const BrowserMetadata = Schema.Struct({
   version: Schema.Literal(1),
-  key: Schema.String.check(
-    Schema.isPattern(/^browser-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
-  ),
+  key: Schema.String.check(Schema.isPattern(/^browser-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)),
   index: Schema.Int,
   value: Schema.Unknown
 })
@@ -37,12 +35,14 @@ const makeState = (key: string, index: number, value: unknown): BrowserState => 
 
 const makeKey = (browser: Window): string => `browser-${browser.crypto.randomUUID()}`
 
-const historyError = (operation: History.HistoryError["operation"]) => (cause: unknown): History.HistoryError =>
-  new History.HistoryError({
-    operation,
-    message: cause instanceof Error ? cause.message : String(cause),
-    cause
-  })
+const historyError =
+  (operation: History.HistoryError["operation"]) =>
+  (cause: unknown): History.HistoryError =>
+    new History.HistoryError({
+      operation,
+      message: cause instanceof Error ? cause.message : String(cause),
+      cause
+    })
 
 const requireWindow = (): Window => {
   if (typeof window === "undefined") {
@@ -57,7 +57,7 @@ const requireWindow = (): Window => {
  * @since 0.1.0
  * @category constructors
  */
-export const make = Effect.fn("BrowserHistory.make")(function*() {
+export const make = Effect.fn("BrowserHistory.make")(function* () {
   const browser = yield* Effect.try({ try: requireWindow, catch: historyError("current") })
 
   const current: Effect.Effect<History.Location, History.HistoryError> = Effect.try({
@@ -81,7 +81,7 @@ export const make = Effect.fn("BrowserHistory.make")(function*() {
 
   yield* current
 
-  const push = Effect.fn("BrowserHistory.push")(function*(destination: History.Destination) {
+  const push = Effect.fn("BrowserHistory.push")(function* (destination: History.Destination) {
     const previous = yield* current
     const key = makeKey(browser)
     yield* Effect.try({
@@ -96,7 +96,7 @@ export const make = Effect.fn("BrowserHistory.make")(function*() {
     return yield* current
   })
 
-  const replace = Effect.fn("BrowserHistory.replace")(function*(destination: History.Destination) {
+  const replace = Effect.fn("BrowserHistory.replace")(function* (destination: History.Destination) {
     const previous = yield* current
     yield* Effect.try({
       try: () =>
@@ -110,7 +110,7 @@ export const make = Effect.fn("BrowserHistory.make")(function*() {
     return yield* current
   })
 
-  const go = Effect.fn("BrowserHistory.go")(function*(delta: number) {
+  const go = Effect.fn("BrowserHistory.go")(function* (delta: number) {
     yield* Effect.try({
       try: () => browser.history.go(Number.isFinite(delta) ? Math.trunc(delta) : 0),
       catch: historyError("go")
@@ -122,9 +122,7 @@ export const make = Effect.fn("BrowserHistory.make")(function*() {
     push,
     replace,
     go,
-    changes: Stream.fromEventListener<PopStateEvent>(browser, "popstate").pipe(
-      Stream.mapEffect(() => current)
-    )
+    changes: Stream.fromEventListener<PopStateEvent>(browser, "popstate").pipe(Stream.mapEffect(() => current))
   })
 })
 

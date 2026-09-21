@@ -12,15 +12,20 @@ export type NavigationError = Effect.Error<ReturnType<RegisteredRouter["core"]["
 export function useNavigateEffect(): (destination: Destination) => Effect.Effect<void, NavigationError> {
   const { core, compiled } = useRuntime()
   const registry = React.useContext(RegistryContext)
-  return React.useCallback((destination: Destination) =>
-    Effect.suspend(() => {
-      const { route, input } = compiled.target(destination)
-      return core.execute(
-        destination.replace
-          ? Router.replace<RouteTree.Any>(route, input, destination.state)
-          : Router.push<RouteTree.Any>(route, input, destination.state)
-      ).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-    }) as Effect.Effect<void, NavigationError>, [core, compiled, registry])
+  return React.useCallback(
+    (destination: Destination) =>
+      Effect.suspend(() => {
+        const { route, input } = compiled.target(destination)
+        return core
+          .execute(
+            destination.replace
+              ? Router.replace<RouteTree.Any>(route, input, destination.state)
+              : Router.push<RouteTree.Any>(route, input, destination.state)
+          )
+          .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+      }) as Effect.Effect<void, NavigationError>,
+    [core, compiled, registry]
+  )
 }
 /** Awaits this transition's resolution and scoped cleanup. @since 0.1.0 */
 export function useNavigate(): (
@@ -50,15 +55,17 @@ export function Link(
   const href = Route.href(route, input)
   if (Result.isFailure(href)) throw href.failure
   const pathname = href.success.split(/[?#]/)[0]
-  const activeAtom = React.useMemo(() =>
-    Atom.map(router.core.branch, (branch) =>
-      Option.isSome(branch.location) &&
-      (branch.location.value.pathname === pathname ||
-        (!exact && pathname !== "/" && branch.location.value.pathname.startsWith(`${pathname}/`)))), [
-    router,
-    pathname,
-    exact
-  ])
+  const activeAtom = React.useMemo(
+    () =>
+      Atom.map(
+        router.core.branch,
+        (branch) =>
+          Option.isSome(branch.location)
+          && (branch.location.value.pathname === pathname
+            || (!exact && pathname !== "/" && branch.location.value.pathname.startsWith(`${pathname}/`)))
+      ),
+    [router, pathname, exact]
+  )
   const active = useAtomValue(activeAtom)
   return (
     <a
@@ -69,10 +76,16 @@ export function Link(
       onClick={(event) => {
         onClick?.(event)
         if (
-          event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey ||
-          event.altKey || (anchor.target !== undefined && anchor.target !== "_self") ||
-          (anchor.download !== undefined && anchor.download !== false)
-        ) return
+          event.defaultPrevented
+          || event.button !== 0
+          || event.metaKey
+          || event.ctrlKey
+          || event.shiftKey
+          || event.altKey
+          || (anchor.target !== undefined && anchor.target !== "_self")
+          || (anchor.download !== undefined && anchor.download !== false)
+        )
+          return
         event.preventDefault()
         void navigate(destination).catch(() => {})
       }}

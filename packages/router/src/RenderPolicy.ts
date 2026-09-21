@@ -19,15 +19,20 @@ export type Selection =
 export const sameSelection = (left: Selection, right: Selection): boolean => {
   if (left._tag === "Empty") return right._tag === "Empty"
   if (left._tag === "View") return right._tag === "View" && left.routeId === right.routeId
-  return right._tag === "Boundary" && left.routeId === right.routeId && left.kind === right.kind &&
-    Object.is(left.error, right.error)
+  return (
+    right._tag === "Boundary"
+    && left.routeId === right.routeId
+    && left.kind === right.kind
+    && Object.is(left.error, right.error)
+  )
 }
 
 /** Minimal projection needed to select a presentation. @since 0.2.0 */
 export interface PresentationState {
-  readonly matches: ReadonlyArray<
-    { readonly route: Route.Any; readonly result: AsyncResult.AsyncResult<unknown, unknown> }
-  >
+  readonly matches: ReadonlyArray<{
+    readonly route: Route.Any
+    readonly result: AsyncResult.AsyncResult<unknown, unknown>
+  }>
   readonly notFound: boolean
   readonly result?: AsyncResult.AsyncResult<void, unknown>
 }
@@ -40,9 +45,10 @@ export const select = (
 ): Selection => {
   const entries = branch.matches
   let problem = entries.findIndex((entry) => entry.result._tag === "Failure")
-  const globalFailure = problem < 0 && !branch.notFound && branch.result?._tag === "Failure" && !branch.result.waiting
-    ? branch.result :
-    undefined
+  const globalFailure =
+    problem < 0 && !branch.notFound && branch.result?._tag === "Failure" && !branch.result.waiting
+      ? branch.result
+      : undefined
   if (globalFailure !== undefined && entries.length > 0) problem = 0
   let kind: BoundaryKind = "errorComponent"
   if (problem < 0) {
@@ -80,14 +86,16 @@ export interface NavigationIntent {
 
 /** State follows Effect structural equality; supply immutable state values. @since 0.2.0 */
 export const sameIntent = (left: NavigationIntent | undefined, right: NavigationIntent): boolean =>
-  left !== undefined && left.href === right.href && left.replace === right.replace &&
-  Equal.equals(left.state, right.state)
+  left !== undefined
+  && left.href === right.href
+  && left.replace === right.replace
+  && Equal.equals(left.state, right.state)
 
 /** Includes explicit history state, avoiding duplicate pushes on pending remounts. @since 0.2.0 */
 export const isSatisfied = (intent: NavigationIntent, location: Option.Option<History.Location>): boolean =>
-  Option.isSome(location) &&
-  `${location.value.pathname}${location.value.search}${location.value.hash}` === intent.href &&
-  (intent.state === undefined || Equal.equals(location.value.state, intent.state))
+  Option.isSome(location)
+  && `${location.value.pathname}${location.value.search}${location.value.hash}` === intent.href
+  && (intent.state === undefined || Equal.equals(location.value.state, intent.state))
 
 /** Stable until a completed successful branch includes the boundary route. @since 0.2.0 */
 export const recoveryKey = (branch: Router.Branch, routeId: string): object | undefined => {

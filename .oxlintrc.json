@@ -1,6 +1,10 @@
 {
-  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "import", "oxc", "eslint", "unicorn", "node"],
+  "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+  "extends": ["./node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+  "plugins": ["typescript", "import", "oxc", "eslint", "unicorn", "node", "effecttsgo"],
+  "options": {
+    "typeAware": true
+  },
   "categories": {
     "correctness": "error",
     "suspicious": "error",
@@ -27,10 +31,26 @@
     "typescript/no-explicit-any": "off",
     "typescript/no-empty-interface": "off",
     "typescript/no-namespace": "off",
+    "typescript/consistent-return": "off",
+    "typescript/no-unsafe-type-assertion": "off",
+    "typescript/no-unnecessary-type-assertion": "off",
+    "typescript/no-unnecessary-type-arguments": "off",
+    "typescript/no-unnecessary-type-parameters": "off",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "effecttsgo/any-unknown-in-error-context": "off",
     "unicorn/consistent-function-scoping": "off",
     "unicorn/no-array-sort": "off"
   },
   "overrides": [
+    {
+      "files": ["packages/*/test/**/*", "packages/*/typetest/**/*"],
+      "rules": {
+        "effecttsgo/async-function": "off",
+        "effecttsgo/new-promise": "off",
+        "effecttsgo/global-timers": "off"
+      }
+    },
     {
       "files": ["packages/*/examples/**/*", "packages/*/test/**/*", "packages/*/typetest/**/*"],
       "rules": {

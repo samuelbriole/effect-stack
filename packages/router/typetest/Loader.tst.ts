@@ -19,7 +19,7 @@ const project = Route.make({
     expect(hash).type.toBe<"" | "details">()
     expect(location).type.toBe<History.Location>()
     return Projects.use((service) => Effect.succeed({ id: params.id, title: service.title })).pipe(
-      Effect.andThen((data) => data.title === "" ? Effect.fail(new Missing({})) : Effect.succeed(data))
+      Effect.andThen((data) => (data.title === "" ? Effect.fail(new Missing({})) : Effect.succeed(data)))
     )
   }
 })

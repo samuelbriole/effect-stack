@@ -105,7 +105,7 @@ describe("RouteTree", () => {
   })
 
   it.effect("resolves ancestor loaders with inherited inputs and attributes child failures", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const calls: Array<string> = []
       const root = RouteTree.root({
         loader: () =>
@@ -140,5 +140,6 @@ describe("RouteTree", () => {
       expect(calls).toEqual(["root", "parent:42"])
       const branch = registry.get(router.branch)
       expect(branch.matches.map((entry) => entry.result._tag)).toEqual(["Success", "Success", "Failure"])
-    }))
+    })
+  )
 })

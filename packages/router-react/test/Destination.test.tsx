@@ -102,8 +102,9 @@ describe("Shared-URL destinations", { concurrent: false }, () => {
       registry.dispose()
     }
     const competing = createRoute({ getParentRoute: () => dashboard, path: "/" })
-    expect(() => createRouter({ routeTree: rootRoute.addChildren([dashboard.addChildren([children, competing])]) }))
-      .toThrow("Ambiguous route template")
+    expect(() =>
+      createRouter({ routeTree: rootRoute.addChildren([dashboard.addChildren([children, competing])]) })
+    ).toThrow("Ambiguous route template")
   })
 
   it("encodes hrefs against the ranked index match, not the last pathless layout", () => {

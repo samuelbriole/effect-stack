@@ -32,11 +32,7 @@ export type Any = Route.Any & {
 export const NodeId: unique symbol = Symbol.for("@effect-stack/router/RouteTree/Node")
 
 /** @since 0.2.0 */
-export type Node<
-  R extends Route.Any,
-  Children extends ReadonlyArray<Any> = readonly [],
-  K extends Kind = Kind
-> = R & {
+export type Node<R extends Route.Any, Children extends ReadonlyArray<Any> = readonly [], K extends Kind = Kind> = R & {
   readonly parentId: string | undefined
   readonly kind: K
   readonly to: R["path"]
@@ -48,18 +44,19 @@ export type Node<
 /** @since 0.2.0 */
 export type All<T extends Any> = [T] extends [never] ? never : T | (Any extends T ? never : All<T["children"][number]>)
 /** @since 0.2.0 */
-export type Join<Parent extends string, Path extends string> = Path extends "/" | "" ? Parent
-  : Parent extends "/" ? `/${Path}`
-  : `${Parent}/${Path}`
+export type Join<Parent extends string, Path extends string> = Path extends "/" | ""
+  ? Parent
+  : Parent extends "/"
+    ? `/${Path}`
+    : `${Parent}/${Path}`
 
 type ParametersOption<Path extends string, P extends Fields> = [Route.PathParameters<Path>] extends [never]
   ? { readonly params?: P & { readonly [K in keyof P]: never } }
   : {
-    readonly params:
-      & P
-      & { readonly [K in Route.PathParameters<Path>]: Schema.ConstraintCodec<unknown, string, never, never> }
-      & { readonly [K in Exclude<keyof P, Route.PathParameters<Path>>]: never }
-  }
+      readonly params: P & {
+        readonly [K in Route.PathParameters<Path>]: Schema.ConstraintCodec<unknown, string, never, never>
+      } & { readonly [K in Exclude<keyof P, Route.PathParameters<Path>>]: never }
+    }
 
 /**
  * Code and data loading options shared by route-tree builders. `lazy` imports
@@ -74,9 +71,10 @@ export interface Loading<P extends Fields, S extends Fields, H extends HashCodec
   ) => Effect.Effect<D, E, Scope.Scope | R>
 }
 
-type InvalidModuleView<M, View> = M extends unknown ?
-    | ("default" extends keyof M ? ([Exclude<M["default"], undefined>] extends [View] ? never : true) : never)
-    | ("component" extends keyof M ? ([Exclude<M["component"], undefined>] extends [View] ? never : true) : never)
+type InvalidModuleView<M, View> = M extends unknown
+  ?
+      | ("default" extends keyof M ? ([Exclude<M["default"], undefined>] extends [View] ? never : true) : never)
+      | ("component" extends keyof M ? ([Exclude<M["component"], undefined>] extends [View] ? never : true) : never)
   : never
 
 /**
@@ -85,7 +83,8 @@ type InvalidModuleView<M, View> = M extends unknown ?
  * rejected at the type level. Adapters apply their own component type.
  * @since 0.3.0
  */
-export type CheckedLazyModule<M, View> = [InvalidModuleView<M, View>] extends [never] ? unknown
+export type CheckedLazyModule<M, View> = [InvalidModuleView<M, View>] extends [never]
+  ? unknown
   : { readonly lazy?: never }
 
 /** @since 0.2.0 */
@@ -101,10 +100,10 @@ export type Options<
   D,
   E,
   R
-> =
-  & { readonly getParentRoute: () => Parent; readonly search?: S; readonly hash?: H }
-  & { readonly path: Path; readonly id?: never }
-  & ParametersOption<Path, P>
+> = { readonly getParentRoute: () => Parent; readonly search?: S; readonly hash?: H } & {
+  readonly path: Path
+  readonly id?: never
+} & ParametersOption<Path, P>
   & Loading<Parent["paramsSchema"]["fields"] & P, Parent["searchSchema"]["fields"] & S, H, M, ME, MR, D, E, R>
 
 /** @since 0.2.0 */
@@ -148,6 +147,7 @@ const node = <R extends Route.Any, const C extends ReadonlyArray<Any>, const K e
   addChildren: (next) => node(route, parentId, kind, next),
   // `pipe` is an own property, so adapter decoration spreads carry the
   // `this`-bound composition from Pipeable.Prototype onto decorated nodes.
+  // oxlint-disable-next-line typescript/unbound-method -- Copy the method intentionally; callers bind it to the decorated node.
   pipe: Pipeable.Prototype.pipe,
   [NodeId]: true
 })
@@ -245,9 +245,10 @@ export function make(
   const segment = options.path ?? options.id ?? ""
   const id = `${parent.id}/${segment}`
   if (
-    segment === "" ||
-    (options.path !== undefined && options.path !== "/" &&
-      (segment.startsWith("/") || segment.endsWith("/") || segment.includes("//")))
+    segment === ""
+    || (options.path !== undefined
+      && options.path !== "/"
+      && (segment.startsWith("/") || segment.endsWith("/") || segment.includes("//")))
   ) {
     throw new Route.RouteDefinitionError({
       routeId: id,
@@ -260,12 +261,10 @@ export function make(
       message: "A pathless layout ID must be a single static segment"
     })
   }
-  for (
-    const [inherited, own] of [[parent.paramsSchema.fields, options.params], [
-      parent.searchSchema.fields,
-      options.search
-    ]] as const
-  ) {
+  for (const [inherited, own] of [
+    [parent.paramsSchema.fields, options.params],
+    [parent.searchSchema.fields, options.search]
+  ] as const) {
     for (const key of Object.keys(own ?? {})) {
       if (key in inherited) {
         throw new Route.RouteDefinitionError({
@@ -308,16 +307,14 @@ const makeRoute = (
   options: RuntimeOptions
 ): Route.Any => {
   // Route.make validates exact parameter fields for the composed path.
-  const construct = Route.make as (
-    options: {
-      readonly id: string
-      readonly path: `/${string}`
-      readonly params: Fields
-      readonly search: Fields
-      readonly hash: HashCodec
-      readonly lazy?: () => Effect.Effect<unknown, unknown, unknown>
-    }
-  ) => Route.Any
+  const construct = Route.make as (options: {
+    readonly id: string
+    readonly path: `/${string}`
+    readonly params: Fields
+    readonly search: Fields
+    readonly hash: HashCodec
+    readonly lazy?: () => Effect.Effect<unknown, unknown, unknown>
+  }) => Route.Any
   const base = construct({
     id,
     path: path as `/${string}`,
@@ -337,23 +334,33 @@ type LayoutNode = { readonly kind: "layout" }
 // reached through any intervening pathless layouts.
 type SameUrlIndex<N extends Any> =
   | Extract<N["children"][number], IndexNode>
-  | (Extract<N["children"][number], LayoutNode> extends infer L ? L extends Any ? SameUrlIndex<L> : never : never)
-type RankedLeaf<N extends Any> = N extends LayoutNode ? never
-  : SameUrlIndex<N> extends infer I ? [I] extends [never] ? N : I
-  : never
+  | (Extract<N["children"][number], LayoutNode> extends infer L ? (L extends Any ? SameUrlIndex<L> : never) : never)
+type RankedLeaf<N extends Any> = N extends LayoutNode
+  ? never
+  : SameUrlIndex<N> extends infer I
+    ? [I] extends [never]
+      ? N
+      : I
+    : never
 
 /** A typed URL destination using the ranked endpoint's inherited Schema inputs. @since 0.2.0 */
-export type Destination<T extends Any> = All<T> extends infer R
-  ? R extends Any ? RankedLeaf<R> extends infer L ? L extends Any ?
-          & { readonly to: L["path"]; readonly replace?: boolean; readonly state?: unknown }
-          & OptionalInput<"params", Route.Route.Params<L>>
-          & OptionalInput<"search", Route.Route.Search<L>>
-          & ("" extends Route.Route.Hash<L> ? { readonly hash?: Route.Route.Hash<L> }
-            : { readonly hash: Route.Route.Hash<L> })
-      : never :
-    never :
-  never :
-  never
+export type Destination<T extends Any> =
+  All<T> extends infer R
+    ? R extends Any
+      ? RankedLeaf<R> extends infer L
+        ? L extends Any
+          ? { readonly to: L["path"]; readonly replace?: boolean; readonly state?: unknown } & OptionalInput<
+              "params",
+              Route.Route.Params<L>
+            >
+              & OptionalInput<"search", Route.Route.Search<L>>
+              & ("" extends Route.Route.Hash<L>
+                ? { readonly hash?: Route.Route.Hash<L> }
+                : { readonly hash: Route.Route.Hash<L> })
+          : never
+        : never
+      : never
+    : never
 
 /** Erased destination input for renderer adapters; URL encoding validates its values. @since 0.2.0 */
 export type DestinationInput = Planner.DestinationInput

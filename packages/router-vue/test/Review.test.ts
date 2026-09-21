@@ -41,15 +41,14 @@ const settle = async <T extends RouteTree.Any, E>(
   command = false
 ) => {
   await Effect.runPromise(
-    AtomRegistry.getResult(registry, command ? router.core.navigation : router.core.state, { suspendOnWaiting: true })
-      .pipe(Effect.exit)
+    AtomRegistry.getResult(registry, command ? router.core.navigation : router.core.state, {
+      suspendOnWaiting: true
+    }).pipe(Effect.exit)
   )
   await nextTick()
 }
-const readState = async <T extends RouteTree.Any, E>(
-  router: ClientRouter<T, E>,
-  registry: AtomRegistry.AtomRegistry
-) => await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
+const readState = async <T extends RouteTree.Any, E>(router: ClientRouter<T, E>, registry: AtomRegistry.AtomRegistry) =>
+  await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
 
 describe("Vue review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views before the loader settles", async () => {
@@ -93,7 +92,7 @@ describe("Vue review regressions", { concurrent: false }, () => {
     const child = createRoute({
       getParentRoute: () => root,
       path: "/",
-      loader: () => ++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good")),
+      loader: () => (++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good"))),
       component: defineComponent({
         setup() {
           const data = child.useLoaderData()
@@ -123,7 +122,7 @@ describe("Vue review regressions", { concurrent: false }, () => {
     let attempts = 0
     const layer = Layer.effect(
       Config,
-      Effect.suspend(() => ++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready"))
+      Effect.suspend(() => (++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready")))
     )
     const route = createRootRoute({
       loader: () => Config.use((config) => Effect.succeed(config)),

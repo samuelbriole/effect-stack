@@ -69,7 +69,7 @@ it("replaces a latched render error with a subsequent loader error", async () =>
     getParentRoute: () => root,
     path: "items/:id",
     params: { id: Schema.FiniteFromString },
-    loader: ({ params }) => params.id === 2 ? Effect.fail(new Error("loader failed")) : Effect.void,
+    loader: ({ params }) => (params.id === 2 ? Effect.fail(new Error("loader failed")) : Effect.void),
     component: () => {
       const [broken, setBroken] = createSignal(false)
       fail = () => setBroken(true)

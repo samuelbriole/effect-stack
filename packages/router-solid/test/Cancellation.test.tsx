@@ -28,7 +28,7 @@ it("interrupts nested lazy work on navigation and rejects late module publicatio
     path: "lazy",
     pendingComponent: () => <p>Pending</p>,
     lazy: () =>
-      Effect.gen(function*() {
+      Effect.gen(function* () {
         yield* Effect.addFinalizer(() => Deferred.succeed(stopped, undefined))
         yield* Deferred.succeed(started, undefined)
         return yield* Effect.promise(() => module)

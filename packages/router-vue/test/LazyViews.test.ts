@@ -68,7 +68,7 @@ describe("Vue lazy view validation", { concurrent: false }, () => {
       expect(text).toContain("Shell")
       expect(text).toContain("Child boundary:")
       expect(text).not.toContain("Section boundary")
-      expect(text).toContain("Route \"__root__/section/broken\"")
+      expect(text).toContain('Route "__root__/section/broken"')
       expect(text).toContain("not a Vue component")
       expect(text).toContain("received number")
     } finally {

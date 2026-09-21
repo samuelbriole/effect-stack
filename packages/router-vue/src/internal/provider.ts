@@ -49,9 +49,10 @@ export const RouterProvider = defineComponent({
       })
     }
   }
-}) as unknown as <T extends RouteTree.Any, E>(
-  props: { readonly router: ClientRouter<T, E>; readonly registry?: AtomRegistry.AtomRegistry }
-) => VNode
+}) as unknown as <T extends RouteTree.Any, E>(props: {
+  readonly router: ClientRouter<T, E>
+  readonly registry?: AtomRegistry.AtomRegistry
+}) => VNode
 
 const RouterView = defineComponent({
   name: "RouterView",
@@ -75,11 +76,8 @@ const RouterView = defineComponent({
       )
     }
     const startup = Atom.map(core.branch, (value) =>
-      value.matches.length > 0
-        ? undefined
-        : value.result._tag === "Failure"
-        ? Cause.squash(value.result.cause)
-        : null)
+      value.matches.length > 0 ? undefined : value.result._tag === "Failure" ? Cause.squash(value.result.cause) : null
+    )
     const startupError = useAtomValue(() => startup)
     return () => {
       const error = startupError.value

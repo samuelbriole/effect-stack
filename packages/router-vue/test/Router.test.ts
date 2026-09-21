@@ -52,9 +52,9 @@ const run = async (self: Effect.Effect<unknown, unknown, never>) => {
 
 describe("Vue router", { concurrent: false }, () => {
   it("preserves layouts while params, search, loader data, and link hrefs react", async () => {
-    class Projects
-      extends Context.Service<Projects, { readonly get: (id: number) => Effect.Effect<string> }>()("test/Projects")
-    {}
+    class Projects extends Context.Service<Projects, { readonly get: (id: number) => Effect.Effect<string> }>()(
+      "test/Projects"
+    ) {}
     const Layout = defineComponent({
       setup() {
         const count = ref(0)
@@ -72,8 +72,11 @@ describe("Vue router", { concurrent: false }, () => {
           h("section", [
             h("button", { id: "project-count", onClick: () => count.value++ }, `Local ${count.value}`),
             h("p", `${data.value}:${search.value.tab}`),
-            h(Link, { to: "/projects/:id", params: { id: params.value.id + 1 }, search: { tab: "activity" } }, () =>
-              "Next")
+            h(
+              Link,
+              { to: "/projects/:id", params: { id: params.value.id + 1 }, search: { tab: "activity" } },
+              () => "Next"
+            )
           ])
       }
     })
@@ -102,9 +105,7 @@ describe("Vue router", { concurrent: false }, () => {
     expect(container.textContent).toContain("Project 2:activity")
     expect(container.textContent).toContain("Root 1Local 1")
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/projects/3?tab=activity")
-    await run(
-      router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-    )
+    await run(router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
     expect(container.textContent).toContain("Root 1Local 1")
   })
 
@@ -118,25 +119,36 @@ describe("Vue router", { concurrent: false }, () => {
           h(Link, { to: "/child", id: "normal" }, () => "Child"),
           h(Link, { to: "/child", target: "_blank", id: "blank" }, () => "Blank"),
           h(Link, { to: "/child", download: "file", id: "download" }, () => "Download"),
-          h(Link, {
-            to: "/child",
-            id: "prevented",
-            onClick: (event: MouseEvent) => {
-              handlers++
-              event.preventDefault()
-            }
-          }, () => "Prevented"),
+          h(
+            Link,
+            {
+              to: "/child",
+              id: "prevented",
+              onClick: (event: MouseEvent) => {
+                handlers++
+                event.preventDefault()
+              }
+            },
+            () => "Prevented"
+          ),
           h(Outlet),
-          h(Link, {
-            to: "/child",
-            id: "stopped",
-            onClick: [(event: MouseEvent) => {
-              event.preventDefault()
-              event.stopImmediatePropagation()
-            }, () => {
-              stoppedHandlers++
-            }]
-          }, () => "Stopped")
+          h(
+            Link,
+            {
+              to: "/child",
+              id: "stopped",
+              onClick: [
+                (event: MouseEvent) => {
+                  event.preventDefault()
+                  event.stopImmediatePropagation()
+                },
+                () => {
+                  stoppedHandlers++
+                }
+              ]
+            },
+            () => "Stopped"
+          )
         ])
     })
     const home = createRoute({ getParentRoute: () => root, path: "/" })
@@ -147,10 +159,14 @@ describe("Vue router", { concurrent: false }, () => {
     const click = (id: string, init: MouseEventInit = {}) => {
       const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init })
       let prevented = false
-      document.addEventListener("click", () => {
-        prevented = event.defaultPrevented
-        event.preventDefault()
-      }, { once: true })
+      document.addEventListener(
+        "click",
+        () => {
+          prevented = event.defaultPrevented
+          event.preventDefault()
+        },
+        { once: true }
+      )
       container.querySelector(`#${id}`)!.dispatchEvent(event)
       return prevented
     }
@@ -188,7 +204,7 @@ describe("Vue router", { concurrent: false }, () => {
       path: "lazy",
       pendingComponent: () => h("p", "Pending view"),
       lazy: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
           return { default: () => h("p", "Lazy view") }
@@ -216,7 +232,7 @@ describe("Vue router", { concurrent: false }, () => {
     const child = createRoute({
       getParentRoute: () => root,
       path: "child",
-      loader: () => loadFails ? Effect.fail("missing") : Effect.succeed("Loaded"),
+      loader: () => (loadFails ? Effect.fail("missing") : Effect.succeed("Loaded")),
       component: defineComponent({
         setup() {
           const data = child.useLoaderData()
@@ -255,7 +271,7 @@ describe("Vue router", { concurrent: false }, () => {
       getParentRoute: () => parent,
       path: ":id",
       params: { id: Schema.FiniteFromString },
-      loader: ({ params }) => params.id === 3 ? Effect.fail("missing") : Effect.void,
+      loader: ({ params }) => (params.id === 3 ? Effect.fail("missing") : Effect.void),
       component: defineComponent({
         setup() {
           const params = child.useParams()
@@ -315,9 +331,7 @@ describe("Vue router", { concurrent: false }, () => {
     expect(match.location.state).toEqual(state)
     expect(match.location.index).toBe(0)
     expect(visits).toBe(2)
-    await run(
-      router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-    )
+    await run(router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
     expect(visits).toBe(3)
   })
 
@@ -331,7 +345,7 @@ describe("Vue router", { concurrent: false }, () => {
       getParentRoute: () => root,
       path: "child",
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           visits++
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)

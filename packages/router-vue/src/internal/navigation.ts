@@ -23,13 +23,13 @@ export function useNavigateEffect(): (destination: Destination) => Effect.Effect
   return (destination) =>
     Effect.suspend(() => {
       const { route, input } = compiled.target(destination)
-      return core.execute(
-        destination.replace
-          ? Router.replace<RouteTree.Any>(route, input, destination.state)
-          : Router.push<RouteTree.Any>(route, input, destination.state)
-      ).pipe(
-        Effect.provideService(AtomRegistry.AtomRegistry, registry)
-      ) as Effect.Effect<void, NavigationError>
+      return core
+        .execute(
+          destination.replace
+            ? Router.replace<RouteTree.Any>(route, input, destination.state)
+            : Router.push<RouteTree.Any>(route, input, destination.state)
+        )
+        .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)) as Effect.Effect<void, NavigationError>
     })
 }
 /** Awaits this transition's resolution and scoped cleanup; encode failures stay typed. @since 0.1.0 */
@@ -50,10 +50,11 @@ const destinationProps = {
   state: { default: undefined }
 }
 /** @since 0.1.0 */
-export type LinkProps = Destination & Omit<AnchorHTMLAttributes, "href" | "onClick"> & {
-  readonly exact?: boolean
-  readonly onClick?: ((event: MouseEvent) => void) | ReadonlyArray<(event: MouseEvent) => void>
-}
+export type LinkProps = Destination
+  & Omit<AnchorHTMLAttributes, "href" | "onClick"> & {
+    readonly exact?: boolean
+    readonly onClick?: ((event: MouseEvent) => void) | ReadonlyArray<(event: MouseEvent) => void>
+  }
 
 /** A real anchor with typed destinations, native events, and reactive active state. @since 0.1.0 */
 export const Link = defineComponent({
@@ -75,9 +76,16 @@ export const Link = defineComponent({
     const onClick = (event: MouseEvent) => {
       const anchor = event.currentTarget as HTMLAnchorElement
       if (
-        event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey ||
-        event.altKey || (anchor.target !== "" && anchor.target !== "_self") || anchor.hasAttribute("download")
-      ) return
+        event.defaultPrevented
+        || event.button !== 0
+        || event.metaKey
+        || event.ctrlKey
+        || event.shiftKey
+        || event.altKey
+        || (anchor.target !== "" && anchor.target !== "_self")
+        || anchor.hasAttribute("download")
+      )
+        return
       event.preventDefault()
       // Router state already publishes failures to route boundaries; the bridge consumes them.
       navigate(destination()).catch(() => {})
@@ -85,21 +93,27 @@ export const Link = defineComponent({
     return () => {
       const current = location.value
       const pathname = href.value.split(/[?#]/)[0]
-      const active = Option.isSome(current) &&
-        (current.value.pathname === pathname ||
-          (!props.exact && pathname !== "/" && current.value.pathname.startsWith(`${pathname}/`)))
+      const active =
+        Option.isSome(current)
+        && (current.value.pathname === pathname
+          || (!props.exact && pathname !== "/" && current.value.pathname.startsWith(`${pathname}/`)))
       // Vue dispatches event arrays with its native error handling and
       // stopImmediatePropagation semantics; interception runs last.
-      const handlers = attrs.onClick === undefined
-        ? [onClick]
-        : [...(Array.isArray(attrs.onClick) ? attrs.onClick : [attrs.onClick]), onClick]
-      return h("a", {
-        ...attrs,
-        href: href.value,
-        "aria-current": active ? "page" : undefined,
-        "data-active": active ? "true" : undefined,
-        onClick: handlers
-      }, slots.default?.())
+      const handlers =
+        attrs.onClick === undefined
+          ? [onClick]
+          : [...(Array.isArray(attrs.onClick) ? attrs.onClick : [attrs.onClick]), onClick]
+      return h(
+        "a",
+        {
+          ...attrs,
+          href: href.value,
+          "aria-current": active ? "page" : undefined,
+          "data-active": active ? "true" : undefined,
+          onClick: handlers
+        },
+        slots.default?.()
+      )
     }
   }
 }) as unknown as FunctionalComponent<LinkProps>
@@ -115,25 +129,28 @@ export const Navigate = defineComponent({
     const locationAtom = Atom.map(router.core.branch, (branch) => branch.location)
     const location = useAtomValue(() => locationAtom)
     let previous: RenderPolicy.NavigationIntent | undefined
-    watchEffect(() => {
-      const destination = props as Destination
-      const encoded = router.href(destination)
-      if (Result.isFailure(encoded)) throw encoded.failure
-      // State is read reactively here, so structural changes retrigger this effect even
-      // when the URL is unchanged.
-      const intent: RenderPolicy.NavigationIntent = {
-        href: encoded.success,
-        replace: props.replace === true,
-        state: props.state
-      }
-      if (RenderPolicy.sameIntent(previous, intent)) return
-      previous = intent
-      // Pending boundaries can unmount and remount a declarative redirect. An
-      // already-satisfied location, including explicit state, is a no-op.
-      if (RenderPolicy.isSatisfied(intent, location.value)) return
-      // Router state already publishes failures to route boundaries; the bridge consumes them.
-      navigate(destination).catch(() => {})
-    }, { flush: "post" })
+    watchEffect(
+      () => {
+        const destination = props as Destination
+        const encoded = router.href(destination)
+        if (Result.isFailure(encoded)) throw encoded.failure
+        // State is read reactively here, so structural changes retrigger this effect even
+        // when the URL is unchanged.
+        const intent: RenderPolicy.NavigationIntent = {
+          href: encoded.success,
+          replace: props.replace,
+          state: props.state
+        }
+        if (RenderPolicy.sameIntent(previous, intent)) return
+        previous = intent
+        // Pending boundaries can unmount and remount a declarative redirect. An
+        // already-satisfied location, including explicit state, is a no-op.
+        if (RenderPolicy.isSatisfied(intent, location.value)) return
+        // Router state already publishes failures to route boundaries; the bridge consumes them.
+        navigate(destination).catch(() => {})
+      },
+      { flush: "post" }
+    )
     return () => null
   }
 }) as unknown as FunctionalComponent<Destination>

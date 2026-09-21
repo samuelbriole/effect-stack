@@ -10,17 +10,23 @@ import type { Views } from "./route.ts"
 import type { ClientRouter, RuntimeRouter } from "./router.ts"
 
 /** Owns an Atom registry by default; supplied registries remain caller-owned. @since 0.1.0 */
-export function RouterProvider<T extends RouteTree.Any, E>(
-  { router, registry }: { readonly router: ClientRouter<T, E>; readonly registry?: AtomRegistry.AtomRegistry }
-) {
+export function RouterProvider<T extends RouteTree.Any, E>({
+  router,
+  registry
+}: {
+  readonly router: ClientRouter<T, E>
+  readonly registry?: AtomRegistry.AtomRegistry
+}) {
   const content = (
     <RouterContext.Provider value={router as RuntimeRouter}>
       <RouterView />
     </RouterContext.Provider>
   )
-  return registry === undefined
-    ? <RegistryProvider>{content}</RegistryProvider>
-    : <RegistryContext.Provider value={registry}>{content}</RegistryContext.Provider>
+  return registry === undefined ? (
+    <RegistryProvider>{content}</RegistryProvider>
+  ) : (
+    <RegistryContext.Provider value={registry}>{content}</RegistryContext.Provider>
+  )
 }
 
 type Startup = { readonly _tag: "Active" | "Pending" } | { readonly _tag: "Failure"; readonly error: unknown }
@@ -29,18 +35,23 @@ function RouterView() {
   const registry = React.useContext(RegistryContext)
   React.useEffect(() => registry.mount(core.navigation), [registry, core])
   const retry = useRetry()
-  const startup = React.useMemo(() =>
-    Atom.map(core.branch, (branch): Startup =>
-      branch.matches.length > 0
-        ? { _tag: "Active" } :
-        branch.result._tag === "Failure"
-        ? { _tag: "Failure", error: Cause.squash(branch.result.cause) }
-        : { _tag: "Pending" }).pipe(
-        Atom.withEquality<Startup>((left, right) =>
-          left._tag === right._tag &&
-          (left._tag !== "Failure" || (right._tag === "Failure" && Object.is(left.error, right.error)))
+  const startup = React.useMemo(
+    () =>
+      Atom.map(core.branch, (branch): Startup =>
+        branch.matches.length > 0
+          ? { _tag: "Active" }
+          : branch.result._tag === "Failure"
+            ? { _tag: "Failure", error: Cause.squash(branch.result.cause) }
+            : { _tag: "Pending" }
+      ).pipe(
+        Atom.withEquality<Startup>(
+          (left, right) =>
+            left._tag === right._tag
+            && (left._tag !== "Failure" || (right._tag === "Failure" && Object.is(left.error, right.error)))
         )
-      ), [core])
+      ),
+    [core]
+  )
   const state = useAtomValue(startup)
   if (state._tag !== "Active") {
     const root = core.routes[0] as RouteTree.Any & Views

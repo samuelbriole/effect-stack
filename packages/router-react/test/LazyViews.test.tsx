@@ -99,7 +99,7 @@ describe("React lazy view validation", { concurrent: false }, () => {
       expect(text).toContain("ShellSection")
       expect(text).toContain("Child boundary:")
       expect(text).not.toContain("Section boundary")
-      expect(text).toContain("Route \"__root__/section/broken\"")
+      expect(text).toContain('Route "__root__/section/broken"')
       expect(text).toContain("not a React component")
       expect(text).toContain("received number")
     } finally {

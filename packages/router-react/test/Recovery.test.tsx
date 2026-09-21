@@ -48,9 +48,7 @@ describe("React route recovery", { concurrent: false }, () => {
       broken = false
       await React.act(async () => {
         container.querySelector("button")!.click()
-        await Effect.runPromise(
-          AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-        )
+        await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
       })
       expect(container.textContent).toBe("ShellRecovered")
       await React.act(async () => {
@@ -86,7 +84,7 @@ describe("React route recovery", { concurrent: false }, () => {
       path: "child",
       pendingComponent: () => <p>Pending view</p>,
       lazy: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never

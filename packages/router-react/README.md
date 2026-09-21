@@ -40,7 +40,9 @@ function Project() {
   return (
     <>
       <h1>{data.title}</h1>
-      <Link to="/projects/:id" params={{ id: 43 }}>Next</Link>
+      <Link to="/projects/:id" params={{ id: 43 }}>
+        Next
+      </Link>
     </>
   )
 }

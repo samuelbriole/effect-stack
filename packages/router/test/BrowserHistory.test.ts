@@ -30,7 +30,7 @@ const trackEventListeners = () => {
 
 describe("BrowserHistory", { concurrent: false }, () => {
   it.effect("reads, pushes, and replaces browser locations", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       window.history.replaceState(null, "", "/initial")
       const history = yield* BrowserHistory.make()
 
@@ -45,10 +45,11 @@ describe("BrowserHistory", { concurrent: false }, () => {
       const replaced = yield* history.replace(History.destinationFromHref("/projects/43"))
       expect(replaced.pathname).toBe("/projects/43")
       expect(replaced.index).toBe(pushed.index)
-    }))
+    })
+  )
 
   it.effect("streams popstate without duplicating direct pushes and removes its listener", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       window.history.replaceState(null, "", "/initial")
       const tracked = trackEventListeners()
       yield* Effect.addFinalizer(() => Effect.sync(tracked.restore))
@@ -75,10 +76,11 @@ describe("BrowserHistory", { concurrent: false }, () => {
       yield* Fiber.interrupt(listener)
       expect(tracked.addEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
       expect(tracked.removeEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
-    }))
+    })
+  )
 
   it.effect("removes the router popstate listener when its Atom registry is disposed", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       window.history.replaceState(null, "", "/")
       const tracked = trackEventListeners()
       yield* Effect.addFinalizer(() => Effect.sync(tracked.restore))
@@ -93,5 +95,6 @@ describe("BrowserHistory", { concurrent: false }, () => {
       expect(tracked.addEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
       registry.dispose()
       expect(tracked.removeEventListener.mock.calls.some(([type]) => type === "popstate")).toBe(true)
-    }))
+    })
+  )
 })

@@ -61,10 +61,13 @@ describe("shared boundary selection", () => {
   })
   it("prefers pending to not-found and uses a root default when no fallback is declared", () => {
     const branch = {
-      matches: [{ route: root, result: AsyncResult.success(undefined) }, {
-        route: child,
-        result: AsyncResult.initial()
-      }],
+      matches: [
+        { route: root, result: AsyncResult.success(undefined) },
+        {
+          route: child,
+          result: AsyncResult.initial()
+        }
+      ],
       notFound: true
     }
     expect(RenderPolicy.select(branch, 0, () => false)).toEqual({

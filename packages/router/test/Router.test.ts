@@ -31,7 +31,7 @@ const project = Route.make({
   hash: Schema.Literals(["", "details"])
 })
 
-const makeRegistry = Effect.fn("RouterTest.makeRegistry")(function*() {
+const makeRegistry = Effect.fn("RouterTest.makeRegistry")(function* () {
   const registry = AtomRegistry.make()
   yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
   return registry
@@ -45,7 +45,7 @@ const runRegistryEffect = <A, E>(
 
 describe("Router", () => {
   it.effect("resolves initial state and typed navigation through atoms", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const router = Router.make({ routes: [home, project], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
@@ -55,11 +55,13 @@ describe("Router", () => {
 
       yield* runRegistryEffect(
         registry,
-        router.execute(Router.push(project, {
-          params: { projectId: 42 },
-          search: { tab: "activity" },
-          hash: ""
-        }))
+        router.execute(
+          Router.push(project, {
+            params: { projectId: 42 },
+            search: { tab: "activity" },
+            hash: ""
+          })
+        )
       )
       const next = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
 
@@ -72,20 +74,23 @@ describe("Router", () => {
 
       yield* runRegistryEffect(
         registry,
-        router.execute(Router.replace(project, {
-          params: { projectId: 43 },
-          search: {},
-          hash: ""
-        }))
+        router.execute(
+          Router.replace(project, {
+            params: { projectId: 43 },
+            search: {},
+            hash: ""
+          })
+        )
       )
       const replaced = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(replaced.id === "project" && replaced.params.projectId).toBe(43)
       expect(replaced.location.index).toBe(next.location.index)
       expect(replaced.location.key).toBe(next.location.key)
-    }))
+    })
+  )
 
   it.effect("publishes waiting state before mutating history", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const pushStarted = yield* Deferred.make<void>()
       const allowPush = yield* Deferred.make<void>()
       const initial: History.Location = {
@@ -98,7 +103,7 @@ describe("Router", () => {
       }
       const history = History.Service.of({
         current: Effect.succeed(initial),
-        push: Effect.fn("RouterTest.pushHistory")(function*(destination) {
+        push: Effect.fn("RouterTest.pushHistory")(function* (destination) {
           yield* Deferred.succeed(pushStarted, undefined)
           yield* Deferred.await(allowPush)
           return { ...destination, state: destination.state, key: "next", index: 1 }
@@ -128,10 +133,11 @@ describe("Router", () => {
       yield* Deferred.succeed(allowPush, undefined)
       yield* Fiber.join(running)
       expect(registry.get(router.navigation)._tag).toBe("Success")
-    }))
+    })
+  )
 
   it.effect("resolves back and forward through the history change stream", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const router = Router.make({ routes: [home, project], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
@@ -139,24 +145,28 @@ describe("Router", () => {
 
       yield* runRegistryEffect(
         registry,
-        router.execute(Router.push(project, {
-          params: { projectId: 1 },
-          search: {},
-          hash: ""
-        }))
+        router.execute(
+          Router.push(project, {
+            params: { projectId: 1 },
+            search: {},
+            hash: ""
+          })
+        )
       )
       yield* runRegistryEffect(
         registry,
-        router.execute(Router.push(project, {
-          params: { projectId: 2 },
-          search: {},
-          hash: ""
-        }))
+        router.execute(
+          Router.push(project, {
+            params: { projectId: 2 },
+            search: {},
+            hash: ""
+          })
+        )
       )
 
       const previous = yield* AtomRegistry.toStream(registry, router.state).pipe(
-        Stream.filter((state) =>
-          AsyncResult.isSuccess(state) && state.value.id === "project" && state.value.params.projectId === 1
+        Stream.filter(
+          (state) => AsyncResult.isSuccess(state) && state.value.id === "project" && state.value.params.projectId === 1
         ),
         Stream.runHead,
         Effect.forkChild
@@ -166,8 +176,8 @@ describe("Router", () => {
       expect(Option.isSome(yield* Fiber.join(previous))).toBe(true)
 
       const next = yield* AtomRegistry.toStream(registry, router.state).pipe(
-        Stream.filter((state) =>
-          AsyncResult.isSuccess(state) && state.value.id === "project" && state.value.params.projectId === 2
+        Stream.filter(
+          (state) => AsyncResult.isSuccess(state) && state.value.id === "project" && state.value.params.projectId === 2
         ),
         Stream.runHead,
         Effect.forkChild
@@ -175,10 +185,11 @@ describe("Router", () => {
       yield* Effect.yieldNow
       yield* runRegistryEffect(registry, router.execute(Router.forward))
       expect(Option.isSome(yield* Fiber.join(next))).toBe(true)
-    }))
+    })
+  )
 
   it.effect("loads lazy modules only when matched", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let loads = 0
       const lazy = Route.make({
         id: "lazy",
@@ -199,10 +210,11 @@ describe("Router", () => {
       if (resolved.id === "lazy") {
         expect(resolved.module).toEqual({ title: "Loaded 1" })
       }
-    }))
+    })
+  )
 
   it.effect("supplies Layer services to lazy loaders", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       class PageTitles extends Context.Service<PageTitles, { readonly project: string }>()("test/PageTitles") {}
       const serviceRoute = Route.make({
         id: "service",
@@ -223,10 +235,11 @@ describe("Router", () => {
 
       const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(resolved.module).toEqual({ title: "Layer-powered" })
-    }))
+    })
+  )
 
   it.effect("associates typed lazy failures with their route", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       class ExpectedLoadError extends Schema.TaggedError<ExpectedLoadError>()("ExpectedLoadError", {
         message: Schema.String
       }) {}
@@ -254,10 +267,11 @@ describe("Router", () => {
           error: { _tag: "ExpectedLoadError", message: "expected" }
         })
       }
-    }))
+    })
+  )
 
   it.effect("rejects duplicate route configuration deterministically", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const duplicate = Route.make({ id: "home", path: "/other", params: {}, search: {} })
       const router = Router.make({ routes: [home, duplicate], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
@@ -274,10 +288,11 @@ describe("Router", () => {
           _tag: "@effect-stack/router/RouterConfigurationError"
         })
       }
-    }))
+    })
+  )
 
   it.effect("rejects duplicate exact path templates", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const duplicatePath = Route.make({ id: "other-home", path: "/", params: {}, search: {} })
       const router = Router.make({ routes: [home, duplicatePath], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
@@ -288,10 +303,11 @@ describe("Router", () => {
         Stream.runHead
       )
       expect(Option.isSome(settled)).toBe(true)
-    }))
+    })
+  )
 
   it.effect("keeps declaration order for equal-ranking templates", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       // Route IDs are arbitrary strings for flat routers, so an ID with more
       // slashes (the tree ancestry depth key) must not outrank an equal
       // pattern that was declared first.
@@ -313,10 +329,11 @@ describe("Router", () => {
 
       const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(resolved.id).toBe("by-slug")
-    }))
+    })
+  )
 
   it.effect("ranks static segments ahead of dynamic ones for flat routes", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const byId = Route.make({
         id: "by-id",
         path: "/users/:id",
@@ -337,10 +354,11 @@ describe("Router", () => {
 
       const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(resolved.id).toBe("new-user")
-    }))
+    })
+  )
 
   it.effect("reports malformed percent-encoding on a dynamic segment as a typed decode failure", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const byId = Route.make({
         id: "by-id",
         path: "/users/:id",
@@ -362,10 +380,11 @@ describe("Router", () => {
           part: "path"
         })
       }
-    }))
+    })
+  )
 
   it.effect("does not match malformed percent-encoding against a static segment", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const fixed = Route.make({ id: "cafe", path: "/café/100%", params: {}, search: {} })
       const router = Router.make({ routes: [fixed], layer: MemoryHistory.layer("/caf%zz/100%25") })
       const registry = yield* makeRegistry()
@@ -383,10 +402,11 @@ describe("Router", () => {
           _tag: "@effect-stack/router/RouteNotFound"
         })
       }
-    }))
+    })
+  )
 
   it.effect("keeps covering entries in a flat not-found branch", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const users = Route.make({ id: "users", path: "/users", params: {}, search: {} })
       const router = Router.make({ routes: [home, users], layer: MemoryHistory.layer("/users/123") })
       const registry = yield* makeRegistry()
@@ -400,14 +420,15 @@ describe("Router", () => {
       expect(branch.notFound).toBe(true)
       expect(branch.matches.map((entry) => entry.routeId)).toEqual(["users"])
       expect(Option.map(branch.location, (value) => value.pathname)).toEqual(Option.some("/users/123"))
-    }))
+    })
+  )
 
   it.effect("interrupts superseded navigation and never commits stale state", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const started = yield* Deferred.make<void>()
       const finalized = yield* Deferred.make<void>()
       let finalizations = 0
-      const loadSlow = Effect.fn("RouterTest.loadSlow")(function*() {
+      const loadSlow = Effect.fn("RouterTest.loadSlow")(function* () {
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
             finalizations++
@@ -440,10 +461,11 @@ describe("Router", () => {
       expect(Exit.isFailure(supersededExit) && Cause.hasInterruptsOnly(supersededExit.cause)).toBe(true)
       const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(resolved.id).toBe("home")
-    }))
+    })
+  )
 
   it.effect("ignores stale non-cancelable Promise success and failure", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let startSuccess!: () => void
       let completeSuccess!: () => void
       const successStarted = new Promise<void>((resolve) => {
@@ -465,7 +487,7 @@ describe("Router", () => {
         path: "/stale-success",
         params: {},
         search: {},
-        lazy: Effect.fn("RouterTest.loadStaleSuccess")(function*() {
+        lazy: Effect.fn("RouterTest.loadStaleSuccess")(function* () {
           startSuccess()
           return yield* Effect.promise(() => successCompletion)
         })
@@ -475,7 +497,7 @@ describe("Router", () => {
         path: "/stale-failure",
         params: {},
         search: {},
-        lazy: Effect.fn("RouterTest.loadStaleFailure")(function*() {
+        lazy: Effect.fn("RouterTest.loadStaleFailure")(function* () {
           startFailure()
           return yield* Effect.tryPromise({
             try: () => failureCompletion,
@@ -513,10 +535,11 @@ describe("Router", () => {
       yield* Effect.promise(() => failureCompletion.catch(() => undefined))
       yield* Effect.yieldNow
       expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("home")
-    }))
+    })
+  )
 
   it.effect("disposal interrupts active navigation", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const started = yield* Deferred.make<void>()
       const finalized = yield* Deferred.make<void>()
       const slow = Route.make({
@@ -524,7 +547,7 @@ describe("Router", () => {
         path: "/dispose-slow",
         params: {},
         search: {},
-        lazy: Effect.fn("RouterTest.loadUntilDisposed")(function*() {
+        lazy: Effect.fn("RouterTest.loadUntilDisposed")(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never
@@ -538,10 +561,11 @@ describe("Router", () => {
       yield* Deferred.await(started)
       registry.dispose()
       yield* Deferred.await(finalized)
-    }))
+    })
+  )
 
   it.effect("surfaces malformed initial locations as typed state failures", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const router = Router.make({ routes: [project], layer: MemoryHistory.layer("/projects/not-a-number") })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
@@ -554,15 +578,14 @@ describe("Router", () => {
       if (Option.isSome(settled)) {
         expect(AsyncResult.isFailure(settled.value)).toBe(true)
       }
-    }))
+    })
+  )
 
-  it.effect.each(
-    [
-      ["/projects/1?tab=unknown", "search"],
-      ["/projects/1#unknown", "hash"]
-    ] as const
-  )("identifies a malformed %s transition", ([href, part]) =>
-    Effect.gen(function*() {
+  it.effect.each([
+    ["/projects/1?tab=unknown", "search"],
+    ["/projects/1#unknown", "hash"]
+  ] as const)("identifies a malformed %s transition", ([href, part]) =>
+    Effect.gen(function* () {
       const router = Router.make({ routes: [project], layer: MemoryHistory.layer(href) })
       const registry = AtomRegistry.make()
       registry.mount(router.state)
@@ -579,5 +602,6 @@ describe("Router", () => {
       } else {
         expect.fail(`Expected ${part} failure`)
       }
-    }))
+    })
+  )
 })

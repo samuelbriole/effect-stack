@@ -39,7 +39,7 @@ describe("React router", { concurrent: false }, () => {
       getParentRoute: () => rootRoute,
       path: "child",
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           visits++
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
@@ -87,7 +87,7 @@ describe("React router", { concurrent: false }, () => {
     const started = Effect.runSync(Deferred.make<void>())
     const route = createRootRoute({
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never
@@ -143,7 +143,7 @@ describe("React router", { concurrent: false }, () => {
       path: "lazy",
       pendingComponent: () => <p>Waiting for view</p>,
       lazy: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
           return { default: () => <p>Lazy view</p> }
@@ -257,7 +257,7 @@ describe("React router", { concurrent: false }, () => {
     const child = createRoute({
       getParentRoute: () => rootRoute,
       path: "child",
-      loader: () => fail ? Effect.fail("missing") : Effect.succeed("Recovered"),
+      loader: () => (fail ? Effect.fail("missing") : Effect.succeed("Recovered")),
       component: () => <p>{child.useLoaderData()}</p>,
       errorComponent: ({ reset }) => <button onClick={reset}>Try again</button>
     })
@@ -279,9 +279,7 @@ describe("React router", { concurrent: false }, () => {
     fail = false
     await React.act(async () => {
       await Effect.runPromise(
-        router.core
-          .execute(Router.refresh)
-          .pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+        router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
       )
     })
     expect(container.textContent).toBe("LayoutRecovered")

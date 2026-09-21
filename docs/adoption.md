@@ -25,13 +25,17 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
 const router = Router.make({ routes: [home], layer: MemoryHistory.layer() })
 
-const state = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-  const registry = AtomRegistry.make()
-  yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
-  yield* AtomRegistry.mount(registry, router.state)
-  yield* router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-  return registry.get(router.state)
-})))
+const state = await Effect.runPromise(
+  Effect.scoped(
+    Effect.gen(function* () {
+      const registry = AtomRegistry.make()
+      yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
+      yield* AtomRegistry.mount(registry, router.state)
+      yield* router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
+      return registry.get(router.state)
+    })
+  )
+)
 ```
 
 Use the same registry for observations and commands. Dispose registries you create; borrowed registries remain owned by
@@ -68,7 +72,9 @@ const View = () => {
     ).catch(() => {}) // Failures are rendered from the observed result below.
   return (
     <>
-      <button onClick={refresh} disabled={navigation.waiting}>Refresh</button>
+      <button onClick={refresh} disabled={navigation.waiting}>
+        Refresh
+      </button>
       {navigation._tag === "Failure" && <p role="alert">Navigation failed.</p>}
     </>
   )

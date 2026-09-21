@@ -49,7 +49,7 @@ describe("Solid review regressions", { concurrent: false }, () => {
       path: "projects/:id",
       params: { id: Schema.FiniteFromString },
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
         }),
@@ -80,7 +80,7 @@ describe("Solid review regressions", { concurrent: false }, () => {
     const child = createRoute({
       getParentRoute: () => rootRoute,
       path: "/",
-      loader: () => ++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good")),
+      loader: () => (++loads === 1 ? Effect.succeed("bad") : Deferred.await(ready).pipe(Effect.as("good"))),
       component: Child
     })
     function Child() {
@@ -116,7 +116,7 @@ describe("Solid review regressions", { concurrent: false }, () => {
     let attempts = 0
     const layer = Layer.effect(
       Config,
-      Effect.suspend(() => ++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready"))
+      Effect.suspend(() => (++attempts === 1 ? Effect.fail("startup") : Effect.succeed("ready")))
     )
     const route = createRootRoute({
       loader: () => Config.use(Effect.succeed),
@@ -157,8 +157,9 @@ describe("Solid review regressions", { concurrent: false }, () => {
     const { container, registry } = mount(router)
     await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
     await flush()
-    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.state)
-      .toEqual({ n: 1 })
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.state).toEqual({
+      n: 1
+    })
     update(2)
     await flush()
     const match = await Effect.runPromise(
@@ -205,7 +206,7 @@ describe("Solid review regressions", { concurrent: false }, () => {
       getParentRoute: () => rootRoute,
       path: "slow",
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
         }),
@@ -267,11 +268,11 @@ describe("Solid review regressions", { concurrent: false }, () => {
     )
     expect(encoded._tag).toBe("Failure")
     if (encoded._tag === "Failure") {
-      expect((Cause.squash(encoded.cause) as { readonly _tag: string })._tag)
-        .toBe("@effect-stack/router/RouteEncodeError")
+      expect((Cause.squash(encoded.cause) as { readonly _tag: string })._tag).toBe(
+        "@effect-stack/router/RouteEncodeError"
+      )
     }
-    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.pathname)
-      .toBe("/")
+    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.pathname).toBe("/")
     expect(container.textContent).toBe("Home")
     // Loader failures surface as typed Effect failures for imperative callers
     // while router state renders the boundary for declarative consumers.

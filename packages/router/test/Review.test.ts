@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Cause, Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity"
 
-const makeRegistry = Effect.fn("ReviewTest.makeRegistry")(function*() {
+const makeRegistry = Effect.fn("ReviewTest.makeRegistry")(function* () {
   const registry = AtomRegistry.make()
   yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
   return registry
@@ -19,7 +19,7 @@ class RefreshFailed extends Schema.TaggedError<RefreshFailed>()("ReviewTest.Refr
 
 describe("navigation review regressions", () => {
   it.effect("publishes self-interruption as a terminal branch failure", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const tree = RouteTree.root({ loader: () => Effect.interrupt })
       const router = Router.fromTree({ routeTree: tree, layer: MemoryHistory.layer() })
       const registry = AtomRegistry.make()
@@ -30,10 +30,11 @@ describe("navigation review regressions", () => {
       expect(result._tag).toBe("Failure")
       if (result._tag === "Failure") expect(Cause.hasInterruptsOnly(result.cause)).toBe(true)
       expect(result.waiting).toBe(false)
-    }))
+    })
+  )
 
   it.effect("navigation success values follow their declared void contract", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const home = Route.make({
         id: "home",
         path: "/",
@@ -57,9 +58,7 @@ describe("navigation review regressions", () => {
       // An execute-driven refresh settles both public operation projections
       // with `undefined`, never the resolved route object.
       yield* runRegistryEffect(registry, router.execute(Router.refresh))
-      expect(
-        yield* AtomRegistry.getResult(registry, router.navigation, { suspendOnWaiting: true })
-      ).toBe(undefined)
+      expect(yield* AtomRegistry.getResult(registry, router.navigation, { suspendOnWaiting: true })).toBe(undefined)
       const settledBranch = registry.get(router.branch)
       expect(settledBranch.result._tag).toBe("Success")
       expect(settledBranch.result.waiting).toBe(false)
@@ -67,17 +66,18 @@ describe("navigation review regressions", () => {
       // The leaf and last-success snapshots keep exposing the resolved data.
       expect(AsyncResult.isSuccess(registry.get(router.state))).toBe(true)
       expect(Option.isSome(registry.get(router.completed))).toBe(true)
-    }))
+    })
+  )
 
   it.effect("failed navigation retains a void previous success in both projections", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let failRefresh = false
       const home = Route.make({
         id: "home",
         path: "/",
         params: {},
         search: {},
-        loader: () => failRefresh ? Effect.fail(new RefreshFailed()) : Effect.succeed("ok")
+        loader: () => (failRefresh ? Effect.fail(new RefreshFailed()) : Effect.succeed("ok"))
       })
       const router = Router.make({ routes: [home], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
@@ -107,5 +107,6 @@ describe("navigation review regressions", () => {
       if (AsyncResult.isFailure(leaf)) {
         expect(Option.map(leaf.previousSuccess, (value) => value.value.loaderData)).toEqual(Option.some("ok"))
       }
-    }))
+    })
+  )
 })

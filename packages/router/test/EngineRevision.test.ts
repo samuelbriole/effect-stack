@@ -20,7 +20,7 @@ import * as Stream from "effect/Stream"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry"
 
-const makeRegistry = Effect.fn("EngineRevision.makeRegistry")(function*() {
+const makeRegistry = Effect.fn("EngineRevision.makeRegistry")(function* () {
   const registry = AtomRegistry.make()
   yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
   return registry
@@ -48,7 +48,7 @@ type ErasedEntry = Router.MatchState<Route.Any>
 
 const absentResult = AsyncResult.initial<Router.ResolvedRoute<Route.Any>, Router.RouteFailure<Route.Any>>()
 
-const entryResult = (entry: ErasedEntry | undefined) => entry === undefined ? absentResult : entry.result
+const entryResult = (entry: ErasedEntry | undefined) => (entry === undefined ? absentResult : entry.result)
 
 const childEntry = <Routes extends ReadonlyArray<Route.Any>>(
   branch: Router.Branch<Routes>,
@@ -58,7 +58,7 @@ const childEntry = <Routes extends ReadonlyArray<Route.Any>>(
 
 describe("EngineRevision", () => {
   it.effect("publishes decoded incoming entries for the whole branch before loaders settle", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const rootStarted = yield* Deferred.make<void>()
       const allowRoot = yield* Deferred.make<void>()
       const root = RouteTree.root({
@@ -99,10 +99,11 @@ describe("EngineRevision", () => {
         Option.some("child-data")
       )
       expect(settled.matches.every((entry) => !entry.result.waiting)).toBe(true)
-    }))
+    })
+  )
 
   it.effect("flat routers publish incoming before loaders and settle terminal entries", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const started = yield* Deferred.make<void>()
       const allow = yield* Deferred.make<void>()
       const slowProject = Route.make({
@@ -137,10 +138,11 @@ describe("EngineRevision", () => {
         Option.some("data-3")
       )
       expect(settledEntry?.result.waiting).toBe(false)
-    }))
+    })
+  )
 
   it.effect("publishes truthful waiting states and preserves settled entry identity", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const rootGate = yield* Deferred.make<void>()
       const rootReloading = yield* Deferred.make<void>()
       const childGate = yield* Deferred.make<void>()
@@ -148,7 +150,7 @@ describe("EngineRevision", () => {
       let rootLoads = 0
       const root = RouteTree.root({
         loader: () =>
-          Effect.gen(function*() {
+          Effect.gen(function* () {
             rootLoads += 1
             if (rootLoads > 1) {
               yield* Deferred.succeed(rootReloading, undefined)
@@ -161,7 +163,7 @@ describe("EngineRevision", () => {
         getParentRoute: () => root,
         path: "child/:id",
         params: { id: Schema.FiniteFromString },
-        loader: Effect.fn("EngineRevision.childLoader")(function*({ params }) {
+        loader: Effect.fn("EngineRevision.childLoader")(function* ({ params }) {
           if (params.id === 2) {
             yield* Deferred.succeed(childReloading, undefined)
             yield* Deferred.await(childGate)
@@ -265,22 +267,22 @@ describe("EngineRevision", () => {
       expect(Option.map(resolved, (value) => value.params.id)).toEqual(Option.some(2))
       const incoming = registry.get(router.routeAtoms(child).incoming)
       expect(
-        Option.flatMap(
-          incoming,
-          (value) => (Result.isSuccess(value) ? Option.some(value.success.params.id) : Option.none())
+        Option.flatMap(incoming, (value) =>
+          Result.isSuccess(value) ? Option.some(value.success.params.id) : Option.none()
         )
       ).toEqual(Option.some(3))
-    }))
+    })
+  )
 
   it.effect("completed revisions advance only on successful transitions", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let failRefresh = false
       const tracked = Route.make({
         id: "home",
         path: "/",
         params: {},
         search: {},
-        loader: () => failRefresh ? Effect.fail(new MissingChild({ id: 0 })) : Effect.succeed("ok")
+        loader: () => (failRefresh ? Effect.fail(new MissingChild({ id: 0 })) : Effect.succeed("ok"))
       })
       const router = Router.make({ routes: [tracked], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
@@ -304,19 +306,19 @@ describe("EngineRevision", () => {
       expect(Exit.isFailure(failed)).toBe(true)
       expect(registry.get(router.completed)).toEqual(refreshed)
       expect(registry.get(router.branch).result._tag).toBe("Failure")
-    }))
+    })
+  )
 
   it.effect("route atoms are cached per ID and skip notifications for unchanged selections", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const router = Router.make({ routes: [home, project], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
       yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(router.routeAtoms(home)).toBe(router.routeAtoms(home))
       const events = yield* Ref.make<number>(0)
-      const unsubscribe = registry.subscribe(
-        router.routeAtoms(project).params,
-        () => Effect.runSync(Ref.update(events, (count) => count + 1))
+      const unsubscribe = registry.subscribe(router.routeAtoms(project).params, () =>
+        Effect.runSync(Ref.update(events, (count) => count + 1))
       )
       yield* runRegistryEffect(
         registry,
@@ -339,10 +341,11 @@ describe("EngineRevision", () => {
       const incoming = registry.get(router.routeAtoms(project).incoming)
       expect(Option.isSome(incoming)).toBe(true)
       unsubscribe()
-    }))
+    })
+  )
 
   it.effect("concurrent executes interrupt the superseded transition and resolve the second", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const started = yield* Deferred.make<void>()
       const finalized = yield* Deferred.make<void>()
       const slow = Route.make({
@@ -351,7 +354,7 @@ describe("EngineRevision", () => {
         params: {},
         search: {},
         loader: () =>
-          Effect.gen(function*() {
+          Effect.gen(function* () {
             yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
             yield* Deferred.succeed(started, undefined)
             return yield* Effect.never
@@ -374,10 +377,11 @@ describe("EngineRevision", () => {
       const resolved = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })
       expect(resolved.id).toBe("home")
       expect(yield* Deferred.isDone(finalized)).toBe(true)
-    }))
+    })
+  )
 
   it.effect("aborting execute interrupts the exact transition and awaits its cleanup", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const started = yield* Deferred.make<void>()
       const finalized = yield* Deferred.make<void>()
       const slow = Route.make({
@@ -385,7 +389,7 @@ describe("EngineRevision", () => {
         path: "/slow",
         params: {},
         search: {},
-        lazy: Effect.fn("EngineRevision.loadSlowUntilAborted")(function*() {
+        lazy: Effect.fn("EngineRevision.loadSlowUntilAborted")(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never
@@ -421,10 +425,11 @@ describe("EngineRevision", () => {
         expect(Cause.hasInterruptsOnly(navigationResult.cause)).toBe(true)
       }
       expect(navigationResult.waiting).toBe(false)
-    }))
+    })
+  )
 
   it.effect("self-interruption is a terminal failure for the entry, branch, and navigation projection", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const selfInterrupting = Route.make({
         id: "interrupted",
         path: "/interrupted",
@@ -457,17 +462,18 @@ describe("EngineRevision", () => {
       expect(navigationResult.waiting).toBe(false)
       // The healthy runtime can retry by re-dispatching the current location.
       expect(registry.get(router.completed)._tag).toBe("Some")
-    }))
+    })
+  )
 
   it.effect("the navigation projection observes execute-driven operations", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let failNext = false
       const tracked = Route.make({
         id: "project",
         path: "/projects/:id",
         params: { id: Schema.FiniteFromString },
         search: {},
-        loader: () => failNext ? Effect.fail(new MissingChild({ id: 0 })) : Effect.succeed("ok")
+        loader: () => (failNext ? Effect.fail(new MissingChild({ id: 0 })) : Effect.succeed("ok"))
       })
       const router = Router.make({ routes: [home, tracked], layer: MemoryHistory.layer("/") })
       const registry = yield* makeRegistry()
@@ -498,10 +504,11 @@ describe("EngineRevision", () => {
       failNext = false
       yield* runRegistryEffect(registry, router.execute(Router.refresh))
       expect(registry.get(router.navigation)._tag).toBe("Success")
-    }))
+    })
+  )
 
   it.effect("a settling transition does not revive the projection over a newer rejection", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const started = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
       const slow = Route.make({
@@ -510,10 +517,7 @@ describe("EngineRevision", () => {
         params: {},
         search: {},
         loader: () =>
-          Deferred.succeed(started, undefined).pipe(
-            Effect.andThen(Deferred.await(release)),
-            Effect.as("slow-data")
-          )
+          Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release)), Effect.as("slow-data"))
       })
       const paramRoute = Route.make({
         id: "project",
@@ -556,10 +560,11 @@ describe("EngineRevision", () => {
           part: "path"
         })
       }
-    }))
+    })
+  )
 
   it.effect("a traversal acknowledged after its transition started keeps navigation waiting", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const destinationStarted = yield* Deferred.make<void>()
       const releaseDestination = yield* Deferred.make<void>()
       const traversals = yield* Ref.make<ReadonlyArray<number>>([])
@@ -584,7 +589,7 @@ describe("EngineRevision", () => {
         current: Effect.succeed(initial),
         push: (target) => Effect.succeed({ ...initial, ...target, key: "next", index: 1 }),
         replace: (target) => Effect.succeed({ ...initial, ...target, key: "next", index: 0 }),
-        go: Effect.fn("EngineRevision.traverseUntilLoaded")(function*(delta: number) {
+        go: Effect.fn("EngineRevision.traverseUntilLoaded")(function* (delta: number) {
           yield* Ref.update(traversals, (entries) => [...entries, delta])
           yield* Queue.offer(changes, destination)
           // The host only returns from `go` once the emitted change's loader
@@ -617,14 +622,13 @@ describe("EngineRevision", () => {
       // the suppressed acknowledgement never claims success.
       expect(registry.get(router.navigation).waiting).toBe(true)
       yield* Deferred.succeed(releaseDestination, undefined)
-      expect(
-        yield* AtomRegistry.getResult(registry, router.navigation, { suspendOnWaiting: true })
-      ).toBe(undefined)
+      expect(yield* AtomRegistry.getResult(registry, router.navigation, { suspendOnWaiting: true })).toBe(undefined)
       expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("slow")
-    }))
+    })
+  )
 
   it.effect("a late traversal failure cannot steal the projection from a newer transition", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const goStarted = yield* Deferred.make<void>()
       const failGo = yield* Deferred.make<never, History.HistoryError>()
       const loaderStarted = yield* Deferred.make<void>()
@@ -652,7 +656,7 @@ describe("EngineRevision", () => {
         current: Effect.succeed(initial),
         push: (target) => Effect.succeed({ ...initial, ...target, key: "pushed", index: 1 }),
         replace: (target) => Effect.succeed({ ...initial, ...target, key: "pushed", index: 0 }),
-        go: Effect.fn("EngineRevision.goFailsLate")(function*() {
+        go: Effect.fn("EngineRevision.goFailsLate")(function* () {
           yield* Deferred.succeed(goStarted, undefined)
           return yield* Deferred.await(failGo)
         }),
@@ -696,10 +700,11 @@ describe("EngineRevision", () => {
       expect(operation._tag).toBe("Success")
       expect(operation.waiting).toBe(false)
       expect((yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true })).id).toBe("slow")
-    }))
+    })
+  )
 
   it.effect("a defective traversal terminalizes the projection with the exact cause", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const defect = new Error("go defect")
       const initial: History.Location = {
         pathname: "/",
@@ -729,10 +734,11 @@ describe("EngineRevision", () => {
       expect(operation._tag).toBe("Failure")
       expect(operation.waiting).toBe(false)
       if (AsyncResult.isFailure(operation)) expect(Cause.squash(operation.cause)).toBe(defect)
-    }))
+    })
+  )
 
   it.effect("a self-interrupted traversal terminalizes the projection as interrupted", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const initial: History.Location = {
         pathname: "/",
         search: "",
@@ -759,10 +765,11 @@ describe("EngineRevision", () => {
       expect(operation._tag).toBe("Failure")
       expect(operation.waiting).toBe(false)
       if (AsyncResult.isFailure(operation)) expect(Cause.hasInterruptsOnly(operation.cause)).toBe(true)
-    }))
+    })
+  )
 
   it.effect("an external interrupt while go blocks finalizes after the traversal settles", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const goStarted = yield* Deferred.make<void>()
       const allowGo = yield* Deferred.make<void>()
       const finalized = yield* Deferred.make<void>()
@@ -778,7 +785,7 @@ describe("EngineRevision", () => {
         current: Effect.succeed(initial),
         push: () => Effect.succeed(initial),
         replace: () => Effect.succeed(initial),
-        go: Effect.fn("EngineRevision.goUntilReleased")(function*() {
+        go: Effect.fn("EngineRevision.goUntilReleased")(function* () {
           yield* Deferred.succeed(goStarted, undefined)
           yield* Deferred.await(allowGo)
         }),
@@ -791,10 +798,12 @@ describe("EngineRevision", () => {
       // An explicit caller scope proves finalization: its finalizer runs when
       // the interrupted caller unwinds, after the traversal has settled.
       const running = yield* Effect.forkScoped(
-        Effect.scoped(Effect.gen(function*() {
-          yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
-          yield* runRegistryEffect(registry, router.execute(Router.back))
-        }))
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
+            yield* runRegistryEffect(registry, router.execute(Router.back))
+          })
+        )
       )
       yield* Deferred.await(goStarted)
       // The interrupt is held while `go` blocks inside the uninterruptible
@@ -812,10 +821,11 @@ describe("EngineRevision", () => {
       const operation = registry.get(router.navigation)
       expect(operation._tag).toBe("Success")
       expect(operation.waiting).toBe(false)
-    }))
+    })
+  )
 
   it.effect("retry rebuilds a failed Layer, re-executes it, and resolves the initial navigation", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       class Greeter extends Context.Service<Greeter, { readonly greeting: string }>()("EngineRevision.Greeter") {}
       let builds = 0
       let loaderRuns = 0
@@ -832,7 +842,7 @@ describe("EngineRevision", () => {
           MemoryHistory.layer("/"),
           Layer.effect(
             Greeter,
-            Effect.gen(function*() {
+            Effect.gen(function* () {
               builds += 1
               if (builds === 1) return yield* new BuildFailed()
               return Greeter.of({ greeting: "hello" })
@@ -843,9 +853,7 @@ describe("EngineRevision", () => {
       const registry = yield* makeRegistry()
       yield* AtomRegistry.mount(registry, router.state)
       yield* AtomRegistry.mount(registry, router.branch)
-      const failed = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true }).pipe(
-        Effect.exit
-      )
+      const failed = yield* AtomRegistry.getResult(registry, router.state, { suspendOnWaiting: true }).pipe(Effect.exit)
       expect(Exit.isFailure(failed)).toBe(true)
       if (Exit.isFailure(failed)) {
         const error = Cause.findErrorOption(failed.cause)
@@ -859,10 +867,11 @@ describe("EngineRevision", () => {
       expect(loaderRuns).toBe(1)
       expect(resolved.loaderData).toBe("hello 1")
       expect(registry.get(router.branch).result._tag).toBe("Success")
-    }))
+    })
+  )
 
   it.effect("retry on a healthy runtime re-dispatches the current location", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let loads = 0
       const counted = Route.make({
         id: "home",
@@ -878,10 +887,11 @@ describe("EngineRevision", () => {
       expect(loads).toBe(1)
       yield* runRegistryEffect(registry, router.retry)
       expect(loads).toBe(2)
-    }))
+    })
+  )
 
   it.effect("Back, Forward, and Go are acceptance-only and resolve without their transitions", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const traversals = yield* Ref.make<ReadonlyArray<number>>([])
       const location: History.Location = {
         pathname: "/",
@@ -914,10 +924,11 @@ describe("EngineRevision", () => {
       const navigationResult = registry.get(router.navigation)
       expect(navigationResult._tag).toBe("Success")
       expect(AsyncResult.isSuccess(registry.get(router.state))).toBe(true)
-    }))
+    })
+  )
 
   it.effect("not-found transitions publish the location and keep completed snapshots untouched", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const root = RouteTree.root()
       const child = RouteTree.make({ getParentRoute: () => root, path: "known" })
       const tree = root.addChildren([child])
@@ -942,17 +953,18 @@ describe("EngineRevision", () => {
       expect(branch.lastSuccess._tag).toBe("None")
       expect(registry.get(router.completed)._tag).toBe("None")
       expect(branch.matches.every((entry) => !entry.result.waiting)).toBe(true)
-    }))
+    })
+  )
 
   it.effect("resolved projection keeps the original inputs and data through a failed refresh", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let fail = false
       const tracked = Route.make({
         id: "home",
         path: "/",
         params: {},
         search: { tab: Schema.optionalKey(Schema.String) },
-        loader: ({ search }) => fail ? Effect.fail(new MissingChild({ id: 0 })) : Effect.succeed(`tab:${search.tab}`)
+        loader: ({ search }) => (fail ? Effect.fail(new MissingChild({ id: 0 })) : Effect.succeed(`tab:${search.tab}`))
       })
       const router = Router.make({ routes: [tracked], layer: MemoryHistory.layer("/?tab=one") })
       const registry = yield* makeRegistry()
@@ -968,18 +980,18 @@ describe("EngineRevision", () => {
       // the original successful snapshot.
       const incoming = registry.get(atoms.incoming)
       expect(
-        Option.flatMap(
-          incoming,
-          (value) => (Result.isSuccess(value) ? Option.some(value.success.search.tab) : Option.none())
+        Option.flatMap(incoming, (value) =>
+          Result.isSuccess(value) ? Option.some(value.success.search.tab) : Option.none()
         )
       ).toEqual(Option.some("one"))
       expect(registry.get(atoms.resolved)).toEqual(original)
       const entry = registry.get(atoms.state)
       expect(Option.map(entry, (value) => value.result._tag)).toEqual(Option.some("Failure"))
-    }))
+    })
+  )
 
   it.live("execute alone keeps a long loader alive without any mounted atoms", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const started = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
       const slow = Route.make({
@@ -988,10 +1000,7 @@ describe("EngineRevision", () => {
         params: {},
         search: {},
         loader: () =>
-          Deferred.succeed(started, undefined).pipe(
-            Effect.andThen(Deferred.await(release)),
-            Effect.as("slow-data")
-          )
+          Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release)), Effect.as("slow-data"))
       })
       const router = Router.make({ routes: [home, slow], layer: MemoryHistory.layer("/") })
       const registry = AtomRegistry.make()
@@ -1006,5 +1015,6 @@ describe("EngineRevision", () => {
       yield* Deferred.succeed(release, undefined)
       yield* Fiber.join(running)
       expect(yield* Deferred.isDone(release)).toBe(true)
-    }))
+    })
+  )
 })

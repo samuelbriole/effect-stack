@@ -51,7 +51,7 @@ describe("Solid router", { concurrent: false }, () => {
       getParentRoute: () => root,
       path: "child",
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           visits++
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
@@ -63,9 +63,7 @@ describe("Solid router", { concurrent: false }, () => {
     await Effect.runPromise(Deferred.await(started))
     expect(container.textContent).toBe("Loading…")
     Effect.runSync(Deferred.succeed(ready, undefined))
-    await Effect.runPromise(
-      AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-    )
+    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     expect(container.textContent).toBe("Arrived")
     expect(visits).toBe(1)
     expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.index).toBe(1)
@@ -76,17 +74,15 @@ describe("Solid router", { concurrent: false }, () => {
     const root = createRootRoute({ component: () => <Navigate to="/" replace state={state} /> })
     const router = createRouter({ routeTree: root, history: MemoryHistory.layer() })
     const { registry } = mount(router)
-    await Effect.runPromise(
-      AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-    )
+    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     const match = await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
     expect(match.location.state).toEqual(state)
     expect(match.location.index).toBe(0)
   })
   it("preserves layouts and reacts to params, search, data, and link input changes", async () => {
-    class Projects
-      extends Context.Service<Projects, { readonly get: (id: number) => Effect.Effect<string> }>()("test/Projects")
-    {}
+    class Projects extends Context.Service<Projects, { readonly get: (id: number) => Effect.Effect<string> }>()(
+      "test/Projects"
+    ) {}
     const root = createRootRoute({ component: Layout })
     const project = createRoute({
       getParentRoute: () => root,
@@ -100,7 +96,9 @@ describe("Solid router", { concurrent: false }, () => {
       const [count, setCount] = createSignal(0)
       return (
         <>
-          <button id="root-count" onClick={() => setCount(count() + 1)}>Root {count()}</button>
+          <button id="root-count" onClick={() => setCount(count() + 1)}>
+            Root {count()}
+          </button>
           <Outlet />
         </>
       )
@@ -112,9 +110,15 @@ describe("Solid router", { concurrent: false }, () => {
       const [count, setCount] = createSignal(0)
       return (
         <>
-          <button id="project-count" onClick={() => setCount(count() + 1)}>Local {count()}</button>
-          <p>{data()}:{search().tab}</p>
-          <Link to="/projects/:id" params={{ id: params().id + 1 }} search={{ tab: "activity" }}>Next</Link>
+          <button id="project-count" onClick={() => setCount(count() + 1)}>
+            Local {count()}
+          </button>
+          <p>
+            {data()}:{search().tab}
+          </p>
+          <Link to="/projects/:id" params={{ id: params().id + 1 }} search={{ tab: "activity" }}>
+            Next
+          </Link>
         </>
       )
     }
@@ -130,9 +134,7 @@ describe("Solid router", { concurrent: false }, () => {
     expect(container.textContent).toContain("Project 1:overview")
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/projects/2?tab=activity")
     container.querySelector("a")!.click()
-    await Effect.runPromise(
-      AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-    )
+    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     expect(container.textContent).toContain("Project 2:activity")
     expect(container.textContent).toContain("Root 1Local 1")
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/projects/3?tab=activity")
@@ -146,17 +148,28 @@ describe("Solid router", { concurrent: false }, () => {
     const root = createRootRoute({
       component: () => (
         <>
-          <Link to="/" exact id="home">Home</Link>
-          <Link to="/child" id="normal">Child</Link>
-          <Link to="/child" target="_blank" id="blank">Blank</Link>
-          <Link to="/child" download="file" id="download">Download</Link>
+          <Link to="/" exact id="home">
+            Home
+          </Link>
+          <Link to="/child" id="normal">
+            Child
+          </Link>
+          <Link to="/child" target="_blank" id="blank">
+            Blank
+          </Link>
+          <Link to="/child" download="file" id="download">
+            Download
+          </Link>
           <Link
             to="/child"
             id="prevented"
-            onClick={[(value, event) => {
-              expect(value).toBe("tuple")
-              event.preventDefault()
-            }, "tuple"]}
+            onClick={[
+              (value, event) => {
+                expect(value).toBe("tuple")
+                event.preventDefault()
+              },
+              "tuple"
+            ]}
           >
             Prevented
           </Link>
@@ -173,10 +186,14 @@ describe("Solid router", { concurrent: false }, () => {
       const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init })
       let prevented = false
       // Observe the adapter's decision, then suppress happy-dom's actual network navigation.
-      document.addEventListener("click", () => {
-        prevented = event.defaultPrevented
-        event.preventDefault()
-      }, { once: true })
+      document.addEventListener(
+        "click",
+        () => {
+          prevented = event.defaultPrevented
+          event.preventDefault()
+        },
+        { once: true }
+      )
       container.querySelector(`#${id}`)!.dispatchEvent(event)
       return prevented
     }
@@ -188,9 +205,7 @@ describe("Solid router", { concurrent: false }, () => {
     expect(click("prevented")).toBe(true)
     expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).id).toBe(home.id)
     expect(click("normal")).toBe(true)
-    await Effect.runPromise(
-      AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-    )
+    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     expect(container.querySelector("#normal")!.getAttribute("data-active")).toBe("true")
     expect(container.querySelector("#home")!.hasAttribute("aria-current")).toBe(false)
   })
@@ -217,7 +232,7 @@ describe("Solid router", { concurrent: false }, () => {
       path: "lazy",
       pendingComponent: () => <p>Pending view</p>,
       lazy: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined)
           yield* Deferred.await(ready)
           return { default: () => <p>Lazy view</p> }
@@ -253,7 +268,7 @@ describe("Solid router", { concurrent: false }, () => {
     const child = createRoute({
       getParentRoute: () => root,
       path: "child",
-      loader: () => loadFails ? Effect.fail("missing") : Effect.succeed("Loaded"),
+      loader: () => (loadFails ? Effect.fail("missing") : Effect.succeed("Loaded")),
       component: () => {
         const data = child.useLoaderData()
         if (renderFails) throw new Error("render failed")
@@ -269,15 +284,11 @@ describe("Solid router", { concurrent: false }, () => {
     expect(container.textContent).toBe("ShellRetry")
     loadFails = false
     container.querySelector("button")!.click()
-    await Effect.runPromise(
-      AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-    )
+    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     expect(container.textContent).toBe("ShellRetry")
     renderFails = false
     container.querySelector("button")!.click()
-    await Effect.runPromise(
-      AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-    )
+    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     expect(container.textContent).toBe("ShellLoaded")
   })
 
@@ -286,7 +297,7 @@ describe("Solid router", { concurrent: false }, () => {
     const finalized = Effect.runSync(Deferred.make<void>())
     const root = createRootRoute({
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never
@@ -325,9 +336,7 @@ describe("Solid router", { concurrent: false }, () => {
     })
     const router = createRouter({ routeTree: root.addChildren([home, child]), history: MemoryHistory.layer() })
     const { container, registry } = mount(router)
-    await Effect.runPromise(
-      AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true })
-    )
+    await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
     expect(container.textContent).toBe("Arrived")
     expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).id).toBe(child.id)
     expect(visits).toBe(1)

@@ -22,7 +22,7 @@ describe("Vue runtime ownership", { concurrent: false }, () => {
       path: "lazy",
       pendingComponent: () => h("p", "Pending"),
       lazy: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(stopped, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.promise(() => module)
@@ -62,7 +62,7 @@ describe("Vue runtime ownership", { concurrent: false }, () => {
     const finalized = Effect.runSync(Deferred.make<void>())
     const root = createRootRoute({
       loader: () =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
           yield* Deferred.succeed(started, undefined)
           return yield* Effect.never
@@ -85,10 +85,13 @@ describe("Vue runtime ownership", { concurrent: false }, () => {
     let released = 0
     const layer = Layer.effect(
       Service,
-      Effect.acquireRelease(Effect.sync(() => Service.of({ instance: ++acquired })), () =>
-        Effect.sync(() => {
-          released++
-        }))
+      Effect.acquireRelease(
+        Effect.sync(() => Service.of({ instance: ++acquired })),
+        () =>
+          Effect.sync(() => {
+            released++
+          })
+      )
     )
     const root = createRootRoute({
       loader: () => Service.use((service) => Effect.succeed(service.instance)),
@@ -110,9 +113,9 @@ describe("Vue runtime ownership", { concurrent: false }, () => {
       render(h(provider, { router, registry }), container)
       await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
       expect(
-        registry.get(router.core.branch).matches.map((entry) =>
-          entry.result._tag === "Success" ? entry.result.value.loaderData : undefined
-        )
+        registry
+          .get(router.core.branch)
+          .matches.map((entry) => (entry.result._tag === "Success" ? entry.result.value.loaderData : undefined))
       ).toEqual([1, 1])
       await Effect.runPromise(
         router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))

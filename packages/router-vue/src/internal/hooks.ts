@@ -52,26 +52,28 @@ function useRouteValue<R extends Route.Any, K extends keyof RouteValues<R>, A = 
   // Decorated route nodes carry the compiled tree's identity fields; the erased
   // runtime router types routes structurally.
   const atoms = core.routeAtoms(route as unknown as RouteTree.Any)
-  const equals = options?.equals
-    ?? (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
+  const equals =
+    options?.equals ?? (select === undefined && (key === "params" || key === "search") ? Equal.equals : Object.is)
   const selected = Atom.make((get: Atom.AtomContext) => {
     const resolved = get(atoms.resolved)
     const incoming = mode === "incoming" && (key === "params" || key === "search") ? get(atoms.incoming) : Option.none()
     // A failed incoming decode means no decoded input exists; falling back to retained
     // data would pair fresh views with stale params. Ordinary views keep resolved snapshots.
     const snapshot = Option.isSome(incoming)
-      ? Result.isSuccess(incoming.value) ? incoming.value.success : undefined
+      ? Result.isSuccess(incoming.value)
+        ? incoming.value.success
+        : undefined
       : Option.isSome(resolved)
-      ? resolved.value
-      : undefined
+        ? resolved.value
+        : undefined
     if (snapshot === undefined) return Option.none<A>()
     const value = (key === "match" ? snapshot : (snapshot as unknown as RouteValues<R>)[key]) as RouteValues<R>[K]
     return Option.some(select === undefined ? (value as A) : select(value))
-  }).pipe(Atom.withEquality((left: Option.Option<A>, right: Option.Option<A>) =>
-    Option.isSome(left)
-      ? Option.isSome(right) && equals(left.value, right.value)
-      : Option.isNone(right)
-  ))
+  }).pipe(
+    Atom.withEquality((left: Option.Option<A>, right: Option.Option<A>) =>
+      Option.isSome(left) ? Option.isSome(right) && equals(left.value, right.value) : Option.isNone(right)
+    )
+  )
   const value = useAtomValue(() => selected)
   let retained: A | undefined
   let settled = false
@@ -89,8 +91,7 @@ function useRouteValue<R extends Route.Any, K extends keyof RouteValues<R>, A = 
   })
 }
 
-export const routeHook = <R extends Route.Any, K extends keyof RouteValues<R>>(route: R, key: K) =>
-(
-  select?: (value: RouteValues<R>[K]) => unknown,
-  options?: SelectorOptions<unknown>
-): ComputedRef<unknown> => useRouteValue(route, key, select, options)
+export const routeHook =
+  <R extends Route.Any, K extends keyof RouteValues<R>>(route: R, key: K) =>
+  (select?: (value: RouteValues<R>[K]) => unknown, options?: SelectorOptions<unknown>): ComputedRef<unknown> =>
+    useRouteValue(route, key, select, options)

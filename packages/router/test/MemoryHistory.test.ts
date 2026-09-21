@@ -8,7 +8,7 @@ import * as Stream from "effect/Stream"
 
 describe("MemoryHistory", () => {
   it.effect("supports push, replace, and traversal", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const history = yield* MemoryHistory.make("/first")
       yield* history.push({ pathname: "/second", search: "?page=2", hash: "", state: { source: "push" } })
       yield* history.replace({ pathname: "/replacement", search: "", hash: "#details" })
@@ -27,10 +27,11 @@ describe("MemoryHistory", () => {
       expect(entries).toHaveLength(2)
       expect(entries[1].pathname).toBe("/replacement")
       expect(entries[1].hash).toBe("#details")
-    }))
+    })
+  )
 
   it.effect("truncates forward entries after a new push", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const history = yield* MemoryHistory.make("/one")
       yield* history.push({ pathname: "/two", search: "", hash: "" })
       yield* history.push({ pathname: "/three", search: "", hash: "" })
@@ -39,10 +40,11 @@ describe("MemoryHistory", () => {
 
       const entries = yield* history.entries
       expect(entries.map((entry) => entry.pathname)).toEqual(["/one", "/two", "/replacement"])
-    }))
+    })
+  )
 
   it.effect("emits bounded traversal changes in exact order without push duplicates", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const history = yield* MemoryHistory.make("/one")
       const changes = yield* Ref.make<ReadonlyArray<string>>([])
       const listener = yield* history.changes.pipe(
@@ -63,17 +65,19 @@ describe("MemoryHistory", () => {
 
       expect(yield* Ref.get(changes)).toEqual(["/one", "/two", "/three"])
       expect((yield* history.current).state).toEqual({ step: 3 })
-    }))
+    })
+  )
 
   it.effect("closes its change stream with its Scope", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const history = yield* Effect.scoped(MemoryHistory.make("/closed"))
       const change = yield* Stream.runHead(history.changes)
       expect(Option.isNone(change)).toBe(true)
-    }))
+    })
+  )
 
   it.effect("ignores non-finite traversal deltas", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const history = yield* MemoryHistory.make("/one")
       yield* history.push({ pathname: "/two", search: "", hash: "" })
 
@@ -81,5 +85,6 @@ describe("MemoryHistory", () => {
       expect((yield* history.current).pathname).toBe("/two")
       yield* history.go(Number.POSITIVE_INFINITY)
       expect((yield* history.current).pathname).toBe("/two")
-    }))
+    })
+  )
 })

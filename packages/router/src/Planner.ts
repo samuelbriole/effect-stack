@@ -22,9 +22,10 @@ export interface DestinationInput {
 
 /** A planned branch, before asynchronous loading. @since 0.3.0 */
 export interface Plan<T extends Route.Any = Route.Any> {
-  readonly entries: ReadonlyArray<
-    { readonly route: T; readonly match: Result.Result<Route.Match<T>, Route.RouteDecodeError> }
-  >
+  readonly entries: ReadonlyArray<{
+    readonly route: T
+    readonly match: Result.Result<Route.Match<T>, Route.RouteDecodeError>
+  }>
   readonly notFound: boolean
 }
 
@@ -50,7 +51,7 @@ interface Index<T extends Route.Any = Route.Any> {
 }
 
 /** Path segments of a route pattern; `/` has none. @since 0.3.0 */
-const segmentsOf = (path: string): ReadonlyArray<string> => path === "/" ? [] : path.slice(1).split("/")
+const segmentsOf = (path: string): ReadonlyArray<string> => (path === "/" ? [] : path.slice(1).split("/"))
 
 // Flat routes are plain `Route.Any` values without a tree role, so they plan as
 // ordinary exact-match endpoints with no ancestors; tree nodes carry metadata.
@@ -60,9 +61,9 @@ const segmentsOf = (path: string): ReadonlyArray<string> => path === "/" ? [] : 
 const shapeOf = <T extends Route.Any>(route: T): TreeFields =>
   "kind" in route && typeof (route as { readonly kind?: unknown }).kind === "string"
     ? {
-      ...(route as unknown as { readonly kind: Kind; readonly parentId: string | undefined }),
-      depth: route.id.split("/").length
-    }
+        ...(route as unknown as { readonly kind: Kind; readonly parentId: string | undefined }),
+        depth: route.id.split("/").length
+      }
     : { kind: "route", parentId: undefined, depth: 0 }
 
 const buildIndex = <T extends Route.Any>(routes: ReadonlyArray<T>): Index<T> => {
@@ -150,13 +151,14 @@ export const planFor = <T extends Route.Any>(index: Index<T>, location: Route.Ur
           Option.isSome(value)
             ? Result.succeed(value.value)
             : Result.fail(
-              new Route.RouteDecodeError({
-                routeId: route.id,
-                part: "path",
-                input: location.pathname,
-                message: "Invalid route prefix"
-              })
-            ))
+                new Route.RouteDecodeError({
+                  routeId: route.id,
+                  part: "path",
+                  input: location.pathname,
+                  message: "Invalid route prefix"
+                })
+              )
+        )
       }
     })
   }

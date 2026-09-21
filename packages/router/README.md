@@ -72,9 +72,12 @@ Definitions are immutable: use `addChildren` to create a new tree rather than mu
 import { MemoryHistory, Route, Router } from "@effect-stack/router"
 import { Context, Effect, Layer, Schema } from "effect"
 
-class Projects extends Context.Service<Projects, {
-  readonly get: (id: number) => Effect.Effect<{ readonly id: number; readonly title: string }>
-}>()("Projects") {}
+class Projects extends Context.Service<
+  Projects,
+  {
+    readonly get: (id: number) => Effect.Effect<{ readonly id: number; readonly title: string }>
+  }
+>()("Projects") {}
 
 const project = Route.make({
   id: "project",
