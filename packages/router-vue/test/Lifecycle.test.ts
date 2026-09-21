@@ -6,7 +6,7 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import { describe, expect, it } from "vitest"
 import { h, nextTick, render, type VNode } from "vue"
 
-describe.sequential("Vue runtime ownership", () => {
+describe("Vue runtime ownership", { concurrent: false }, () => {
   it("interrupts nested lazy work on navigation and ignores late modules", async () => {
     const started = Effect.runSync(Deferred.make<void>())
     const stopped = Effect.runSync(Deferred.make<void>())

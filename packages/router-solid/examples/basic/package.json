@@ -9,12 +9,12 @@
   "dependencies": {
     "@effect-stack/router": "workspace:*",
     "@effect-stack/router-solid": "workspace:*",
-    "@effect/atom-solid": "4.0.0-rc.112",
-    "effect": "4.0.0-rc.112",
+    "@effect/atom-solid": "4.0.0-rc.116",
+    "effect": "4.0.0-rc.116",
     "solid-js": "1.9.15"
   },
   "devDependencies": {
-    "vite": "8.2.2",
+    "vite": "8.3.0",
     "vite-plugin-solid": "2.11.14"
   }
 }

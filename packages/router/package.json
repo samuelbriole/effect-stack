@@ -57,9 +57,9 @@
     "pack:check": "pnpm --workspace-root pack:check"
   },
   "peerDependencies": {
-    "effect": "^4.0.0-rc.112"
+    "effect": "^4.0.0-rc.116"
   },
   "devDependencies": {
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.116"
   }
 }

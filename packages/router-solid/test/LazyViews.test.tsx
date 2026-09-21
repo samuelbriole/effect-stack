@@ -39,7 +39,7 @@ const settle = async <T extends RouteTree.Any, E>(router: ClientRouter<T, E>, re
 // Untyped dynamic-import shape: the runtime receives a number where a component view is required.
 const invalidModule = { default: 42 } as unknown as { readonly default: Component }
 
-describe.sequential("Solid lazy view validation", () => {
+describe("Solid lazy view validation", { concurrent: false }, () => {
   it("throws an actionable route-scoped error caught by the nearest errorComponent", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     try {

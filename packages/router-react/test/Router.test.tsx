@@ -21,7 +21,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
 })
 
-describe.sequential("React router", () => {
+describe("React router", { concurrent: false }, () => {
   it("does not repeat redirects when a root pending fallback remounts the layout", async () => {
     const started = Effect.runSync(Deferred.make<void>())
     const ready = Effect.runSync(Deferred.make<void>())

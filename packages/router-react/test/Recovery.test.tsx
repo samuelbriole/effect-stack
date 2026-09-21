@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-describe.sequential("React route recovery", () => {
+describe("React route recovery", { concurrent: false }, () => {
   it("recovers from a render error through reset and subsequent navigation", async () => {
     let broken = true
     const rootRoute = createRootRoute({

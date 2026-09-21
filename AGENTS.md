@@ -20,4 +20,4 @@ EffectStack contains independently adoptable, Effect-native libraries under `@ef
 
 - Add or update runtime tests for changed behavior and TSTyche tests for changed public inference.
 - Add a Changeset for release-worthy changes to published packages; documentation-only edits need no version bump.
-- Run `corepack pnpm@11.20.0 run ci` and leave the package artifact checks passing.
+- Run `corepack pnpm@12.5.1 run ci` and leave the package artifact checks passing.

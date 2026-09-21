@@ -43,7 +43,7 @@ const mount = async <T extends RouteTree.Any, E>(router: ClientRouter<T, E>) => 
 // Untyped dynamic-import shape: the runtime receives a number where a component view is required.
 const invalidModule = { default: 42 } as unknown as { readonly default: React.ComponentType }
 
-describe.sequential("React lazy view validation", () => {
+describe("React lazy view validation", { concurrent: false }, () => {
   it("accepts forwardRef module views and rejects a present null view", async () => {
     const Forward = React.forwardRef<HTMLParagraphElement>((_, ref) => <p ref={ref}>Forward view</p>)
     const valid = createRootRoute({ lazy: () => Effect.succeed({ default: Forward }) })

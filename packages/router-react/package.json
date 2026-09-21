@@ -10,27 +10,44 @@
     "url": "https://github.com/samuelbriole/effect-stack.git",
     "directory": "packages/router-react"
   },
-  "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
+  "bugs": {
+    "url": "https://github.com/samuelbriole/effect-stack/issues"
+  },
   "sideEffects": false,
-  "exports": { ".": "./src/index.tsx", "./package.json": "./package.json" },
-  "files": ["src/**/*.ts", "src/**/*.tsx", "dist/**", "README.md", "LICENSE"],
+  "exports": {
+    ".": "./src/index.tsx",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "dist/**",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true,
-    "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
+    "exports": {
+      ".": "./dist/index.js",
+      "./package.json": "./package.json"
+    }
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.2.0",
-    "@effect/atom-react": "^4.0.0-rc.112",
-    "effect": "^4.0.0-rc.112",
-    "react": "^19.0.0"
+    "@effect/atom-react": "^4.0.0-rc.116",
+    "effect": "^4.0.0-rc.116",
+    "react": "^19.3.0"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-react": "4.0.0-rc.112",
-    "effect": "4.0.0-rc.112",
-    "react": "19.2.8",
-    "@types/react": "19.2.18"
+    "@effect/atom-react": "4.0.0-rc.116",
+    "@types/react": "19.3.0",
+    "effect": "4.0.0-rc.116",
+    "react": "19.3.0"
   },
-  "scripts": { "build": "tsc -b tsconfig.json", "check": "tsc -b tsconfig.json" }
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "check": "tsc -b tsconfig.json"
+  }
 }

@@ -39,7 +39,7 @@ const mount = <T extends RouteTree.Any, E>(router: ClientRouter<T, E>) => {
 // any fire-and-forget transition started from an effect before the next read.
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
-describe.sequential("Solid review regressions", () => {
+describe("Solid review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views", async () => {
     const started = Effect.runSync(Deferred.make<void>())
     const ready = Effect.runSync(Deferred.make<void>())

@@ -70,7 +70,7 @@ const sharedUrlTree = () => {
   }
 }
 
-describe.sequential("Shared-URL destinations", () => {
+describe("Shared-URL destinations", { concurrent: false }, () => {
   it("resolves a non-root index through pathless layouts and still rejects competing indexes", async () => {
     const rootRoute = createRootRoute()
     const dashboard = createRoute({ getParentRoute: () => rootRoute, path: "dashboard" })

@@ -28,7 +28,7 @@ const trackEventListeners = () => {
   }
 }
 
-describe.sequential("BrowserHistory", () => {
+describe("BrowserHistory", { concurrent: false }, () => {
   it.effect("reads, pushes, and replaces browser locations", () =>
     Effect.gen(function*() {
       window.history.replaceState(null, "", "/initial")

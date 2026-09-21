@@ -19,7 +19,7 @@ import { describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-describe.sequential("React review regressions", () => {
+describe("React review regressions", { concurrent: false }, () => {
   it("exposes incoming params and retained data together in a failed-refresh view", async () => {
     const rootRoute = createRootRoute({ component: Outlet })
     const project = createRoute({

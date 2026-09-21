@@ -50,7 +50,7 @@ const run = async (self: Effect.Effect<unknown, unknown, never>) => {
   await nextTick()
 }
 
-describe.sequential("Vue router", () => {
+describe("Vue router", { concurrent: false }, () => {
   it("preserves layouts while params, search, loader data, and link hrefs react", async () => {
     class Projects
       extends Context.Service<Projects, { readonly get: (id: number) => Effect.Effect<string> }>()("test/Projects")

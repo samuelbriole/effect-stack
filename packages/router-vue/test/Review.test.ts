@@ -51,7 +51,7 @@ const readState = async <T extends RouteTree.Any, E>(
   registry: AtomRegistry.AtomRegistry
 ) => await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
 
-describe.sequential("Vue review regressions", () => {
+describe("Vue review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views before the loader settles", async () => {
     const ready = Effect.runSync(Deferred.make<void>())
     let decoded: number | undefined

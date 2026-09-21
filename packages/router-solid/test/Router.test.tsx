@@ -33,7 +33,7 @@ const mount = <T extends RouteTree.Any, E>(router: ClientRouter<T, E>) => {
   return { container, registry, dispose }
 }
 
-describe.sequential("Solid router", () => {
+describe("Solid router", { concurrent: false }, () => {
   it("does not repeat redirects when a root pending fallback remounts the layout", async () => {
     const started = Effect.runSync(Deferred.make<void>())
     const ready = Effect.runSync(Deferred.make<void>())

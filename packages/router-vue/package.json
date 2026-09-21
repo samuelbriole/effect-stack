@@ -10,26 +10,42 @@
     "url": "https://github.com/samuelbriole/effect-stack.git",
     "directory": "packages/router-vue"
   },
-  "bugs": { "url": "https://github.com/samuelbriole/effect-stack/issues" },
+  "bugs": {
+    "url": "https://github.com/samuelbriole/effect-stack/issues"
+  },
   "sideEffects": false,
-  "exports": { ".": "./src/index.ts", "./package.json": "./package.json" },
-  "files": ["src/**/*.ts", "dist/**", "README.md", "LICENSE"],
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true,
-    "exports": { ".": "./dist/index.js", "./package.json": "./package.json" }
+    "exports": {
+      ".": "./dist/index.js",
+      "./package.json": "./package.json"
+    }
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.2.0",
-    "@effect/atom-vue": "^4.0.0-rc.112",
-    "effect": "^4.0.0-rc.112",
-    "vue": "^3.5.42"
+    "@effect/atom-vue": "^4.0.0-rc.116",
+    "effect": "^4.0.0-rc.116",
+    "vue": "^3.5.43"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-vue": "4.0.0-rc.112",
-    "effect": "4.0.0-rc.112",
-    "vue": "3.5.42"
+    "@effect/atom-vue": "4.0.0-rc.116",
+    "effect": "4.0.0-rc.116",
+    "vue": "3.5.43"
   },
-  "scripts": { "build": "tsc -b tsconfig.json", "check": "tsc -b tsconfig.json" }
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "check": "tsc -b tsconfig.json"
+  }
 }
