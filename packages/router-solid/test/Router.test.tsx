@@ -15,6 +15,7 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import { createSignal } from "solid-js"
 import { render } from "solid-js/web"
 import { afterEach, describe, expect, it } from "vitest"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -31,12 +32,6 @@ const mount = <T extends RouteTree.Any, E>(router: ClientRouter<T, E>) => {
     container.remove()
   })
   return { container, registry, dispose }
-}
-
-const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
-  const element = container.querySelector<T>(selector)
-  if (element === null) throw new Error(`Missing element: ${selector}`)
-  return element
 }
 
 describe("Solid router", { concurrent: false }, () => {

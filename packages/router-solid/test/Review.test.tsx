@@ -18,6 +18,7 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import { type Component, createMemo, createSignal } from "solid-js"
 import { render } from "solid-js/web"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -38,12 +39,6 @@ const mount = <T extends RouteTree.Any, E>(router: ClientRouter<T, E>) => {
 // Solid flushes queued user effects on a microtask; a timer settles them and
 // any fire-and-forget transition started from an effect before the next read.
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
-
-const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
-  const element = container.querySelector<T>(selector)
-  if (element === null) throw new Error(`Missing element: ${selector}`)
-  return element
-}
 
 describe("Solid review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views", async () => {

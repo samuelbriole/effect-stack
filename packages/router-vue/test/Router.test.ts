@@ -15,6 +15,7 @@ import { Context, Deferred, Effect, Layer, Schema } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
 import { afterEach, describe, expect, it } from "vitest"
 import { defineComponent, h, nextTick, ref, render, type VNode } from "vue"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -48,12 +49,6 @@ const settle = async <T extends RouteTree.Any, E>(
 const run = async (self: Effect.Effect<unknown, unknown, never>) => {
   await Effect.runPromise(self.pipe(Effect.exit))
   await nextTick()
-}
-
-const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
-  const element = container.querySelector<T>(selector)
-  if (element === null) throw new Error(`Missing element: ${selector}`)
-  return element
 }
 
 describe("Vue router", { concurrent: false }, () => {

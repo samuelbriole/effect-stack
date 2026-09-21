@@ -17,6 +17,7 @@ import { Cause, Context, Deferred, Effect, Layer, Schema } from "effect"
 import { AtomRegistry } from "effect/unstable/reactivity"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type Component, defineComponent, h, nextTick, ref, render, type VNode } from "vue"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -49,12 +50,6 @@ const settle = async <T extends RouteTree.Any, E>(
 }
 const readState = async <T extends RouteTree.Any, E>(router: ClientRouter<T, E>, registry: AtomRegistry.AtomRegistry) =>
   await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
-
-const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
-  const element = container.querySelector<T>(selector)
-  if (element === null) throw new Error(`Missing element: ${selector}`)
-  return element
-}
 
 describe("Vue review regressions", { concurrent: false }, () => {
   it("makes decoded params available in pending views before the loader settles", async () => {

@@ -6,14 +6,9 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
 import { describe, expect, it, vi } from "vitest"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-
-const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
-  const element = container.querySelector<T>(selector)
-  if (element === null) throw new Error(`Missing element: ${selector}`)
-  return element
-}
 
 describe("React route recovery", { concurrent: false }, () => {
   it("recovers from a render error through reset and subsequent navigation", async () => {

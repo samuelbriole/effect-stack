@@ -14,18 +14,13 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { requireElement } from "../../../test-utils/dom.ts"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
 })
-
-const requireElement = <T extends Element = HTMLElement>(container: ParentNode, selector: string): T => {
-  const element = container.querySelector<T>(selector)
-  if (element === null) throw new Error(`Missing element: ${selector}`)
-  return element
-}
 
 describe("React router", { concurrent: false }, () => {
   it("does not repeat redirects when a root pending fallback remounts the layout", async () => {

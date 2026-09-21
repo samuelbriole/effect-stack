@@ -1,9 +1,9 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["test/**/*.ts", "test/**/*.tsx", "typetest/**/*.ts", "typetest/**/*.tsx"],
+  "include": ["test/**/*.ts", "test/**/*.tsx", "typetest/**/*.ts", "typetest/**/*.tsx", "../../test-utils/**/*.ts"],
   "references": [{ "path": "../router" }, { "path": "tsconfig.json" }],
   "compilerOptions": {
-    "rootDir": ".",
+    "rootDir": "../..",
     "noEmit": true,
     "erasableSyntaxOnly": false,
     "types": ["node", "vitest/globals"]
