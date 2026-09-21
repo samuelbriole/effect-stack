@@ -28,5 +28,5 @@ Use the [adoption guide](docs/adoption.md) to choose a headless or renderer inte
 
 For remote state, use Effect Atom, Effect's alternative to TanStack Query.
 
-[Navigation contracts](docs/router-navigation.md) · [Migration](docs/router-migration.md) ·
+[Navigation contracts](docs/router-navigation.md) ·
 [Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md)

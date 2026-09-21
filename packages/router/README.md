@@ -96,4 +96,4 @@ const router = Router.make({
 The router Layer must supply all code/data loader services. Loader scopes close before results are published;
 long-lived resources and remote caching belong to application services or Effect Atom.
 
-[Migration from 0.2](../../docs/router-migration.md) · [Architecture](../../docs/architecture.md)
+[Architecture](../../docs/architecture.md)

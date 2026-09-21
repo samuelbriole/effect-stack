@@ -18,5 +18,4 @@ Simplify Router's public API and fix navigation result values. Breaking changes:
 - Use `RouteTree.compile(tree).plan` and `.target` instead of standalone `RouteTree.plan` and `.target`.
   Compiled values expose only `routes`, `plan`, and `target`; use `routes.find` for ID lookup. `flatten` remains available.
 
-See the [migration guide](https://github.com/samuelbriole/effect-stack/blob/main/docs/router-migration.md) for replacements
-and behavior changes. Invocation-specific cleanup, history-acceptance completion, and initialization retry are preserved.
+Invocation-specific cleanup, history-acceptance completion, and initialization retry are preserved.

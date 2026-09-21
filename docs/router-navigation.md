@@ -1,7 +1,7 @@
 # Navigation contracts
 
 Shared behavior for the headless Router and its React, Solid, and Vue adapters.
-See [adoption](adoption.md) for setup and [migration](router-migration.md) for breaking changes.
+See [adoption](adoption.md) for setup.
 
 ## Commands and completion
 

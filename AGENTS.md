@@ -13,7 +13,7 @@ EffectStack contains independently adoptable, Effect-native libraries under `@ef
 ## Documentation
 
 - Keep package READMEs focused on setup and package-specific APIs. Link to shared contracts instead of repeating them.
-- Update examples and migration guidance with API changes. Keep agent instructions actionable; put review logs and
+- Update examples and API documentation with API changes. Keep agent instructions actionable; put review logs and
   validation results in PRs. Preserve released changelogs; write concise, consumer-facing Changesets.
 
 ## Completion
