@@ -1,84 +1,43 @@
 # Architecture
 
-EffectStack is a set of headless modules with explicit ownership. Applications may adopt each module independently.
+EffectStack packages are independently adoptable. Each domain has one owner:
 
-## Ownership boundaries
-
-- **Router** is authoritative for URL interpretation, route matching, navigation history, navigation commands, and
-  navigation lifecycle state.
-- **Effect Atom** provides remote-resource state and mutations as an existing Effect-native alternative to TanStack Query.
-- Future **Form** is authoritative for editing, validation, and submission state.
-- Future **DB** is authoritative for normalized entities, indexes, transactions, and live queries.
-
-History is an infrastructure seam beneath Router, not a competing owner. Browser and memory adapters implement the same
-small Effect service. Atom observes the Router runtime across renderers; commands enter through the Effect `execute`
-interface. It does not duplicate state.
+| Domain                                                   | Owner                                |
+| -------------------------------------------------------- | ------------------------------------ |
+| URLs, matching, history, navigation, route loading       | Router                               |
+| Remote-resource state and mutations                      | Effect Atom and application services |
+| Editing, validation, submission                          | Form (planned)                       |
+| Normalized entities, indexes, transactions, live queries | DB (exploring)                       |
 
 ## Dependency direction
 
 ```text
-React/Solid/Vue applications -> official Effect Atom adapter -> @effect-stack/router -> Effect
-                                                           \-> History adapter
+Renderer adapter -> headless core -> Effect
+                 -> official Effect Atom adapter + renderer
+Platform adapter -> core service interface
 ```
 
-Core packages must never import a renderer. A future renderer adapter must depend toward the headless package:
+Cores must remain platform- and renderer-independent. Browser and memory history implement the core `History.Service`.
+React, Solid, and Vue adapters depend on `@effect-stack/router` and their official Effect Atom adapters.
 
-```text
-@effect-stack/router-react -> @effect-stack/router + @effect/atom-react + React
-@effect-stack/router-solid -> @effect-stack/router + @effect/atom-solid + Solid
-@effect-stack/router-vue   -> @effect-stack/router + @effect/atom-vue + Vue
-```
+`RouteTree` owns tree validation, inherited URL schemas, and typed destinations. A shared internal planner handles flat
+and nested matching. Compiled trees expose `routes`, `plan`, and `target`; indexes stay private. See the
+[Router reference](../packages/router/README.md#matching-and-trees) for matching rules.
 
-Such a package is created only after it earns an interface with substantive behavior such as accessible links, outlets,
-active state, lazy views, or SSR hydration. Renaming or re-exporting Atom hooks is too shallow.
+`RenderPolicy` owns fallback selection and declarative-navigation comparison. Adapters own providers, route hooks,
+links, views, error capture, and native subscription lifetimes. Share helpers only where they preserve inference and
+renderer semantics; re-exporting Atom hooks alone does not justify a package.
 
-The React, Solid, and Vue adapters own view declarations, provider context, route hooks, anchors, outlets, and render
-boundaries.
-The core `RouteTree` owns tree validation, inherited URL schemas, static-before-dynamic matching, branch planning, and the
-shared typed destination model and endpoint selection. A compiled tree validates and precomputes static ranking, path
-segments, ancestry, and destination endpoints once. `RenderPolicy` owns renderer-neutral fallback selection and declarative
-navigation comparison; native adapters own how the selected view is rendered.
-`Router.fromTree` resolves ancestors before descendants and exposes per-match state through Atom. Code and data loading
-within one match remain concurrent. Pending/error/not-found views replace their declaring route and descendants, preserving
-layouts above that boundary. SSR and hydration remain deferred.
+## Runtime ownership
 
-## Lifecycle and cancellation
+- Each Atom registry builds a scoped Router runtime from the supplied Layer. Applications compose services and Layers;
+  renderer context carries the router and registry.
+- A `SubscriptionRef` owns state, and a scoped `FiberMap` owns the current transition. Serialized acceptance and
+  transition identity prevent orphaned work and stale publication.
+- Operation claims independently protect `navigation`: an older traversal or transition cannot overwrite a newer
+  operation's outcome. Commands enter through `execute`; Atoms observe the runtime.
+- Code and data loading use transition scopes. Long-lived resources and remote caching belong to application services
+  or Effect Atom. Router retains resolved match data, not a remote-resource cache.
 
-Dependencies use Effect's native `Context.Service` and `Layer` mechanism. Route loaders declare their service requirements
-in their Effect types; router construction requires a Layer providing those services. Applications compose implementations
-at their entry point and can substitute test Layers without changing routes. Renderer context carries the router and Atom
-registry; application service construction, sharing, and finalization belong to Effect.
-
-Each Atom registry builds one Router runtime from its Layer. A `SubscriptionRef` is authoritative state, a scoped
-`FiberMap` owns the current transition, and a transition token prevents stale publication. Starting navigation interrupts
-the previous loader; its finalizers run, and even a non-cancelable Promise completion cannot overwrite newer state.
-Disposing the registry closes the scope, interrupts work, and removes History listeners.
-
-Navigation exposes Effect `AsyncResult`: initial, waiting with previous state, success, and failure. Expected errors retain
-their identity, including the failing URL part and lazy route ID. Defects and interruption remain in `Cause`.
-
-The branch separates decoded incoming inputs, retained resolved data, and the last complete successful snapshot. Public
-match unions preserve route-specific types; stable route atoms support selected subscriptions. Effect navigation joins its
-own transition and renderer hooks expose an awaitable bridge. See [navigation and match snapshots](router-navigation.md)
-for completion, interruption, and recovery semantics.
-
-## Route loading versus remote state
-
-A lazy route module is renderer-neutral code splitting. Native dynamic import caching is allowed, but Router does not own
-preloading, eviction, request deduplication, or remote cache policy. Applications manage remote resources through Effect
-Atom and application services.
-
-Route `loader` effects prepare data from decoded params, search, hash, and the current location. Router coordinates their
-execution alongside lazy code loading and retains `loaderData` on the resolved match. Both effects run concurrently in
-the transition scope; either failure interrupts unfinished sibling work. The scope closes before resolution is published,
-so loader results must not depend on transition-scoped resources remaining open. Refresh and history navigation run the
-loaders again. Applications can supply resource caching through Layer services without transferring cache ownership to
-Router. Expected data-loader failures preserve route identity separately from lazy-module failures.
-
-The canonical routing planner is the single matching model for every router: static segments rank ahead of dynamic
-ones, malformed percent-encoding never matches a segment, not-found branches retain the covering route entry, and routes
-with equal ranking keep declaration order. Flat `Router.make` plans that model directly over its validated route list
-(duplicate IDs and exact path templates are rejected). Nested `Router.fromTree` adds ancestor-preserving branches and
-ambiguous-template rejection through the compiled tree, which is the canonical routing model. A compiled tree exposes
-only its validated route list, branch planning, and destination resolution; ranking, segment, ancestry, and endpoint
-indexes stay private in the shared internal planner.
+See [navigation contracts](router-navigation.md) for completion, cancellation, snapshots, and recovery, and the
+[roadmap](roadmap.md) for deferred work.

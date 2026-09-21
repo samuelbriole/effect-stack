@@ -1,6 +1,13 @@
 # @effect-stack/router-solid
 
-First-party client-side Solid routing over the EffectStack headless core.
+Client-side Solid routing with typed links, nested outlets, reactive route hooks, and boundaries over the
+[`@effect-stack/router`](../router) core.
+
+## Install and define routes
+
+```sh
+pnpm add @effect-stack/router-solid @effect-stack/router @effect/atom-solid@rc effect@rc solid-js
+```
 
 ```tsx
 import { createRootRoute, createRoute, createRouter, Link, Outlet, RouterProvider } from "@effect-stack/router-solid"
@@ -44,49 +51,41 @@ export const App = () => <RouterProvider router={router} />
 ## Native Solid behavior
 
 `route.useParams()`, `route.useSearch()`, `route.useLoaderData()`, `route.useMatch()`, and `useRouterState()` return
-accessors. Create the accessor during component setup and read it inside reactive expressions. This lets an existing route
-component update when params, search, or loader data change while its local state remains mounted.
-
-Route hooks accept selectors, such as `project.useLoaderData((data) => data.title)`. Params/search in pending/error views
-read decoded incoming inputs; ordinary views retain the inputs associated with their resolved data.
+accessors. Create the accessor during component setup and read it inside reactive expressions, so an existing route
+component updates when params, search, or loader data change while its local state stays mounted. Route hooks accept
+selectors, such as `project.useLoaderData((data) => data.title)`.
 
 `useRouter()` returns the registered router. `useNavigate()` returns a function accepting the same typed destination as
-`Link` and `router.href`. `Navigate` performs declarative navigation. Links render real anchors with native modified-click,
-target, download, and prevented-click behavior. Active links expose `aria-current="page"` and `data-active="true"`;
-`exact` disables descendant-path active matching.
+`Link` and `router.href`; the returned Promise completes with its own navigation, and `useNavigateEffect()` exposes typed
+Effect composition bound to the provider's registry. `Navigate` performs declarative navigation. See
+[navigation contracts](../../docs/router-navigation.md) for completion, cancellation, incoming inputs, and
+retained data.
 
-The navigation function returns a Promise completing with its own navigation. `useNavigateEffect()` exposes typed Effect
-composition bound to the provider's registry. See [navigation and match snapshots](../../docs/router-navigation.md) for
-completion, cancellation, and retained-data semantics.
+Links render real anchors with native modified-click, target, download, and prevented-click behavior. Active links expose
+`aria-current="page"` and `data-active="true"`; `exact` disables descendant-path active matching.
 
 ## Routes, loading, and boundaries
 
 Child paths are relative. `/` is an index route; an `id` instead of a `path` defines a pathless layout. URL Schemas are
-inherited. Static segments outrank dynamic segments, and an index owns its shared URL's destination requirements.
-`route.to` exposes the full literal route pattern for navigation and eventual generated file routes.
+inherited, and `route.to` exposes the full literal route pattern.
 
-`loader` returns an Effect using decoded params, search, hash, and location. `lazy` independently imports a view module
-with a `default` or `component` export. An explicit `component` takes precedence.
-Ancestors resolve before descendants;
-code and data load concurrently within each route. Superseding navigation interrupts pending work.
+`loader` prepares data; `lazy` imports code. Present `default`/`component` exports must be Solid components. An explicit
+route `component` wins; modules with neither export use `Outlet`. Invalid selected views reach the nearest error boundary.
 
-`pendingComponent`, `errorComponent`, and `notFoundComponent` bubble to the nearest declaring ancestor, replacing its view
-and descendants while preserving layouts above it. Error views receive `{ error, reset }`; `reset()` refreshes the URL.
-Solid render errors use native error boundaries. Recovery waits for successfully refreshed data before clearing a latched
-render error. Startup Retry rebuilds failed initialization.
+Declare `pendingComponent`, `errorComponent`, and `notFoundComponent` on routes. Error views receive `{ error, reset }`;
+render errors use Solid's native error boundaries. See
+[rendering and recovery](../../docs/router-navigation.md#rendering-and-recovery) for boundary selection and Retry.
 
 ## Effect service injection and lifetimes
 
-Loaders request `Context.Service` values directly. Supply their implementations with `createRouter({ layer })`, using
-Effect's `Layer.provide` and `Layer.merge` for composition. The type system requires the tree's application services and
-rejects unresolved Layer dependencies. Tests can substitute `Layer.succeed` implementations. See the
+Loaders request `Context.Service` values directly. Supply their implementations with `createRouter({ layer })`, composing
+with Effect's `Layer.provide` and `Layer.merge`. The type system requires the tree's application services and rejects
+unresolved Layer dependencies; tests can substitute `Layer.succeed` implementations. `history` is a separate Layer option,
+defaulting to BrowserHistory; supply `MemoryHistory.layer()` in tests. See the
 [Projects service](examples/basic/src/Projects.ts) and its [application wiring](examples/basic/src/App.tsx).
 
-`history` is a separate Effect Layer option, defaulting to BrowserHistory; supply MemoryHistory in tests.
-`RouterProvider` owns an Atom registry by default and disposes it with the Solid owner. A supplied `registry` remains
-caller-owned. Services are shared while the runtime stays mounted; Atom may release idle runtimes after their last
-subscriber unmounts. Registry disposal also releases their scoped resources. Resources acquired inside a loader close
-with its transition scope before data publication.
+`RouterProvider` owns an Atom registry by default and disposes it with the Solid owner; a supplied `registry` remains
+caller-owned. See [resource lifetime](../../docs/router-navigation.md#loading-and-resource-lifetime) for application
+services and loader scopes.
 
-The adapter shares URL interpretation, destination typing, navigation state, and Effect lifetimes with the headless core.
-Remote-resource caching belongs to application services or Effect Atom. SSR and hydration are deferred.
+See the [Solid example](examples/basic/src/App.tsx) for nested layouts, typed links, injected services, and a lazy view.

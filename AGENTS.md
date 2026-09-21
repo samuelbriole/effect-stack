@@ -1,23 +1,23 @@
 # Agent guidance
 
-EffectStack is a family of independently adoptable, Effect-native application libraries. Preserve the architecture and quality bar as the project grows.
+EffectStack contains independently adoptable, Effect-native libraries under `@effect-stack/*`.
 
 ## Design
 
-- Read [`docs/architecture.md`](docs/architecture.md) before changing ownership boundaries or dependency direction.
-- Keep publishable core packages platform- and renderer-independent. Platform and renderer adapters depend on cores,
-  never the reverse.
-- Keep Router responsible for navigation, Effect Atom for remote resources, Form for editing and submission, and DB for
-  normalized persistence.
-- Prefer Effect-native semantics: typed failures, Schema at boundaries, scoped resources, interruption safety, services,
-  Layers, Stream, and Atom where they fit the domain.
-- Treat developer experience as a primary design constraint: strong inference, minimal ceremony, actionable failures, and
-  consistent APIs across cores and adapters.
-- Start roadmap domains as tested tracers. Publish a package or renderer adapter only after it earns a substantive API.
-- Use domain-first package names under `@effect-stack/*`.
+- Follow [architecture and ownership](docs/architecture.md); adapters depend on platform-independent cores.
+- Preserve [navigation contracts](docs/router-navigation.md) when changing Router or its adapters.
+- Use typed Effect failures, Schema at boundaries, scoped resources, and interruption-safe cleanup. Supply dependencies
+  through services and Layers; preserve public inference and native renderer behavior.
+- Start new domains with a tested end-to-end slice. Publish packages only when they provide a substantive API.
+
+## Documentation
+
+- Keep package READMEs focused on setup and package-specific APIs. Link to shared contracts instead of repeating them.
+- Update examples and migration guidance with API changes. Keep agent instructions actionable; put review logs and
+  validation results in PRs. Preserve released changelogs; write concise, consumer-facing Changesets.
 
 ## Completion
 
-- Add runtime tests for behavior and TSTyche tests for public type inference.
-- Add a Changeset for user-visible changes to a published package.
+- Add or update runtime tests for changed behavior and TSTyche tests for changed public inference.
+- Add a Changeset for release-worthy changes to published packages; documentation-only edits need no version bump.
 - Run `corepack pnpm@11.20.0 run ci` and leave the package artifact checks passing.

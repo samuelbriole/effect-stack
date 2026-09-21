@@ -1,6 +1,13 @@
 # @effect-stack/router-vue
 
-First-party client-side Vue routing over the EffectStack headless core.
+Client-side Vue routing with typed links, nested outlets, route composables, and boundaries over the
+[`@effect-stack/router`](../router) core.
+
+## Install and define routes
+
+```sh
+pnpm add @effect-stack/router-vue @effect-stack/router @effect/atom-vue@rc effect@rc vue
+```
 
 Define routes in a plain `.ts` module, register the router type once, and mount the provider from your root component.
 
@@ -48,6 +55,7 @@ existing route component updates reactively when params, search, or loader data 
 mounted:
 
 ```vue
+<!-- ProjectView.vue -->
 <script setup lang="ts">
 import { Link } from "@effect-stack/router-vue"
 import { project } from "./router.ts"
@@ -64,32 +72,25 @@ const params = project.useParams()
 </template>
 ```
 
-`useRouter()` returns the registered router, and `useNavigate()` returns a function accepting the same typed destination as
-`Link` and `router.href`. `Navigate` performs declarative navigation. In `.ts` render functions that return `h(Link, ...)`,
+Route hooks accept selectors, such as `project.useLoaderData((data) => data.title)`. `useRouter()` returns the registered
+router, and `useNavigate()` returns a function accepting the same typed destination as `Link` and `router.href`; the
+returned Promise completes with its own navigation, and `useNavigateEffect()` exposes typed Effect composition bound to the
+provider's registry. `Navigate` performs declarative navigation. In `.ts` render functions that return `h(Link, ...)`,
 annotate the result as `VNode` so the route type and the `Register` augmentation stay non-circular; SFC views importing
 route composables avoid this entirely.
 
 ## Routes, loading, and boundaries
 
-Route hooks accept selectors, such as `project.useLoaderData((data) => data.title)`. Params/search in pending/error views
-read decoded incoming inputs; ordinary views retain the inputs associated with their resolved data. `useNavigate()`
-returns a Promise completing with its own navigation, and `useNavigateEffect()` exposes typed Effect composition bound
-to the provider's registry. Recovery waits for successfully refreshed data before clearing a latched render error;
-startup Retry rebuilds failed initialization. See [navigation and match snapshots](../../docs/router-navigation.md).
-
 Views are ordinary Vue components: SFCs, `defineComponent` results, or functional render functions. A root owns the
 application layout. Child paths are relative; `/` defines an index route, and an `id` in place of `path` defines a pathless
-layout. Params and search Schemas are inherited. Static segments outrank dynamic segments. `route.to` is the full literal
-route pattern; `Link`, `useNavigate`, and `router.href` share destination typing.
+layout. Params and search Schemas are inherited, and `route.to` is the full literal route pattern; `Link`, `useNavigate`,
+and `router.href` share destination typing.
 
-`loader` returns an Effect using decoded URL inputs. `lazy` imports a lazy view module with a `default` or `component`
-export; an explicit `component` takes precedence. Ancestors resolve before descendants, while code and data load
-concurrently within each route. Superseding navigation interrupts pending work.
+`loader` prepares data; `lazy` imports code. Present `default`/`component` exports must be Vue components. An explicit
+route `component` wins; modules with neither export use `Outlet`. Invalid selected views reach the nearest error boundary.
 
-`pendingComponent`, `errorComponent`, and `notFoundComponent` bubble to the nearest declaring ancestor, replacing that
-route's view and descendants while layouts above the boundary remain mounted. Error components receive
-`{ error, reset }` props; `reset()` refreshes the current URL. Component render errors also fall to the nearest error
-boundary.
+Declare `pendingComponent`, `errorComponent`, and `notFoundComponent` on routes. Error components receive `{ error, reset }`
+props. See [navigation contracts](../../docs/router-navigation.md) for completion, cancellation, snapshots, and recovery.
 
 ## Effect service injection and lifetimes
 
@@ -98,15 +99,12 @@ with Effect's `Layer.provide` and `Layer.merge`. The type system requires the tr
 unresolved Layer dependencies; tests can substitute `Layer.succeed` implementations. `history` is a separate Layer option,
 defaulting to BrowserHistory; supply `MemoryHistory.layer()` in tests.
 
-`RouterProvider` owns an Atom registry by default and disposes it with its component scope. A supplied `registry` prop
-remains caller-owned. Services are shared while the runtime stays mounted; Atom may release idle runtimes after their last
-subscriber unmounts, and registry disposal releases their scoped resources. Resources acquired inside a loader close with
-its transition scope before data publication. See the [Projects service](examples/basic/src/Projects.ts) and its
-[router wiring](examples/basic/src/router.ts).
+`RouterProvider` owns an Atom registry by default and disposes it with its component scope; a supplied `registry` prop
+remains caller-owned. See [resource lifetime](../../docs/router-navigation.md#loading-and-resource-lifetime), the
+[Projects service](examples/basic/src/Projects.ts), and its [router wiring](examples/basic/src/router.ts).
 
 `Link` renders a real anchor and preserves modifiers, targets, downloads, and prevented clicks; active links expose
 `aria-current="page"` and `data-active="true"`, and `exact` disables descendant-path active matching.
 
 See the [Vue example](examples/basic/src/ProjectLayout.vue) for nested layouts, typed links, injected services, and a lazy
-SFC view. Route-pattern destinations and one-time registration form the migration seam for future generated file routes.
-SSR and hydration are deferred.
+SFC view.

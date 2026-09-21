@@ -1,98 +1,72 @@
 # `@effect-stack/router`
 
-Renderer-independent routing built with Effect v4 and Effect Atom.
+Renderer-independent routing with Schema-validated URLs, scoped Effect loaders, and Atom observations.
+Targets **Effect v4 RC**; install a version compatible with the package's peer range.
 
-> EffectStack is an independent community project built on Effect. It is not maintained by Effectful Technologies Inc.
-
-> This initial release targets the Effect v4 release candidate. Install `effect@rc` and keep it compatible with the
-> package peer range.
-
-## Install
+## Install and define routes
 
 ```sh
 pnpm add @effect-stack/router effect@rc
 ```
 
-## Define routes
-
 ```ts
 import { BrowserHistory, Route, Router } from "@effect-stack/router"
-import { Effect, Schema } from "effect"
-
-const ProjectId = Schema.FiniteFromString.pipe(Schema.brand("ProjectId"))
+import { Schema } from "effect"
 
 const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
 const project = Route.make({
   id: "project",
-  path: "/projects/:projectId",
-  params: { projectId: ProjectId },
+  path: "/projects/:id",
+  params: { id: Schema.FiniteFromString },
   search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
-  hash: Schema.Literals(["", "details"]),
-  lazy: () => Effect.tryPromise(() => import("./project-module.js"))
+  hash: Schema.Literals(["", "details"])
 })
 
-export const router = Router.make({
-  routes: [home, project],
-  layer: BrowserHistory.layer
-})
+export const router = Router.make({ routes: [home, project], layer: BrowserHistory.layer })
 ```
 
-`router.href(route, input)` builds a typed URL without throwing. `router.state` is an Atom of Effect `AsyncResult`,
-and `router.branch`, `router.completed`, and `router.navigation` are read-only Atom observations of navigation state.
+Use `MemoryHistory.layer("/initial")` in tests and non-browser hosts. For views, choose a
+[React](../router-react), [Solid](../router-solid), or [Vue](../router-vue) adapter, or
+[integrate the core directly](../../docs/adoption.md).
 
-`router.execute(command)` is the only navigation command interface: it exposes the operation as an Effect requiring
-`AtomRegistry.AtomRegistry`.
-Push/replace/refresh await their own navigation and scoped cleanup; superseding navigation interrupts the previous
-operation. Traversal commands acknowledge the history request. `router.retry` rebuilds failed initialization or refreshes
-a healthy runtime. `router.navigation` is a read-only projection of the latest navigation operation; its successful
-projection carries no value. See
-[navigation and match snapshots](../../docs/router-navigation.md) for the full contract.
+## Navigation API
 
-Routes are planned by the canonical routing model: static segments rank ahead of dynamic ones, malformed
-percent-encoding never matches a segment, and routes with equal ranking keep declaration order. `Router.fromTree`
-additionally resolves ancestor chains and rejects ambiguous templates; prefer a tree when two templates can match the
-same URL and the ancestor views should render.
-This release supports exact static segments and required named
-segments only; trailing and repeated slashes remain significant. `Route.make` rejects invalid untyped definitions with
-`RouteDefinitionError`, while URL matching and construction return typed `Result` failures.
+- `router.href(route, input)` returns a typed `Result` containing the encoded URL or `RouteEncodeError`.
+- `router.execute(command)` runs `push`, `replace`, `refresh`, `back`, `forward`, or `go` with an
+  `AtomRegistry.AtomRegistry` service. Push/replace/refresh await their transition; traversal acknowledges the host request.
+- `router.retry` rebuilds failed initialization or refreshes a healthy runtime.
+- `state`, `navigation`, `branch`, `completed`, and `routeAtoms(route)` expose read-only Atom observations.
 
-Repeated search fields preserve ordered values. Empty arrays are not representable in a URL, and singleton arrays are
-rejected when the field's Schema also accepts a scalar because that URL would be ambiguous.
+See [navigation contracts](../../docs/router-navigation.md) for cancellation, snapshots, resource lifetime, and recovery.
 
-See the repository [adoption guide](../../docs/adoption.md), and the
-[React](../router-react/examples/basic), [Solid](../router-solid/examples/basic), and [Vue](../router-vue/examples/basic)
-adapter examples.
+## Matching and trees
 
-## Nested trees and shared destinations
+Routes support exact static segments and required named parameters. Trailing and repeated slashes are significant.
 
-`RouteTree.root` and `RouteTree.make` define renderer-independent root, nested, index, and pathless routes. Connect them with
-`addChildren`, then use `Router.fromTree` to build the Atom runtime. Nested matching ranks static segments ahead of dynamic
-segments, and indexes ahead of the ancestors sharing their URL.
+- Static segments outrank dynamic ones; equal-ranking flat patterns keep declaration order.
+- Malformed percent-encoding cannot match a static segment. Matched dynamic parameters with invalid encoding or Schema
+  values produce `RouteDecodeError`; an unmatched URL produces `RouteNotFound`.
+- Flat routers reject duplicate IDs and exact path templates. Not-found branches retain a covering match when available.
+- Repeated search fields preserve ordered values. Empty arrays are unrepresentable; singleton arrays are rejected when
+  the Schema also accepts a scalar, since the URL would be ambiguous.
+- Invalid route definitions throw `RouteDefinitionError`; matching and URL encoding return typed `Result` failures.
 
-Route-tree builders support `.pipe(...)` and `RouteTree.isNode` identification. `RouteTree.compile(tree)` validates the
-static tree and exposes a small operation-oriented interface: the flattened route list, `plan` for branch matching, and
-`target` for destination resolution. Ranking, path segments, ancestry, and endpoint indexes are precomputed once but
-stay private.
+Use `RouteTree.root`, `RouteTree.make`, and `addChildren` for nested, index, and pathless routes, then `Router.fromTree`.
+Trees inherit URL schemas, reject ambiguous templates, preserve ancestor chains, and rank indexes ahead of ancestors
+sharing the same URL. Builders support `.pipe(...)` and `RouteTree.isNode`.
 
-`RouteTree.Destination<typeof tree>` supplies the common typed destination model for renderer adapters. It includes the
-ranked endpoint's inherited params, search, and hash, requiring inputs only when their Schemas require them. An index's
-requirements cannot be bypassed by targeting an ancestor at the same URL. `Compiled["target"]` selects that endpoint and
-fills omitted empty inputs; adapters then pass its `route` and `input` to `Route.href` for Schema validation and
-encoding before dispatching a navigation command. This keeps destination interpretation shared across React, Solid, and
-future adapters.
+`RouteTree.Destination<typeof tree>` describes typed destinations with required params, search, and hash inputs.
+An index route's requirements cannot be bypassed by targeting its ancestor at the same URL.
 
-Compiled trees and the route arrays passed to `Router.make` are static, immutable definitions. Build a new tree with
-`addChildren` when changing definitions; identity-based setup caches then compile the new value independently.
+For tooling, `RouteTree.compile(tree)` exposes `routes`, `plan(location)`, and `target(destination)`.
+`target` selects the endpoint and fills omitted empty inputs; pass its `{ route, input }` to `Route.href` for encoding.
+It throws for unknown destinations. `RouteTree.flatten` provides the validated preorder route list.
+Definitions are immutable: use `addChildren` to create a new tree rather than mutate cached trees or route arrays.
 
-The typed `router.branch` preserves each route's inputs, module, data, and errors through a distributive match union.
-Discriminate entries by `routeId`. Incoming decoded matches, retained resolved matches, incoming location, transition
-identity, and the last complete successful branch are explicitly separate. Stable `router.routeAtoms(route)` projections
-allow custom adapters and application subscriptions to observe only their relevant matches.
+## Code, data, and services
 
-## Effect data loaders
-
-Use `loader` to prepare data from the decoded URL. Its result is inferred as `loaderData` on the resolved route;
-`lazy` independently imports route code and exposes its result as `module`.
+`lazy: () => Effect.tryPromise(() => import("./page.js"))` loads code into `module`.
+`loader` receives decoded `{ params, search, hash, location }` and returns `loaderData`:
 
 ```ts
 import { MemoryHistory, Route, Router } from "@effect-stack/router"
@@ -114,19 +88,12 @@ const router = Router.make({
   routes: [project],
   layer: Layer.merge(
     MemoryHistory.layer("/projects/42"),
-    Layer.succeed(Projects, {
-      get: (id) => Effect.succeed({ id, title: `Project ${id}` })
-    })
+    Layer.succeed(Projects, { get: (id) => Effect.succeed({ id, title: `Project ${id}` }) })
   )
 })
 ```
 
-Loaders receive `{ params, search, hash, location }` after URL validation. The router Layer must supply every service
-required by code loading and data loading. Both execute concurrently; the router publishes a resolved route after both
-succeed. Expected data failures become `Router.RouteLoaderError` with the original `error` and `routeId`.
-Defects and interruption remain in `Cause`.
+The router Layer must supply all code/data loader services. Loader scopes close before results are published;
+long-lived resources and remote caching belong to application services or Effect Atom.
 
-Data loaders run on every matched resolution, including refresh and history navigation. Superseding navigation or
-disposing the registry interrupts pending work. Loader scopes close when the transition finishes, so returned data must
-not depend on resources kept open by that scope. The active match retains the result; resource caching and reuse can be
-provided by the application's services or Effect Atom.
+[Migration from 0.2](../../docs/router-migration.md) · [Architecture](../../docs/architecture.md)

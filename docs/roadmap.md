@@ -1,16 +1,12 @@
 # Roadmap
 
-Future packages begin with a tested tracer, not an empty package scaffold.
+New domains begin with a tested end-to-end slice before becoming packages.
 
-1. **Router:** the core has nested routes, layouts, ranking, and Effect loaders. React, Solid, and Vue have initial
-   first-party adapters. Next: file-routing tooling, redirects and guards, preload policy, scroll restoration, and further
-   accessibility hardening. SSR/hydration is deferred.
-2. **Form:** Schema-shaped values, touched/dirty state, synchronous and Effect validation, interruption-safe asynchronous
-   validation, submission, arrays, and multi-step flows.
-3. **DB:** normalized entities, indexes, STM transactions, live queries through Stream/Atom, persistence adapters, and
-   explicit Effect Atom integration.
+| Domain | Status                                                    | Next                                                                                                          |
+| ------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Router | Nested routing and initial React, Solid, and Vue adapters | File routing, redirects and guards, preload policy, scroll restoration, accessibility hardening               |
+| Form   | Planned                                                   | Schema-shaped values, dirty/touched state, interruption-safe validation, submission, arrays, multi-step flows |
+| DB     | Exploring                                                 | Normalized entities, indexes, STM transactions, Stream/Atom live queries, persistence adapters                |
 
 Remote state uses Effect Atom, the existing Effect-native alternative to TanStack Query.
-
-The React, Solid, and Vue adapters provide typed links, outlets, active state, lazy views, and route boundaries over the
-same headless runtime.
+SSR/hydration and long-lived route-instance scopes are deferred.

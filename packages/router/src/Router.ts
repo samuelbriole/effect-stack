@@ -1174,8 +1174,9 @@ const makeRuntime = <
  * Creates a flat router.
  *
  * Flat routes use the canonical routing model: static segments rank ahead of
- * dynamic ones, malformed percent-encoding never matches a segment, and a URL
- * no route answers settles as `RouteNotFound`. Routes with equal ranking keep
+ * dynamic ones, and malformed percent-encoding cannot match a static segment.
+ * Matched dynamic parameters report typed decode failures; unmatched URLs
+ * settle as `RouteNotFound`. Routes with equal ranking keep
  * declaration order, so prefer `Router.fromTree` whenever more than one
  * template can match the same URL and the ancestor chain should render.
  *
