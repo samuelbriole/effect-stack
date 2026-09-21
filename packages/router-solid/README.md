@@ -88,4 +88,4 @@ subscriber unmounts. Registry disposal also releases their scoped resources. Res
 with its transition scope before data publication.
 
 The adapter shares URL interpretation, destination typing, navigation state, and Effect lifetimes with the headless core.
-Remote-resource caching belongs to application services or Query. SSR and hydration are deferred.
+Remote-resource caching belongs to application services or Effect Atom. SSR and hydration are deferred.

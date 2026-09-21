@@ -7,7 +7,7 @@ EffectStack is a family of independently adoptable, Effect-native application li
 - Read [`docs/architecture.md`](docs/architecture.md) before changing ownership boundaries or dependency direction.
 - Keep publishable core packages platform- and renderer-independent. Platform and renderer adapters depend on cores,
   never the reverse.
-- Keep Router responsible for navigation, Query for remote resources, Form for editing and submission, and DB for
+- Keep Router responsible for navigation, Effect Atom for remote resources, Form for editing and submission, and DB for
   normalized persistence.
 - Prefer Effect-native semantics: typed failures, Schema at boundaries, scoped resources, interruption safety, services,
   Layers, Stream, and Atom where they fit the domain.

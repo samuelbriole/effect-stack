@@ -19,8 +19,9 @@ pnpm add @effect-stack/router effect@rc
 | [`@effect-stack/router-react`](packages/router-react) | 🧪 Initial adapter |
 | [`@effect-stack/router-solid`](packages/router-solid) | 🧪 Initial adapter |
 | [`@effect-stack/router-vue`](packages/router-vue)     | 🧪 Initial adapter |
-| `@effect-stack/query`                                 | 🟡 Planned         |
 | `@effect-stack/form`                                  | 🟡 Planned         |
 | `@effect-stack/db`                                    | 🔭 Exploring       |
+
+For remote state, use Effect Atom, Effect's alternative to TanStack Query.
 
 [Architecture](docs/architecture.md) · [Detailed roadmap](docs/roadmap.md)
