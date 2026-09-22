@@ -10,7 +10,7 @@ function Nav() {
   return (
     <nav>
       <Link to={Routes.home()}>Home</Link>
-      <Link to={Routes.project({ params: { projectId: projectId42 } })}>Project 42</Link>
+      <Link to={Routes.project.index({ params: { projectId: projectId42 } })}>Project 42</Link>
       <Link to={Routes.slow()}>Slow</Link>
     </nav>
   )
@@ -53,12 +53,16 @@ function ProjectPage() {
       </p>
       <button onClick={() => setCount(count() + 1)}>Layout counter: {count()}</button>
       <nav>
-        <Link to={Routes.project({ params: route().params, search: route().search })}>Overview</Link>
-        <Link to={Routes.details({ params: route().params })}>Details</Link>
+        <Link to={Routes.project.index({ params: route().params, search: route().search })}>Overview</Link>
+        <Link to={Routes.project.details({ params: route().params })}>Details</Link>
       </nav>
       <Outlet />
     </section>
   )
+}
+
+function IndexPage() {
+  return <p>This is the project overview rendered by the index child.</p>
 }
 
 function DetailsPage() {
@@ -71,8 +75,15 @@ function SlowPage() {
 
 const views = {
   home: HomePage,
-  project: { component: ProjectPage, pending: ProjectPending, error: ProjectBoundary },
-  details: DetailsPage,
+  project: {
+    component: ProjectPage,
+    pending: ProjectPending,
+    error: ProjectBoundary,
+    children: {
+      index: IndexPage,
+      details: DetailsPage
+    }
+  },
   slow: { component: SlowPage, pending: () => <p role="status">Preparing…</p> }
 } satisfies Views<typeof Routes>
 

@@ -11,7 +11,7 @@ import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
-import { MemoryHistory, Router } from "@effect-stack/router"
+import { MemoryHistory, Route, Router } from "@effect-stack/router"
 
 class Gate extends Context.Service<
   Gate,
@@ -36,27 +36,24 @@ const makeGate = Effect.gen(function* () {
   })
 })
 
-const Routes = Router.schema("Conc", {
-  home: "/",
-  slow: {
-    path: "/slow/:key",
+const Routes = Router.make("Conc").add(
+  Route.make("home", "/"),
+  Route.make("slow", "/slow/:key", {
     params: { key: Schema.String },
     success: Schema.Struct({ key: Schema.String })
-  },
-  guarded: {
-    path: "/guarded/:key",
+  }),
+  Route.make("guarded", "/guarded/:key", {
     params: { key: Schema.String },
     success: Schema.Struct({ key: Schema.String })
-  },
-  stubborn: {
-    path: "/stubborn/:key",
+  }),
+  Route.make("stubborn", "/stubborn/:key", {
     params: { key: Schema.String },
     success: Schema.Struct({ key: Schema.String })
-  },
-  redirectStubborn: { path: "/redirect-stubborn", success: Schema.Void },
-  badRelease: { path: "/bad-release", success: Schema.Void },
-  finalize: { path: "/finalize", success: Schema.Void }
-})
+  }),
+  Route.make("redirectStubborn", "/redirect-stubborn", { success: Schema.Void }),
+  Route.make("badRelease", "/bad-release", { success: Schema.Void }),
+  Route.make("finalize", "/finalize", { success: Schema.Void })
+)
 
 const events: Array<string> = []
 

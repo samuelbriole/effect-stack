@@ -1,4 +1,6 @@
 import * as BrowserHistory from "@effect-stack/router/BrowserHistory"
+import * as Route from "@effect-stack/router/Route"
+import * as RouteGroup from "@effect-stack/router/RouteGroup"
 import * as Router from "@effect-stack/router/Router"
 import { Context, Effect, Layer, Schema } from "effect"
 
@@ -36,25 +38,27 @@ export const demoProjectsLayer = Layer.succeed(
   })
 )
 
-/** A concise named contract with typed destinations and optional success. @since 0.4.0 */
-export const Routes = Router.schema("Example", {
-  home: "/",
-  project: {
-    path: "/projects/:projectId",
-    params: { projectId: ProjectId },
-    search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
-    success: Project,
-    error: ProjectNotFound
-  },
-  details: {
-    path: "/projects/:projectId/details",
-    params: { projectId: ProjectId }
-  },
-  slow: {
-    path: "/slow",
-    success: Schema.Void
-  }
+/**
+ * A reusable project group: the layout prepares the project while its children
+ * render through an outlet.
+ *
+ * @since 0.4.0
+ */
+export const ProjectRoutes = RouteGroup.make("project", {
+  params: { projectId: ProjectId },
+  search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
+  success: Project,
+  error: ProjectNotFound
 })
+  .add(Route.make("index", "/"), Route.make("details", "/details", { success: Schema.Void }))
+  .prefix("/projects/:projectId")
+
+/** A concise named contract with typed destinations and optional success. @since 0.4.0 */
+export const Routes = Router.make("Example").add(
+  Route.make("home", "/"),
+  ProjectRoutes,
+  Route.make("slow", "/slow", { success: Schema.Void })
+)
 
 const ProjectLive = Router.route(Routes.project, ({ params }) =>
   Projects.use((projects) => projects.get(params.projectId))
@@ -62,7 +66,7 @@ const ProjectLive = Router.route(Routes.project, ({ params }) =>
 
 const SlowLive = Router.route(Routes.slow, () => Effect.sleep("1 seconds"))
 
-const DetailsLive = Router.route(Routes.details, () => Effect.void)
+const DetailsLive = Router.route(Routes.project.details, () => Effect.void)
 
 /** The complete router Layer: implementations, history, and domain services. @since 0.4.0 */
 export const AppLive = Router.layer(Routes).pipe(

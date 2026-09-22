@@ -3,6 +3,7 @@
  *
  * @since 0.4.0
  */
+import * as Cause from "effect/Cause"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
@@ -41,6 +42,17 @@ export interface DecodedMatch {
  * @category models
  */
 export type UrlCodec = Schema.ConstraintCodec<unknown, unknown, never, never>
+
+/**
+ * A full schema constrained to a context-free synchronous codec. Used for URL
+ * sections so that service-requiring schemas are rejected statically.
+ *
+ * @since 0.4.0
+ */
+export type UrlSchema = Schema.Top & UrlCodec
+
+/** @since 0.4.0 */
+export type UrlSchemaFields = { readonly [x: string]: UrlSchema }
 
 /** @since 0.4.0 */
 export type UrlFields = { readonly [x: string]: UrlCodec }
@@ -86,28 +98,93 @@ const encodeUriPart = (
   }
 }
 
+const asyncDecodeMessage = "Schema codecs must decode synchronously; this codec requires asynchronous decoding"
+const asyncEncodeMessage = "Schema codecs must encode synchronously; this codec requires asynchronous encoding"
+
+/**
+ * Effect's synchronous schema adapters throw a plain `Error` whose `cause` is
+ * the underlying `Cause` when the schema cannot be evaluated synchronously
+ * (for example an asynchronous transformation). Detecting that specific defect
+ * lets the URL layer convert it into a typed failure while preserving every
+ * unrelated defect.
+ */
+const isAsyncFiberFailure = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false
+  const cause = error.cause
+  if (!Cause.isCause(cause)) return false
+  return cause.reasons.some((reason) => Cause.isDieReason(reason) && Cause.isAsyncFiberError(reason.defect))
+}
+
+const decodeSync = <A, Err>(
+  run: () => Result.Result<A, Schema.SchemaError>,
+  failure: (message: string) => Err,
+  asyncMessage: string
+): Result.Result<A, Err> => {
+  try {
+    const decoded = run()
+    return Result.isFailure(decoded) ? Result.fail(failure(decoded.failure.message)) : Result.succeed(decoded.success)
+  } catch (error) {
+    if (isAsyncFiberFailure(error)) return Result.fail(failure(asyncMessage))
+    throw error
+  }
+}
+
+const encodeSync = <A, Err>(
+  run: () => Result.Result<A, Schema.SchemaError>,
+  failure: (message: string) => Err,
+  asyncMessage: string
+): Result.Result<A, Err> => {
+  try {
+    const encoded = run()
+    return Result.isFailure(encoded) ? Result.fail(failure(encoded.failure.message)) : Result.succeed(encoded.success)
+  } catch (error) {
+    if (isAsyncFiberFailure(error)) return Result.fail(failure(asyncMessage))
+    throw error
+  }
+}
+
+/**
+ * Whether a value decodes as a scalar. A synchronous decode failure is a plain
+ * `false`; an asynchronous defect is surfaced as the caller's typed failure.
+ */
+const probeDecode = <Err>(codec: UrlCodec, value: unknown, onAsync: () => Err): Result.Result<boolean, Err> => {
+  try {
+    return Result.succeed(Result.isSuccess(Schema.decodeUnknownResult(codec)(value)))
+  } catch (error) {
+    if (isAsyncFiberFailure(error)) return Result.fail(onAsync())
+    throw error
+  }
+}
+
 const rawSearch = (search: string): Readonly<Record<string, unknown>> => {
   const values = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
   return UrlParams.toRecord(UrlParams.fromInput(values))
 }
 
 const normalizeSearch = (
+  routeId: string,
   fields: UrlFields,
   input: Readonly<Record<string, unknown>>
-): Readonly<Record<string, unknown>> => {
+): Result.Result<Readonly<Record<string, unknown>>, RouteDecodeError> => {
   const output: Record<string, unknown> = {}
   for (const key of Object.keys(fields)) {
     const value = input[key]
     if (value === undefined) continue
     const codec = fields[key]
     if (codec === undefined) continue
-    if (typeof value === "string" && Result.isFailure(Schema.decodeUnknownResult(codec)(value))) {
-      output[key] = [value]
+    if (typeof value === "string") {
+      const scalar = probeDecode(
+        codec,
+        value,
+        () => new RouteDecodeError({ routeId, part: "search", input: value, message: asyncDecodeMessage })
+      )
+      if (Result.isFailure(scalar)) return Result.fail(scalar.failure)
+      output[key] = scalar.success ? value : [value]
     } else {
       output[key] = value
     }
   }
-  return output
+  return Result.succeed(output)
 }
 
 /**
@@ -140,47 +217,41 @@ export const match = (node: UrlCodecs, url: UrlParts): Result.Result<Option.Opti
     }
   }
 
-  const params = Schema.decodeUnknownResult(node.paramsSchema)(encodedParams)
+  const params = decodeSync(
+    () => Schema.decodeUnknownResult(node.paramsSchema)(encodedParams),
+    (message) => new RouteDecodeError({ routeId: node.id, part: "path", input: url.pathname, message }),
+    asyncDecodeMessage
+  )
   if (Result.isFailure(params)) {
-    return Result.fail(
-      new RouteDecodeError({
-        routeId: node.id,
-        part: "path",
-        input: url.pathname,
-        message: params.failure.message
-      })
-    )
+    return Result.fail(params.failure)
   }
 
-  const search = Schema.decodeUnknownResult(node.searchSchema)(
-    normalizeSearch(node.searchSchema.fields, rawSearch(url.search))
+  const normalizedSearch = normalizeSearch(node.id, node.searchSchema.fields, rawSearch(url.search))
+  if (Result.isFailure(normalizedSearch)) {
+    return Result.fail(normalizedSearch.failure)
+  }
+  const search = decodeSync(
+    () => Schema.decodeUnknownResult(node.searchSchema)(normalizedSearch.success),
+    (message) => new RouteDecodeError({ routeId: node.id, part: "search", input: url.search, message }),
+    asyncDecodeMessage
   )
   if (Result.isFailure(search)) {
-    return Result.fail(
-      new RouteDecodeError({
-        routeId: node.id,
-        part: "search",
-        input: url.search,
-        message: search.failure.message
-      })
-    )
+    return Result.fail(search.failure)
   }
 
   let hash: unknown = undefined
-  if (node.hashSchema !== undefined) {
+  const hashSchema = node.hashSchema
+  if (hashSchema !== undefined) {
     const encodedHash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash
     const decodedHash = decodeUriPart(node.id, "hash", encodedHash)
     if (Result.isFailure(decodedHash)) return Result.fail(decodedHash.failure)
-    const decoded = Schema.decodeUnknownResult(node.hashSchema)(decodedHash.success)
+    const decoded = decodeSync(
+      () => Schema.decodeUnknownResult(hashSchema)(decodedHash.success),
+      (message) => new RouteDecodeError({ routeId: node.id, part: "hash", input: url.hash, message }),
+      asyncDecodeMessage
+    )
     if (Result.isFailure(decoded)) {
-      return Result.fail(
-        new RouteDecodeError({
-          routeId: node.id,
-          part: "hash",
-          input: url.hash,
-          message: decoded.failure.message
-        })
-      )
+      return Result.fail(decoded.failure)
     }
     hash = decoded.success
   }
@@ -219,14 +290,22 @@ const encodeSearch = (routeId: string, fields: UrlFields, value: unknown): Resul
         )
       }
       const codec = fields[key]
-      if (item.length === 1 && codec !== undefined && Result.isSuccess(Schema.decodeUnknownResult(codec)(item[0]))) {
-        return Result.fail(
-          new RouteEncodeError({
-            routeId,
-            part: "search",
-            message: `Search field ${key} cannot distinguish a singleton array from a scalar value`
-          })
+      if (item.length === 1 && codec !== undefined) {
+        const scalar = probeDecode(
+          codec,
+          item[0],
+          () => new RouteEncodeError({ routeId, part: "search", message: asyncDecodeMessage })
         )
+        if (Result.isFailure(scalar)) return Result.fail(scalar.failure)
+        if (scalar.success) {
+          return Result.fail(
+            new RouteEncodeError({
+              routeId,
+              part: "search",
+              message: `Search field ${key} cannot distinguish a singleton array from a scalar value`
+            })
+          )
+        }
       }
       for (const entry of item) {
         if (Result.isFailure(encodeUriPart(routeId, "search", entry))) {
@@ -260,9 +339,13 @@ export const encode = (
   node: UrlCodecs,
   input: { readonly params: unknown; readonly search: unknown; readonly hash: unknown }
 ): Result.Result<string, RouteEncodeError> => {
-  const encodedParams = Schema.encodeResult(node.paramsSchema)(input.params as Record<string, unknown>)
+  const encodedParams = encodeSync(
+    () => Schema.encodeResult(node.paramsSchema)(input.params as Record<string, unknown>),
+    (message) => new RouteEncodeError({ routeId: node.id, part: "path", message }),
+    asyncEncodeMessage
+  )
   if (Result.isFailure(encodedParams)) {
-    return Result.fail(new RouteEncodeError({ routeId: node.id, part: "path", message: encodedParams.failure.message }))
+    return Result.fail(encodedParams.failure)
   }
   if (!Predicate.isObject(encodedParams.success)) {
     return Result.fail(
@@ -297,22 +380,27 @@ export const encode = (
   }
   const pathname = pathnameSegments.length === 0 ? "/" : `/${pathnameSegments.join("/")}`
 
-  const encodedSearchValue = Schema.encodeResult(node.searchSchema)(input.search as Record<string, unknown>)
+  const encodedSearchValue = encodeSync(
+    () => Schema.encodeResult(node.searchSchema)(input.search as Record<string, unknown>),
+    (message) => new RouteEncodeError({ routeId: node.id, part: "search", message }),
+    asyncEncodeMessage
+  )
   if (Result.isFailure(encodedSearchValue)) {
-    return Result.fail(
-      new RouteEncodeError({ routeId: node.id, part: "search", message: encodedSearchValue.failure.message })
-    )
+    return Result.fail(encodedSearchValue.failure)
   }
   const search = encodeSearch(node.id, node.searchSchema.fields, encodedSearchValue.success)
   if (Result.isFailure(search)) return search
 
   let hash = ""
-  if (node.hashSchema !== undefined && input.hash !== undefined) {
-    const encodedHashValue = Schema.encodeResult(node.hashSchema)(input.hash)
+  const hashSchema = node.hashSchema
+  if (hashSchema !== undefined && input.hash !== undefined) {
+    const encodedHashValue = encodeSync(
+      () => Schema.encodeResult(hashSchema)(input.hash),
+      (message) => new RouteEncodeError({ routeId: node.id, part: "hash", message }),
+      asyncEncodeMessage
+    )
     if (Result.isFailure(encodedHashValue)) {
-      return Result.fail(
-        new RouteEncodeError({ routeId: node.id, part: "hash", message: encodedHashValue.failure.message })
-      )
+      return Result.fail(encodedHashValue.failure)
     }
     if (typeof encodedHashValue.success !== "string") {
       return Result.fail(

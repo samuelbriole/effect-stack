@@ -1,6 +1,8 @@
 import type {
-  AnyGroupDescriptor,
+  AnyBoundGroup,
   AnyNode,
+  ChildKeys,
+  ChildrenOf,
   CollectionIdOf,
   Destination,
   RuntimeGroupNode,
@@ -30,22 +32,14 @@ export interface ViewsRecord {
   readonly [key: string]: LeafView | GroupView
 }
 
-type GroupChildrenOf<G> = G extends { readonly "~node": infer I }
-  ? I extends { readonly children: infer Children }
-    ? Children
-    : never
-  : never
-
-type RouteKeys<C> = { [K in keyof C as K extends "service" ? never : K]: C[K] }
-
 type ViewsOf<Defs> = {
-  readonly [K in keyof Defs]: Defs[K] extends AnyGroupDescriptor
-    ? ViewOptions & { readonly children: ViewsOf<GroupChildrenOf<Defs[K]>> }
+  readonly [K in keyof Defs]: Defs[K] extends AnyBoundGroup
+    ? ViewOptions & { readonly children: ViewsOf<ChildrenOf<Defs[K]>> }
     : LeafView
 }
 
 /** @since 0.4.0 */
-export type Views<C> = ViewsOf<RouteKeys<C>>
+export type Views<C> = ViewsOf<ChildKeys<C>>
 
 /** @since 0.4.0 */
 export type LinkDestination<C> = Destination<CollectionIdOf<C>>

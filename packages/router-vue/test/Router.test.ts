@@ -3,7 +3,7 @@ import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import { MemoryHistory, Router } from "@effect-stack/router"
+import { MemoryHistory, Route, RouteGroup, Router } from "@effect-stack/router"
 import { Link, Outlet, RouterProvider, useRoute, type Views } from "@effect-stack/router-vue"
 import { Atom } from "effect/unstable/reactivity"
 import { afterEach, describe, expect, it } from "vitest"
@@ -14,24 +14,21 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup()
 })
 
-const Routes = Router.schema("Vue", {
-  home: "/",
-  slow: {
-    path: "/slow",
+const Routes = Router.make("Vue").add(
+  Route.make("home", "/"),
+  Route.make("slow", "/slow", {
     success: Schema.Struct({ title: Schema.String })
-  },
-  areas: {
-    path: "/areas",
-    children: {
-      detail: {
-        path: ":areaId",
+  }),
+  RouteGroup.make("areas")
+    .add(
+      Route.make("detail", "/:areaId", {
         params: { areaId: Schema.FiniteFromString },
         success: Schema.Struct({ name: Schema.String }),
         error: Schema.Struct({ code: Schema.Number })
-      }
-    }
-  }
-})
+      })
+    )
+    .prefix("/areas")
+)
 
 class AreaMissing extends Schema.TaggedError<AreaMissing>()("AreaMissing", { code: Schema.Number }) {}
 
@@ -41,7 +38,11 @@ const HomePage = defineComponent({
   name: "HomePage",
   setup: () => {
     useRoute(Routes.home)
-    return () => h("main", [h("h1", "Home"), h(Link, { to: Routes.slow() }, { default: () => "Slow" })])
+    return () =>
+      h("main", [
+        h("h1", "Home"),
+        h(Link, { to: Routes.slow() }, { default: () => h("span", { "data-testid": "slow-link" }, "Slow") })
+      ])
   }
 })
 
@@ -133,6 +134,7 @@ describe("Vue router adapter", { concurrent: false }, () => {
     })
     await settle()
     expect(container.textContent).toContain("Home")
+    expect(container.querySelector('[data-testid="slow-link"]')?.textContent).toBe("Slow")
     const link = container.querySelector("a")
     expect(link?.getAttribute("href")).toBe("/slow")
     link?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))

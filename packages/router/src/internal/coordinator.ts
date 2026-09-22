@@ -19,7 +19,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import type { Compiled, DecodedInput, Plan } from "./compiler.ts"
 import type { Destination, RuntimeNode } from "./contract.ts"
-import { RouteDefinitionError, RouteNotFound } from "./errors.ts"
+import { RouteDefinitionError, RouteEncodeError, RouteNotFound } from "./errors.ts"
 import * as History from "../History.ts"
 import { isRedirect } from "./redirect.ts"
 import { encode } from "./url.ts"
@@ -231,6 +231,17 @@ export const make = Effect.fn("Router.coordinator")(function* (
   const isAuthorized = (id: number): Effect.Effect<boolean> =>
     Ref.get(active).pipe(Effect.map((current) => Option.isSome(current) && current.value.id === id))
 
+  // Destination membership is resolved against the canonical runtime nodes:
+  // a foreign contract can share a qualified id but never the node reference.
+  const isMember = (node: { readonly id: string }): boolean =>
+    compiled.byId.get(node.id) === (node as unknown as RuntimeNode)
+  const foreignDestinationError = (node: { readonly id: string }): RouteEncodeError =>
+    new RouteEncodeError({
+      routeId: node.id,
+      part: "path",
+      message: "Destination does not belong to this router collection"
+    })
+
   // Every ownership check and snapshot publication transition is serialized by
   // this gate. No user handler or finalizer ever runs inside it, so awaiting a
   // fiber that itself publishes (for example during interruption) cannot
@@ -368,7 +379,14 @@ export const make = Effect.fn("Router.coordinator")(function* (
           continue
         }
         const redirect = findRedirect(exit.cause)
-        if (redirect !== undefined) return { _tag: "Redirect", destination: redirect }
+        if (redirect !== undefined) {
+          if (!isMember(redirect.node)) {
+            const cause = Cause.fail(foreignDestinationError(redirect.node))
+            entries.push(failedEntry(node, planned.input, cause))
+            return { _tag: "Failed", owner: node.id, cause, entries }
+          }
+          return { _tag: "Redirect", destination: redirect }
+        }
         entries.push(failedEntry(node, planned.input, exit.cause))
         return { _tag: "Failed", owner: node.id, cause: exit.cause, entries }
       }
@@ -416,7 +434,7 @@ export const make = Effect.fn("Router.coordinator")(function* (
           }
         }
         const href = encode(
-          outcome.destination.node,
+          outcome.destination.node as unknown as RuntimeNode,
           outcome.destination.input as {
             readonly params: unknown
             readonly search: unknown
@@ -653,8 +671,13 @@ export const make = Effect.fn("Router.coordinator")(function* (
 
   const submit = Effect.fn("Router.submit")(function* (destination: Destination, options?: NavigateOptions) {
     const id = yield* allocateId
+    if (!isMember(destination.node)) {
+      const error = foreignDestinationError(destination.node)
+      yield* reject(error)
+      return yield* Effect.fail(error)
+    }
     const href = encode(
-      destination.node,
+      destination.node as unknown as RuntimeNode,
       destination.input as {
         readonly params: unknown
         readonly search: unknown

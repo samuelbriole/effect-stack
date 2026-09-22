@@ -4,7 +4,7 @@ import * as Deferred from "effect/Deferred"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { RegistryProvider } from "@effect/atom-react"
-import { MemoryHistory, Router } from "@effect-stack/router"
+import { MemoryHistory, Route, RouteGroup, Router } from "@effect-stack/router"
 import { Link, Outlet, RouterProvider, useRoute, type ErrorProps, type Views } from "@effect-stack/router-react"
 import { Atom } from "effect/unstable/reactivity"
 import * as React from "react"
@@ -18,24 +18,21 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup()
 })
 
-const Routes = Router.schema("React", {
-  home: "/",
-  slow: {
-    path: "/slow",
+const Routes = Router.make("React").add(
+  Route.make("home", "/"),
+  Route.make("slow", "/slow", {
     success: Schema.Struct({ title: Schema.String })
-  },
-  areas: {
-    path: "/areas",
-    children: {
-      detail: {
-        path: ":areaId",
+  }),
+  RouteGroup.make("areas")
+    .add(
+      Route.make("detail", "/:areaId", {
         params: { areaId: Schema.FiniteFromString },
         success: Schema.Struct({ name: Schema.String }),
         error: Schema.Struct({ code: Schema.Number })
-      }
-    }
-  }
-})
+      })
+    )
+    .prefix("/areas")
+)
 
 class AreaMissing extends Schema.TaggedError<AreaMissing>()("AreaMissing", { code: Schema.Number }) {}
 

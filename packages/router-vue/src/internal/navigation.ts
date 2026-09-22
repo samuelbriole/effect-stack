@@ -1,5 +1,4 @@
 import type { Destination, NavigationOutcome } from "@effect-stack/router/Router"
-import { Router } from "@effect-stack/router"
 import { useAtomValue } from "@effect/atom-vue"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -44,12 +43,12 @@ export const Link = defineComponent({
   props: {
     to: { type: Object as PropType<Destination<string>>, required: true as const }
   },
-  setup(props, { attrs }) {
+  setup(props, { attrs, slots }) {
     const context = useRouterContext()
     const navigate = useNavigate()
     const location = useAtomValue(() => context.atomRouter.location)
     return (): VNode | null => {
-      const href = Result.getOrThrow(Router.href(props.to))
+      const href = Result.getOrThrow(context.atomRouter.href(props.to))
       const pathname = href.split(/[?#]/)[0] ?? href
       const active = Option.exists(location.value, (value) => value.pathname === pathname)
       return h(
@@ -78,7 +77,7 @@ export const Link = defineComponent({
             void navigate(props.to).catch(() => {})
           }
         },
-        undefined
+        slots.default?.()
       )
     }
   }
@@ -97,7 +96,7 @@ export const Navigate = defineComponent({
     const navigate = useNavigate()
     const location = useAtomValue(() => context.atomRouter.location)
     watchEffect(() => {
-      const href = Router.href(props.to)
+      const href = context.atomRouter.href(props.to)
       if (Result.isFailure(href)) return
       const current = Option.getOrUndefined(location.value)
       if (current !== undefined && `${current.pathname}${current.search}${current.hash}` === href.success) return

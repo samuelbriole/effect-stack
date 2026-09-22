@@ -20,19 +20,26 @@ Platform adapter -> core service interface
 Cores must remain platform- and renderer-independent. Browser and memory history implement the core `History.Service`.
 React, Solid, and Vue adapters depend on `@effect-stack/router` and their official Effect Atom adapters.
 
-## Contracts and Layers
+## Declarations, contracts, and Layers
 
-A route collection is a declarative contract created with `Router.schema(collectionId, defs)`. The contract owns:
+A route collection is a named contract assembled from immutable declarations: `Route.make(identifier, path, options?)`
+for leaves and `RouteGroup.make(identifier, options?).add(...).prefix(path)` for groups, combined with
+`Router.make(collectionId).add(...)`. The bound contract owns:
 
-- Typed destination constructors (`Routes.project({ params, search })`).
-- Qualified, ancestry-aware node identities.
+- Typed destination constructors (`Routes.project.index({ params, search })`).
+- Qualified, ancestry-aware node identities and effective paths.
 - The runtime service key (`Routes.service`).
 - Optional `success` and `error` schemas that determine handler and view types.
 
-Implementations are ordinary Layers. `Router.route(descriptor, handler)` records one handler; `Router.layer(contract)`
-requires the union of mandatory implementation services plus `History.Service` and returns the contract's service.
-Application composition is `Layer.provide`/`Layer.provideMerge`/`Layer.mergeAll`; there is no registration pass, global
-augmentation, or renderer binding factory.
+Declarations are reusable and never mutated; binding them supplies collection identity, inherited inputs, and runtime
+ownership. Groups carry persistent mount prefixes applied once, leading slashes are local, and `params`/`search`
+inheritance is a disjoint union that rejects redeclared fields.
+
+Implementations are ordinary Layers. `Router.route(descriptor, handler)` records one handler for a bound node;
+`Router.layer(contract)` requires the union of mandatory implementation services plus `History.Service`, verifies each
+implementation targets the canonical bound node, and returns the contract's service. Application composition is
+`Layer.provide`/`Layer.provideMerge`/`Layer.mergeAll`; there is no registration pass, global augmentation, or renderer
+binding factory.
 
 Implementation Layers are constructed once per router runtime. Per-navigation handler execution is scoped separately;
 the handler scope closes before resolved data is published. Applications that need long-lived resources own them in

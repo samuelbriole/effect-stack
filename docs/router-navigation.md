@@ -9,7 +9,7 @@ The contract's `service` key provides the runtime router:
 
 ```ts
 const router = yield * Routes.service
-const outcome = yield * router.navigate(Routes.project({ params: { projectId } }))
+const outcome = yield * router.navigate(Routes.project.index({ params: { projectId } }))
 ```
 
 | Command                 | Completion                                                                                    |
@@ -25,6 +25,20 @@ Cancellation after publication is a no-op, and a stale cancel cannot affect a ne
 Push/replace encode the destination, commit history, then accept the attempt. Pre-acceptance encoding or history failures
 publish a rejected command status without cancelling previously accepted work and without letting an older attempt
 overwrite that rejection. Browser/external changes are already committed locations and enter at the matching phase.
+
+## Membership and identity
+
+Destinations are validated against the bound collection before any history write. A foreign destination — including a
+node from an independent contract that happens to share a qualified id, or a node added only to a different extension of
+the same base collection — fails with `RouteEncodeError` and leaves accepted work untouched. Redirects perform the same
+check before replacing history. The service's `href` checks membership while the collection-independent `Router.href`
+does not. `AtomRouter.href` and renderer `Link`/`Navigate` validate synchronously against the supplied contract, so
+links render correctly even before the runtime starts.
+
+Immutable `.add` preserves previously bound nodes: a base handler and destination remain valid in an extension, while
+extension-only nodes are rejected by the base. Layer assembly verifies that each implementation targets the canonical
+bound node, and `AtomRouter.make` validates the finalized contract carried by the runtime on every acquisition path,
+failing startup when a runtime was assembled from a different contract version.
 
 ## Preparation and publication
 

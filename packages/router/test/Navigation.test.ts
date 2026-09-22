@@ -7,48 +7,41 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
-import { MemoryHistory, Router } from "@effect-stack/router"
+import { MemoryHistory, Route, RouteGroup, Router } from "@effect-stack/router"
 
 class MissingProject extends Schema.TaggedError<MissingProject>()("MissingProject", { projectId: Schema.Number }) {}
 
-const Routes = Router.schema("Nav", {
-  home: "/",
-  accounts: {
-    path: "/accounts",
-    success: Schema.Struct({ count: Schema.Number }),
-    children: {
-      detail: {
-        path: ":accountId",
+const Routes = Router.make("Nav").add(
+  Route.make("home", "/"),
+  RouteGroup.make("accounts", { success: Schema.Struct({ count: Schema.Number }) })
+    .add(
+      Route.make("detail", "/:accountId", {
         params: { accountId: Schema.FiniteFromString },
         success: Schema.Struct({ name: Schema.String })
-      }
-    }
-  },
-  teams: {
-    path: "/teams",
-    success: Schema.Struct({ label: Schema.String }),
-    children: {
-      member: {
-        path: ":memberId",
+      })
+    )
+    .prefix("/accounts"),
+  RouteGroup.make("teams", { success: Schema.Struct({ label: Schema.String }) })
+    .add(
+      Route.make("member", "/:memberId", {
         params: { memberId: Schema.FiniteFromString },
         success: Schema.Struct({ name: Schema.String }),
         error: MissingProject
-      }
-    }
-  },
-  project: {
-    path: "/projects/:projectId",
+      })
+    )
+    .prefix("/teams"),
+  Route.make("project", "/projects/:projectId", {
     params: { projectId: Schema.FiniteFromString },
     search: { tab: Schema.optionalKey(Schema.String) },
     success: Schema.Struct({ title: Schema.String }),
     error: MissingProject
-  },
-  redirecting: { path: "/redirecting", success: Schema.Void },
-  redirectBadRelease: { path: "/redirect-bad-release", success: Schema.Void },
-  loopa: { path: "/loopa", success: Schema.Void },
-  loopb: { path: "/loopb", success: Schema.Void },
-  boom: { path: "/boom", success: Schema.Void, error: MissingProject }
-})
+  }),
+  Route.make("redirecting", "/redirecting", { success: Schema.Void }),
+  Route.make("redirectBadRelease", "/redirect-bad-release", { success: Schema.Void }),
+  Route.make("loopa", "/loopa", { success: Schema.Void }),
+  Route.make("loopb", "/loopb", { success: Schema.Void }),
+  Route.make("boom", "/boom", { success: Schema.Void, error: MissingProject })
+)
 
 const log: Array<string> = []
 

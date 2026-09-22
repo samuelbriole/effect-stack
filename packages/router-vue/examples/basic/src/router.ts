@@ -11,7 +11,7 @@ const Nav = defineComponent({
     return () =>
       h("nav", [
         h(Link, { to: Routes.home() }, { default: () => "Home" }),
-        h(Link, { to: Routes.project({ params: { projectId: projectId42 } }) }, { default: () => "Project 42" }),
+        h(Link, { to: Routes.project.index({ params: { projectId: projectId42 } }) }, { default: () => "Project 42" }),
         h(Link, { to: Routes.slow() }, { default: () => "Slow" })
       ])
   }
@@ -57,14 +57,19 @@ const ProjectPage = defineComponent({
         h("nav", [
           h(
             Link,
-            { to: Routes.project({ params: route.value.params, search: route.value.search }) },
+            { to: Routes.project.index({ params: route.value.params, search: route.value.search }) },
             { default: () => "Overview" }
           ),
-          h(Link, { to: Routes.details({ params: route.value.params }) }, { default: () => "Details" })
+          h(Link, { to: Routes.project.details({ params: route.value.params }) }, { default: () => "Details" })
         ]),
         h(Outlet)
       ])
   }
+})
+
+const IndexPage = defineComponent({
+  name: "IndexPage",
+  setup: () => () => h("p", "This is the project overview rendered by the index child.")
 })
 
 const DetailsPage = defineComponent({
@@ -79,7 +84,14 @@ const SlowPage = defineComponent({
 
 export const views = {
   home: HomePage,
-  project: { component: ProjectPage, pending: ProjectPending, error: ProjectBoundary },
-  details: DetailsPage,
+  project: {
+    component: ProjectPage,
+    pending: ProjectPending,
+    error: ProjectBoundary,
+    children: {
+      index: IndexPage,
+      details: DetailsPage
+    }
+  },
   slow: { component: SlowPage, pending: () => h("p", { role: "status" }, "Preparing…") }
 } satisfies Views<typeof Routes>

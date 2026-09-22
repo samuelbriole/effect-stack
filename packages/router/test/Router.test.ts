@@ -5,18 +5,17 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
-import { MemoryHistory, Router } from "@effect-stack/router"
+import { MemoryHistory, Route, Router } from "@effect-stack/router"
 
-const Routes = Router.schema("App", {
-  home: "/",
-  project: {
-    path: "/projects/:projectId",
+const Routes = Router.make("App").add(
+  Route.make("home", "/"),
+  Route.make("project", "/projects/:projectId", {
     params: { projectId: Schema.FiniteFromString },
     search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
     success: Schema.Struct({ title: Schema.String }),
     error: Schema.Struct({ code: Schema.Number })
-  }
-})
+  })
+)
 
 const ProjectLive = Router.route(Routes.project, ({ params, search }) =>
   Effect.succeed({ title: `Project ${params.projectId} ${search.tab ?? "overview"}` })
