@@ -22,4 +22,4 @@ decoded inputs and prepared data; React returns values, Solid accessors, and Vue
 Routes)` exposes read-only observations over the same service.
 
 This removes `collect`, implementation `bind`, `withRoute`, application-wide module augmentation, `RouteTree`,
-`RenderPolicy`, and public activation leases. See `docs/migration-router.md` for the migration path.
+`RenderPolicy`, and public activation leases.

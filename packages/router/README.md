@@ -89,4 +89,4 @@ in tests. Both are renderer-independent.
 observations (`state`, `location`, `status`, `branch`, and typed `route(node)` projections). It never creates a second
 engine and never exposes writable router state.
 
-See the [navigation contracts](../../docs/router-navigation.md) and the [migration guide](../../docs/migration-router.md).
+See the [navigation contracts](../../docs/router-navigation.md).

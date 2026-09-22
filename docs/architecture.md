@@ -52,6 +52,5 @@ application service Layers or Effect Atom scopes.
 - Browser and memory history are renderer-independent. Listeners are established before the initial location is read so
   an external change cannot race initial observation, and programmatic push/replace produce exactly one attempt.
 
-See [navigation contracts](router-navigation.md) for attempts, completion, cancellation, snapshots, and recovery, the
-[migration guide](migration-router.md) for changes from the previous API, and the [roadmap](roadmap.md) for deferred
-work.
+See [navigation contracts](router-navigation.md) for attempts, completion, cancellation, snapshots, and recovery, and the
+[roadmap](roadmap.md) for deferred work.
