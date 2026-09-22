@@ -1,93 +1,95 @@
-import type { Route, RouteTree } from "@effect-stack/router"
-import { injectRegistry, registryKey, useAtomValue } from "@effect/atom-vue"
+import type { AtomRouter, AtomRuntimeRequirement } from "@effect-stack/router/AtomRouter"
+import type { RuntimeNode } from "@effect-stack/router/Router"
+import { AtomRouter as AtomRouterModule, Router } from "@effect-stack/router"
+import { useAtomValue } from "@effect/atom-vue"
 import { Cause, Effect } from "effect"
-import { Atom, AtomRegistry } from "effect/unstable/reactivity"
-import { defineComponent, h, onScopeDispose, type PropType, provide, type VNode } from "vue"
-import { branchKey, depthKey, routerKey, snapshotKey } from "./context.ts"
-import { DefaultError, DefaultPending, FallbackSnapshot, Outlet } from "./rendering.ts"
-import type { Views } from "./route.ts"
-import type { ClientRouter, RuntimeRouter } from "./router.ts"
-
-const routerProps = { router: { type: Object as PropType<RuntimeRouter>, required: true as const } }
-const RegistryOwner = defineComponent({
-  name: "RouterRegistryOwner",
-  inheritAttrs: false,
-  props: { ...routerProps, registry: Object as PropType<AtomRegistry.AtomRegistry> },
-  setup(props) {
-    const registry = props.registry ?? AtomRegistry.make()
-    if (props.registry === undefined) onScopeDispose(() => registry.dispose())
-    provide(registryKey, registry)
-    let current = props.router
-    let generation = 0
-    return () => {
-      if (props.router !== current) {
-        current = props.router
-        generation++
-      }
-      return h(RouterView, { router: current, key: generation })
-    }
-  }
-})
-
-/** Owns a registry by default; a supplied registry remains caller-owned. @since 0.1.0 */
-export const RouterProvider = defineComponent({
-  name: "RouterProvider",
-  inheritAttrs: false,
-  props: { ...routerProps, registry: Object as PropType<AtomRegistry.AtomRegistry> },
-  setup(props) {
-    let current = props.registry
-    let generation = 0
-    return () => {
-      if (props.registry !== current) {
-        current = props.registry
-        generation++
-      }
-      return h(RegistryOwner, {
-        router: props.router,
-        ...(current === undefined ? {} : { registry: current }),
-        key: generation
-      })
-    }
-  }
-}) as unknown as <T extends RouteTree.Any, E>(props: {
-  readonly router: ClientRouter<T, E>
-  readonly registry?: AtomRegistry.AtomRegistry
-}) => VNode
+import type * as Context from "effect/Context"
+import * as Option from "effect/Option"
+import { computed, defineComponent, h, provide, type Component, type PropType, type VNode } from "vue"
+import { routerKey, useRouterContext, useRouterService, type RouterContextValue } from "./context.ts"
+import { DefaultError, DefaultPending, Outlet } from "./rendering.ts"
+import { flattenViews, type ErrorProps, type Views } from "./route.ts"
 
 const RouterView = defineComponent({
   name: "RouterView",
-  inheritAttrs: false,
-  props: routerProps,
+  props: {
+    pending: { type: Object as PropType<Component>, default: undefined },
+    error: { type: Object as PropType<Component>, default: undefined }
+  },
   setup(props) {
-    const { core } = props.router
-    provide(routerKey, props.router)
-    provide(snapshotKey, "resolved")
-    const registry = injectRegistry()
-    onScopeDispose(registry.mount(core.navigation))
-    const branch = useAtomValue(() => core.branch)
-    provide(branchKey, branch)
-    provide(depthKey, 0)
-    const root = core.routes[0] as Route.Any & Views
-    // The provider's core and registry are already resolved; a hook would re-inject
-    // from this same component, where Vue only walks the parent chain.
-    const retry = () => {
-      void Effect.runPromise(core.retry.pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))).catch(
-        () => {}
-      )
-    }
-    const startup = Atom.map(core.branch, (value) =>
-      value.matches.length > 0 ? undefined : value.result._tag === "Failure" ? Cause.squash(value.result.cause) : null
-    )
-    const startupError = useAtomValue(() => startup)
-    return () => {
-      const error = startupError.value
-      if (error === undefined) return h(Outlet)
-      if (error !== null) {
-        return h(FallbackSnapshot, null, {
-          default: () => h(root.errorComponent ?? DefaultError, { error, reset: retry })
-        })
+    const context = useRouterContext()
+    const state = useAtomValue(() => context.atomRouter.state)
+    const service = useRouterService()
+    return (): VNode => {
+      const result = state.value
+      if (result._tag === "Initial") return h((props.pending ?? DefaultPending) as never)
+      if (result._tag === "Failure") {
+        const ErrorView = (props.error ?? DefaultError) as Component
+        return h(
+          ErrorView as never,
+          {
+            error: Cause.squash(result.cause),
+            reset: () => {
+              void Effect.runPromise(service().retry).catch(() => {})
+            }
+          } as ErrorProps
+        )
       }
-      return h(root.pendingComponent ?? DefaultPending)
+      if (Option.isNone(result.value.presentation)) return h((props.pending ?? DefaultPending) as never)
+      return h(Outlet)
     }
   }
 })
+
+/** @since 0.4.0 */
+export interface RouterProviderProps<C extends { readonly service: Context.Key<string, unknown> }, R, ER> {
+  readonly routes: C
+  readonly runtime: AtomRuntimeRequirement<C, R, ER>
+  readonly views: Views<C>
+  readonly pending?: Component
+  readonly error?: Component<ErrorProps>
+}
+
+const RouterProviderImpl = defineComponent({
+  name: "RouterProvider",
+  inheritAttrs: false,
+  props: {
+    routes: { type: Object, required: true as const },
+    runtime: { type: Object, required: true as const },
+    views: { type: Object, required: true as const },
+    pending: { type: Object as PropType<Component>, default: undefined },
+    error: { type: Object as PropType<Component>, default: undefined }
+  },
+  setup(props) {
+    const atomRouter = computed(
+      () => AtomRouterModule.make(props.runtime as never, props.routes as never) as AtomRouter<unknown>
+    )
+    const views = computed(() =>
+      flattenViews(Router.nodes(props.routes) as Record<string, RuntimeNode>, props.views as Views<never>)
+    )
+    const value: RouterContextValue = {
+      get atomRouter() {
+        return atomRouter.value
+      },
+      get views() {
+        return views.value
+      }
+    }
+    provide(routerKey, value)
+    return () =>
+      h(RouterView, {
+        ...(props.pending === undefined ? {} : { pending: props.pending }),
+        ...(props.error === undefined ? {} : { error: props.error })
+      })
+  }
+})
+
+/**
+ * Provides a contract's router atoms and views over a caller-supplied runtime.
+ * Use the exported `RouterProviderProps` type to require that the runtime
+ * supplies the contract's service identifier.
+ *
+ * @since 0.4.0
+ * @category components
+ */
+export const RouterProvider = RouterProviderImpl

@@ -1,154 +1,128 @@
-import { RenderPolicy, type Route, Router } from "@effect-stack/router"
-import { injectRegistry } from "@effect/atom-vue"
-import { Effect } from "effect"
-import { AtomRegistry } from "effect/unstable/reactivity"
+import { useAtomValue } from "@effect/atom-vue"
+import { Cause } from "effect"
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as Option from "effect/Option"
 import {
-  type Component,
   computed,
   defineComponent,
   h,
   inject,
   onErrorCaptured,
-  type PropType,
   provide,
   shallowRef,
-  type VNode,
-  watch
+  type Component,
+  type PropType,
+  type VNode
 } from "vue"
-import { branchKey, depthKey, snapshotKey, useRuntime } from "./context.ts"
-import type { ErrorProps, Views } from "./route.ts"
+import { depthKey, useRouterContext } from "./context.ts"
+import { useRetry } from "./navigation.ts"
+import type { ErrorProps, ViewOptions } from "./route.ts"
 
-export const DefaultPending = () => h("div", { role: "status" }, "Loading…")
-export const DefaultNotFound = () => h("div", { role: "status" }, "Page not found")
-export const DefaultError = (props: ErrorProps) =>
-  h("div", { role: "alert" }, ["Unable to display this route. ", h("button", { onClick: props.reset }, "Retry")])
-
-// Fallback views describe the incoming navigation's decoded inputs, while ordinary
-// views keep the resolved input paired with the data it loaded.
-export const FallbackSnapshot = defineComponent({
-  name: "RouteFallbackSnapshot",
-  inheritAttrs: false,
-  setup(_props, { slots }) {
-    provide(snapshotKey, "incoming")
-    return () => slots.default?.()
+/** @since 0.4.0 */
+export const DefaultPending = defineComponent({
+  name: "RouterDefaultPending",
+  setup: () => () => h("div", { role: "status" }, "Loading…")
+})
+/** @since 0.4.0 */
+export const DefaultNotFound = defineComponent({
+  name: "RouterDefaultNotFound",
+  setup: () => () => h("div", { role: "status" }, "Page not found")
+})
+/** @since 0.4.0 */
+export const DefaultError = defineComponent({
+  name: "RouterDefaultError",
+  props: {
+    error: { type: null, default: undefined },
+    reset: { type: Function as PropType<() => void>, required: true }
+  },
+  setup(props) {
+    return () =>
+      h("div", { role: "alert" }, ["Unable to display this route. ", h("button", { onClick: props.reset }, "Retry")])
   }
 })
 
-// A Vue component is a function or options object; primitives and arrays cannot render.
-const isVueView = (value: unknown): value is Component =>
-  typeof value === "function" || (typeof value === "object" && value !== null && !Array.isArray(value))
-// Selection stays total; the actionable failure surfaces inside the render boundary so the
-// nearest errorComponent catches it with the route ID in the message.
-const invalidVueView = (routeId: string, value: unknown): Component =>
-  function InvalidLazyVueView(): VNode {
-    throw new Error(
-      `Route "${routeId}" selected a lazy module view that is not a Vue component (received ${
-        value === null ? "null" : Array.isArray(value) ? "array" : typeof value
-      }). Export the page as the module 'default' or 'component' view.`
-    )
-  }
-
-const declaresFallback = (route: Route.Any, kind: RenderPolicy.BoundaryKind): boolean =>
-  (route as Views)[kind] !== undefined
-
-// `??` would also skip present-but-null exports; only undefined keeps the next fallback.
-const selectVueView = (route: Route.Any & Views, module: unknown): unknown => {
-  const lazy = module as { readonly component?: Component; readonly default?: Component } | undefined
-  if (route.component !== undefined) return route.component
-  if (lazy?.component !== undefined) return lazy.component
-  if (lazy?.default !== undefined) return lazy.default
-  return Outlet
-}
-
-const RenderBoundary = defineComponent({
-  name: "RouteRenderBoundary",
-  inheritAttrs: false,
+const ViewBoundary = defineComponent({
+  name: "RouterViewBoundary",
   props: {
-    route: { type: Object as PropType<Route.Any & Views>, required: true },
-    refresh: { type: Function as PropType<() => void>, required: true }
+    view: { type: Object as PropType<ViewOptions>, required: true },
+    depth: { type: Number, required: true }
   },
-  setup(props, { slots }) {
-    const branch = inject(branchKey)
-    if (branch === undefined) throw new Error("Route render boundaries require an active route branch")
-    const failure = shallowRef<{ readonly error: unknown }>()
-    onErrorCaptured((error) => {
-      failure.value = { error }
+  setup(props) {
+    const error = shallowRef<unknown>(undefined)
+    onErrorCaptured((captured) => {
+      error.value = captured
       return false
     })
-    // A latched render error releases only when a completed successful transition
-    // covers this route, never the moment Retry dispatches its refresh.
-    const recovery = computed(() => RenderPolicy.recoveryKey(branch.value, props.route.id))
-    watch(
-      recovery,
-      () => {
-        failure.value = undefined
-      },
-      { flush: "sync" }
+    provide(
+      depthKey,
+      computed(() => props.depth + 1)
     )
-    const reset = () => props.refresh()
-    return () => {
-      const latched = failure.value
-      if (latched === undefined) return slots.default?.()
-      return h(FallbackSnapshot, null, {
-        default: () => h(props.route.errorComponent ?? DefaultError, { error: latched.error, reset })
-      })
+    return (): VNode | null => {
+      if (error.value !== undefined) {
+        const ErrorView = (props.view.error ?? DefaultError) as Component
+        return h(
+          ErrorView as never,
+          {
+            error: error.value,
+            reset: () => {
+              error.value = undefined
+            }
+          } as ErrorProps
+        )
+      }
+      return props.view.component === undefined ? null : h(props.view.component as never)
     }
   }
 })
 
-/** Renders the next match while preserving same-route Vue component instances. @since 0.1.0 */
+/**
+ * Renders the next route in the active branch.
+ *
+ * @since 0.4.0
+ * @category components
+ */
 export const Outlet = defineComponent({
   name: "RouterOutlet",
-  inheritAttrs: false,
   setup() {
-    const { core } = useRuntime()
-    const registry = injectRegistry()
-    const branch = inject(branchKey)
-    if (branch === undefined) throw new Error("Outlet requires an active route branch")
-    const depth = inject(depthKey, 0)
-    provide(depthKey, depth + 1)
-    let cached: RenderPolicy.Selection | undefined
-    // Selected presentation subscriptions observe their selection, not every branch publication.
-    const selection = computed(() => {
-      const next = RenderPolicy.select(branch.value, depth, declaresFallback)
-      if (cached !== undefined && RenderPolicy.sameSelection(cached, next)) return cached
-      cached = next
-      return next
-    })
-    // The boundary reset follows its own invocation through `execute`;
-    // failures surface in the branch snapshots like any transition.
-    const refresh = () => {
-      void Effect.runPromise(
-        core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-      ).catch(() => {})
-    }
-    return () => {
-      const selected = selection.value
-      if (selected._tag === "Empty") return null
-      const route = branch.value.matches[depth]?.route as (Route.Any & Views) | undefined
-      if (route === undefined) return null
-      if (selected._tag === "Boundary") {
-        const view =
-          selected.kind === "errorComponent"
-            ? (route.errorComponent ?? DefaultError)
-            : selected.kind === "pendingComponent"
-              ? (route.pendingComponent ?? DefaultPending)
-              : (route.notFoundComponent ?? DefaultNotFound)
+    const context = useRouterContext()
+    const state = useAtomValue(() => context.atomRouter.state)
+    const injected = inject(depthKey, null)
+    const depth = computed(() => (injected === null ? 0 : injected.value))
+    const retry = useRetry()
+    return (): VNode | null => {
+      const result = state.value
+      if (!AsyncResult.isSuccess(result)) return null
+      const routerState = result.value
+      const presentation = Option.getOrUndefined(routerState.presentation)
+      if (presentation === undefined) return null
+      const resolved = Option.getOrUndefined(routerState.resolved)
+      const entries =
+        presentation._tag === "Pending" && resolved !== undefined ? resolved.entries : presentation.entries
+      const failureOwner = presentation._tag === "Failed" ? presentation.owner : undefined
+      const failureError = presentation._tag === "Failed" ? presentation.error : undefined
+      if (failureOwner === "<notfound>") return h(DefaultNotFound)
+      if (failureOwner !== undefined && !entries.some((candidate) => candidate.id === failureOwner)) {
+        // A router-level failure has no owning entry: the root outlet renders
+        // it once, descendants defer.
+        return depth.value === 0 ? h(DefaultError as never, { error: failureError, reset: retry } as ErrorProps) : null
+      }
+      const entry = entries[depth.value]
+      if (entry === undefined) return null
+      const options = context.views.get(entry.id) ?? {}
+      if (failureOwner === entry.id && !AsyncResult.isSuccess(entry.data)) {
+        const ErrorView = (options.error ?? DefaultError) as Component
         return h(
-          FallbackSnapshot,
-          { key: `${route.id}:${selected.kind}` },
+          ErrorView as never,
           {
-            default: () => h(view, selected.kind === "errorComponent" ? { error: selected.error, reset: refresh } : {})
-          }
+            error: AsyncResult.isFailure(entry.data) ? Cause.squash(entry.data.cause) : failureError,
+            reset: retry
+          } as ErrorProps
         )
       }
-      const entry = branch.value.matches[depth]
-      const module = entry?.result._tag === "Success" ? entry.result.value.module : undefined
-      const selectedView = selectVueView(route, module)
-      const component = isVueView(selectedView) ? selectedView : invalidVueView(route.id, selectedView)
-      const view = () => h(component, { key: route.id })
-      if (route.errorComponent === undefined && depth !== 0) return view()
-      return h(RenderBoundary, { key: route.id, route, refresh }, { default: view })
+      if (!AsyncResult.isSuccess(entry.data) && Option.isNone(entry.retained)) {
+        return h((options.pending ?? DefaultPending) as never)
+      }
+      return h(ViewBoundary, { view: options, depth: depth.value, key: entry.id })
     }
   }
 })

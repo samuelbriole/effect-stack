@@ -1,84 +1,98 @@
-import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
-import * as Route from "@effect-stack/router/Route"
-import * as Router from "@effect-stack/router/Router"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import type * as Scope from "effect/Scope"
-import type * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
-import type * as Atom from "effect/unstable/reactivity/Atom"
-import { describe, expect, test } from "tstyche"
+import { expect, test } from "tstyche"
+import type { Destination, HandlerInputOf, ServiceIdOf } from "@effect-stack/router/Router"
+import * as Router from "@effect-stack/router/Router"
+import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 
-class LazyError extends Schema.TaggedError<LazyError>()("LazyError", {
-  message: Schema.String
-}) {}
+const ProjectId = Schema.FiniteFromString.pipe(Schema.brand("ProjectId"))
+const projectId = Schema.decodeUnknownSync(ProjectId)(1)
 
-const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
-const lazy = Route.make({
-  id: "lazy",
-  path: "/lazy/:section",
-  params: { section: Schema.String },
-  search: {},
-  lazy: () => Effect.fail(new LazyError({ message: "failed" })).pipe(Effect.as({ title: "Lazy" as const }))
+const Routes = Router.schema("App", {
+  home: "/",
+  project: {
+    path: "/projects/:projectId",
+    params: { projectId: ProjectId },
+    search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
+    success: Schema.Struct({ title: Schema.String }),
+    error: Schema.Struct({ code: Schema.Number })
+  },
+  login: {
+    path: "/login",
+    search: { returnTo: Schema.optionalKey(Schema.String) }
+  }
 })
-const routes = [home, lazy] as const
-const router = Router.make({ routes, layer: MemoryHistory.layer() })
 
-describe("Router", () => {
-  test("navigation targets are selected by route", () => {
-    expect(Router.push).type.toBeCallableWith(home, { params: {}, search: {}, hash: "" })
-    expect(Router.push).type.toBeCallableWith(lazy, { params: { section: "intro" }, search: {}, hash: "" })
-    expect(Router.push).type.not.toBeCallableWith(lazy, { params: {}, search: {}, hash: "" })
-    expect(router.navigation).type.toBe<
-      Atom.Atom<AsyncResult.AsyncResult<void, Router.NavigationError<typeof routes>>>
-    >()
-    expect(router.navigation).type.not.toBeAssignableTo<{
-      readonly write: unknown
-    }>()
-  })
+const Other = Router.schema("Other", {
+  home: "/",
+  project: {
+    path: "/projects/:projectId",
+    params: { projectId: Schema.FiniteFromString },
+    success: Schema.Struct({ name: Schema.String })
+  }
+})
 
-  test("route ID discriminates route-specific data", () => {
-    expect<Router.Resolved<typeof routes>>().type.toBeAssignableTo<
-      | {
-          readonly id: "home"
-          readonly params: {}
-          readonly module: void
-        }
-      | {
-          readonly id: "lazy"
-          readonly params: { readonly section: string }
-          readonly module: { readonly title: "Lazy" }
-        }
-    >()
-  })
+const Nested = Router.schema("Nested", {
+  home: "/",
+  projects: {
+    path: "/projects",
+    children: {
+      index: "",
+      detail: {
+        path: ":projectId",
+        params: { projectId: ProjectId },
+        success: Schema.Struct({ title: Schema.String })
+      }
+    }
+  }
+})
 
-  test("eager and lazy module and error types remain distinct", () => {
-    expect<Route.Route.Module<typeof home>>().type.toBe<void>()
-    expect<Route.Route.Module<typeof lazy>>().type.toBe<{ title: "Lazy" }>()
-    expect<Route.Route.LoadError<typeof home>>().type.toBe<never>()
-    expect<Route.Route.LoadError<typeof lazy>>().type.toBe<LazyError>()
-  })
+test("string routes take no input", () => {
+  expect(Routes.home).type.toBeCallableWith()
+  expect(Routes.home()).type.toBeAssignableTo<Destination<string>>()
+})
 
-  test("lazy is the only code-loading option and infers module, error, and service types", () => {
-    const viaLazy = Route.make({
-      id: "via-lazy",
-      path: "/via-lazy",
-      params: {},
-      search: {},
-      lazy: () => Effect.fail(new LazyError({ message: "failed" })).pipe(Effect.as({ title: "Lazy" as const }))
-    })
-    expect<Route.Route.Module<typeof viaLazy>>().type.toBe<{ title: "Lazy" }>()
-    expect<Route.Route.LoadError<typeof viaLazy>>().type.toBe<LazyError>()
-    // The stored code loader lives on the route's `lazy` field.
-    expect<NonNullable<typeof viaLazy.lazy>>().type.toBe<
-      () => Effect.Effect<{ title: "Lazy" }, LazyError, Scope.Scope>
-    >()
-    // `load` is no longer an accepted option name.
-    expect(Route.make).type.not.toBeCallableWith({
-      id: "via-load",
-      path: "/via-load",
-      params: {},
-      search: {},
-      load: () => Effect.succeed({ title: "Lazy" as const })
-    })
+test("typed destinations require declared params and accept optional search", () => {
+  expect(Routes.project).type.toBeCallableWith({ params: { projectId }, search: { tab: "activity" } })
+  expect(Routes.project).type.toBeCallableWith({ params: { projectId } })
+})
+
+test("nested contracts expose inherited inputs", () => {
+  expect(Nested.projects.detail).type.toBeCallableWith({ params: { projectId } })
+  expect(Nested.projects.index).type.toBeCallableWith()
+})
+
+test("direct handlers infer their input", () => {
+  Router.route(Routes.project, (input) => {
+    expect(input).type.toBe<HandlerInputOf<typeof Routes.project>>()
+    return Effect.succeed({ title: String(input.params.projectId) })
   })
+})
+
+test("effectful handler factories are supported through the builder", () => {
+  Router.route(Routes.project).buildEffect(
+    Effect.succeed((input: HandlerInputOf<typeof Routes.project>) =>
+      Effect.succeed({ title: String(input.params.projectId) })
+    )
+  )
+})
+
+test("declared success handlers are accepted", () => {
+  Router.route(Routes.project, () => Effect.succeed({ title: "ok" }))
+})
+
+test("missing mandatory implementations remain a Layer requirement", () => {
+  const incomplete = Router.layer(Routes).pipe(Layer.provide(MemoryHistory.layer()))
+  expect(incomplete).type.not.toBeAssignableTo<Layer.Layer<ServiceIdOf<typeof Routes>>>()
+})
+
+test("same local route names in separate collections stay distinct", () => {
+  expect(Routes.project({ params: { projectId } })).type.toBeAssignableTo<Destination<string>>()
+  expect(Other.project({ params: { projectId: 1 } })).type.toBeAssignableTo<Destination<string>>()
+})
+
+test("group layouts and node data are addressable", () => {
+  expect(Nested.projects.detail).type.toBeCallableWith({ params: { projectId } })
+  expect(Nested.projects.detail({ params: { projectId } })).type.toBeAssignableTo<Destination<string>>()
 })

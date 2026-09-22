@@ -338,6 +338,9 @@ importers:
 
   packages/router-solid/examples/basic:
     dependencies:
+      '@effect-stack-example/router-shared':
+        specifier: workspace:*
+        version: link:../../../router/examples/shared
       '@effect-stack/router':
         specifier: workspace:*
         version: link:../../../router
@@ -378,6 +381,9 @@ importers:
 
   packages/router-vue/examples/basic:
     dependencies:
+      '@effect-stack-example/router-shared':
+        specifier: workspace:*
+        version: link:../../../router/examples/shared
       '@effect-stack/router':
         specifier: workspace:*
         version: link:../../../router

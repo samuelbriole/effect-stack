@@ -17,14 +17,14 @@ Use the [adoption guide](docs/adoption.md) to choose a headless or renderer inte
 
 ## Packages
 
-| Package                                               | Status             |
-| ----------------------------------------------------- | ------------------ |
-| [`@effect-stack/router`](packages/router)             | 🟢 Available       |
-| [`@effect-stack/router-react`](packages/router-react) | 🧪 Initial adapter |
-| [`@effect-stack/router-solid`](packages/router-solid) | 🧪 Initial adapter |
-| [`@effect-stack/router-vue`](packages/router-vue)     | 🧪 Initial adapter |
-| `@effect-stack/form`                                  | 🟡 Planned         |
-| `@effect-stack/db`                                    | 🔭 Exploring       |
+| Package                                               | Status       |
+| ----------------------------------------------------- | ------------ |
+| [`@effect-stack/router`](packages/router)             | 🟢 Available |
+| [`@effect-stack/router-react`](packages/router-react) | 🟢 Available |
+| [`@effect-stack/router-solid`](packages/router-solid) | 🟢 Available |
+| [`@effect-stack/router-vue`](packages/router-vue)     | 🟢 Available |
+| `@effect-stack/form`                                  | 🟡 Planned   |
+| `@effect-stack/db`                                    | 🔭 Exploring |
 
 For remote state, use Effect Atom, Effect's alternative to TanStack Query.
 

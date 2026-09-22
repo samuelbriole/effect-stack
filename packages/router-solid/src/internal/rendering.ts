@@ -1,212 +1,123 @@
-import { RenderPolicy, type Route } from "@effect-stack/router"
 import { useAtomValue } from "@effect/atom-solid"
-import { Atom } from "effect/unstable/reactivity"
-import {
-  type Component,
-  createComponent,
-  createEffect,
-  createMemo,
-  ErrorBoundary,
-  type JSX,
-  Show,
-  untrack,
-  useContext
-} from "solid-js"
+import { Cause } from "effect"
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as Option from "effect/Option"
+import { createComponent, createMemo, ErrorBoundary, type JSX, Show, useContext } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { DepthContext, SnapshotContext, useRuntime } from "./context.ts"
+import { DepthContext, useRouterContextAccessor } from "./context.ts"
 import { useRetry } from "./navigation.ts"
-import type { ErrorProps, Views } from "./route.ts"
+import type { ErrorProps, ViewOptions } from "./route.ts"
 
-export function Keyed<T>(props: {
-  readonly when: T | undefined
-  readonly children: (value: NonNullable<T>) => JSX.Element
-  readonly fallback?: JSX.Element
-}): JSX.Element {
-  // Show uses callback arity to distinguish render functions from JSX accessors.
-  // Always supply a one-argument callback, even when a caller ignores the value.
+/**
+ * `Show` with `keyed` children narrows the value for us while preserving the
+ * reactive `when` getter.
+ */
+function Keyed<T>(props: { readonly when: T; readonly children: (value: T) => JSX.Element }): JSX.Element {
   return Show({
     get when() {
       return props.when
     },
     keyed: true,
-    get fallback() {
-      return props.fallback
-    },
-    children: (value: NonNullable<T>) => props.children(value)
-  })
+    children: (value: T) => props.children(value)
+  }) as unknown as JSX.Element
 }
 
-export const DefaultPending: Component = () =>
+/** @since 0.4.0 */
+export const DefaultPending = (): JSX.Element =>
   createComponent(Dynamic, { component: "div", role: "status", children: "Loading…" })
-export const DefaultNotFound: Component = () =>
+/** @since 0.4.0 */
+export const DefaultNotFound = (): JSX.Element =>
   createComponent(Dynamic, { component: "div", role: "status", children: "Page not found" })
-export const DefaultError: Component<ErrorProps> = (props) =>
+/** @since 0.4.0 */
+export const DefaultError = (props: ErrorProps): JSX.Element =>
   createComponent(Dynamic, {
     component: "div",
     role: "alert",
-    get children() {
-      return [
-        "Unable to display this route. ",
-        createComponent(Dynamic, { component: "button", onClick: () => props.reset(), children: "Retry" })
-      ]
-    }
+    children: [
+      "Unable to display this route. ",
+      createComponent(Dynamic, { component: "button", onClick: () => props.reset(), children: "Retry" })
+    ]
   })
 
-const isSolidView = (value: unknown): value is Component => typeof value === "function"
-// Selection stays total; the actionable failure surfaces inside the render boundary so the
-// nearest errorComponent catches it with the route ID in the message.
-const invalidSolidView = (routeId: string, value: unknown): Component =>
-  function InvalidLazySolidView(): JSX.Element {
-    throw new Error(
-      `Route "${routeId}" selected a lazy module view that is not a Solid component (received ${
-        value === null ? "null" : Array.isArray(value) ? "array" : typeof value
-      }). Export the page as the module 'default' or 'component' view.`
-    )
-  }
+type OutletState =
+  | { readonly _tag: "Empty" }
+  | { readonly _tag: "NotFound" }
+  | { readonly _tag: "RouterError"; readonly error: unknown }
+  | { readonly _tag: "Pending"; readonly options: ViewOptions }
+  | { readonly _tag: "Error"; readonly options: ViewOptions; readonly error: unknown }
+  | { readonly _tag: "View"; readonly id: string; readonly options: ViewOptions }
 
-const declaresView = (route: Route.Any, kind: RenderPolicy.BoundaryKind): boolean =>
-  (route as Views)[kind] !== undefined
-
-interface Presentation {
-  readonly selection: RenderPolicy.Selection
-  readonly route: (Route.Any & Views) | undefined
-  readonly module: unknown
-  readonly recoveryKey: object | undefined
-}
-
-/** Renders the next match with stable route owners and native Solid boundaries. @since 0.1.0 */
+/** @since 0.4.0 */
 export function Outlet(): JSX.Element {
-  const depth = useContext(DepthContext)
-  const { core } = useRuntime()
+  const depthAccessor = useContext(DepthContext)
+  const context = useRouterContextAccessor()
+  const result = useAtomValue(() => context().atomRouter.state)
   const reset = useRetry()
-  const presentation = Atom.map(core.branch, (branch): Presentation => {
-    const selection = RenderPolicy.select(branch, depth, declaresView)
-    const entry = branch.matches[depth]
-    return {
-      selection,
-      route: entry?.route as (Route.Any & Views) | undefined,
-      module: entry?.result._tag === "Success" ? entry.result.value.module : undefined,
-      recoveryKey: entry === undefined ? undefined : RenderPolicy.recoveryKey(branch, entry.route.id)
+  const selected = createMemo<OutletState>(() => {
+    const value = result()
+    if (!AsyncResult.isSuccess(value)) return { _tag: "Empty" }
+    const state = value.value
+    const presentation = Option.getOrUndefined(state.presentation)
+    if (presentation === undefined) return { _tag: "Empty" }
+    const resolved = Option.getOrUndefined(state.resolved)
+    const entries = presentation._tag === "Pending" && resolved !== undefined ? resolved.entries : presentation.entries
+    const failureOwner = presentation._tag === "Failed" ? presentation.owner : undefined
+    const failureError = presentation._tag === "Failed" ? presentation.error : undefined
+    const depth = depthAccessor === undefined ? 0 : depthAccessor()
+    if (failureOwner === "<notfound>") return { _tag: "NotFound" }
+    if (failureOwner !== undefined && !entries.some((candidate) => candidate.id === failureOwner)) {
+      return depth === 0 ? { _tag: "RouterError", error: failureError } : { _tag: "Empty" }
     }
-  }).pipe(
-    Atom.withEquality<Presentation>(
-      (left, right) =>
-        RenderPolicy.sameSelection(left.selection, right.selection)
-        && left.route === right.route
-        && left.module === right.module
-        && left.recoveryKey === right.recoveryKey
-    )
-  )
-  const current = useAtomValue(() => presentation)
-  const ownerKey = createMemo((): string | undefined => {
-    const selection = current().selection
-    if (selection._tag === "Empty") return undefined
-    return selection._tag === "View" ? `${selection.routeId}:view` : `${selection.routeId}:boundary:${selection.kind}`
-  })
-  return createComponent(Keyed<string>, {
-    get when() {
-      return ownerKey()
-    },
-    children: (_key: string) => {
-      const initial = untrack(current)
-      const route = initial.route as Route.Any & Views
-      const provideDepth = (children: () => JSX.Element) =>
-        createComponent(DepthContext.Provider, {
-          value: depth + 1,
-          get children() {
-            return children()
-          }
-        })
-      // Loader, pending, and not-found boundaries render their fallback directly,
-      // bypassing latched render errors through the shared presentation policy.
-      if (initial.selection._tag === "Boundary") {
-        const kind = initial.selection.kind
-        if (kind === "errorComponent") {
-          const ErrorView = route.errorComponent ?? DefaultError
-          return provideDepth(() =>
-            createComponent(SnapshotContext.Provider, {
-              value: "incoming" as const,
-              get children() {
-                return createComponent(Dynamic, {
-                  component: ErrorView,
-                  get error() {
-                    const selection = current().selection
-                    return selection._tag === "Boundary" ? selection.error : undefined
-                  },
-                  reset
-                })
-              }
-            })
-          )
-        }
-        const Fallback =
-          kind === "pendingComponent"
-            ? (route.pendingComponent ?? DefaultPending)
-            : (route.notFoundComponent ?? DefaultNotFound)
-        return provideDepth(() =>
-          createComponent(SnapshotContext.Provider, {
-            value: "incoming" as const,
-            get children() {
-              return createComponent(Fallback, {})
-            }
-          })
-        )
+    const entry = entries[depth]
+    if (entry === undefined) return { _tag: "Empty" }
+    const options = context().views.get(entry.id) ?? {}
+    if (failureOwner === entry.id && !AsyncResult.isSuccess(entry.data)) {
+      return {
+        _tag: "Error",
+        options,
+        error: AsyncResult.isFailure(entry.data) ? Cause.squash(entry.data.cause) : failureError
       }
-      const view = createMemo((): Component => {
-        const snapshot = current()
-        const lazy = snapshot.module as { readonly default?: unknown; readonly component?: unknown } | undefined
-        const selected: unknown =
-          snapshot.route?.component !== undefined
-            ? snapshot.route.component
-            : lazy?.component !== undefined
-              ? lazy.component
-              : lazy?.default !== undefined
-                ? lazy.default
-                : Outlet
-        return isSolidView(selected) ? selected : invalidSolidView(snapshot.route?.id ?? "unknown", selected)
-      })
-      const contentView = () =>
-        createComponent(Dynamic, {
-          get component() {
-            return view()
-          }
-        })
-      const viewContent = () =>
-        createComponent(SnapshotContext.Provider, {
-          value: "resolved" as const,
+    }
+    if (!AsyncResult.isSuccess(entry.data) && Option.isNone(entry.retained)) {
+      return { _tag: "Pending", options }
+    }
+    return { _tag: "View", id: entry.id, options }
+  })
+  return Keyed({
+    get when() {
+      return selected()
+    },
+    children: (state) => {
+      if (state._tag === "NotFound") return createComponent(DefaultNotFound, {})
+      if (state._tag === "RouterError") return createComponent(DefaultError, { error: state.error, reset })
+      if (state._tag === "Empty") return null
+      if (state._tag === "Pending") return createComponent(state.options.pending ?? DefaultPending, {})
+      if (state._tag === "Error") {
+        const ErrorView = state.options.error ?? DefaultError
+        return createComponent(ErrorView, { error: state.error, reset })
+      }
+      if (state._tag === "View") {
+        const View = state.options.component
+        return createComponent(ErrorBoundary, {
+          fallback: (error: unknown, boundaryReset: () => void) =>
+            createComponent(state.options.error ?? DefaultError, {
+              error,
+              reset: () => {
+                boundaryReset()
+                reset()
+              }
+            }),
           get children() {
-            return contentView()
-          }
-        })
-      // Branch boundaries replace a latched render error and bubble their own
-      // rendering failures to an ancestor, just like ordinary route components.
-      if (route.errorComponent === undefined && depth !== 0) return provideDepth(viewContent)
-      let clearLatch: (() => void) | undefined
-      let recovery = untrack(() => current().recoveryKey)
-      createEffect(() => {
-        const next = current().recoveryKey
-        if (next === recovery) return
-        recovery = next
-        // A latched render error clears only after a successful completed transition
-        // includes this boundary's route, never from the reset callback directly.
-        untrack(() => clearLatch?.())
-      })
-      return provideDepth(() =>
-        createComponent(ErrorBoundary, {
-          fallback: (error: unknown, clear: () => void) => {
-            clearLatch = clear
-            return createComponent(SnapshotContext.Provider, {
-              value: "incoming" as const,
+            return createComponent(DepthContext.Provider, {
+              value: () => (depthAccessor === undefined ? 1 : depthAccessor() + 1),
               get children() {
-                return createComponent(route.errorComponent ?? DefaultError, { error, reset })
+                return View === undefined ? null : createComponent(View, {})
               }
             })
-          },
-          get children() {
-            return viewContent()
           }
         })
-      )
+      }
+      return null
     }
   })
 }

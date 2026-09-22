@@ -1,111 +1,72 @@
 import * as BrowserHistory from "@effect-stack/router/BrowserHistory"
-import * as Route from "@effect-stack/router/Route"
 import * as Router from "@effect-stack/router/Router"
-import * as Effect from "effect/Effect"
-import * as Result from "effect/Result"
-import * as Schema from "effect/Schema"
+import { Context, Effect, Layer, Schema } from "effect"
 
-export interface PageMetadata {
-  readonly title: string
-  readonly message: string
-  readonly renderKey: string
-}
-
-export class ModuleLoadError extends Schema.TaggedError<ModuleLoadError>()("ModuleLoadError", {
-  routeId: Schema.String,
-  message: Schema.String,
-  cause: Schema.Defect()
-}) {}
-
+/** @since 0.4.0 */
 export const ProjectId = Schema.FiniteFromString.pipe(Schema.brand("ProjectId"))
+/** @since 0.4.0 */
 export type ProjectId = typeof ProjectId.Type
 
-export const projectId42 = Schema.decodeUnknownSync(ProjectId)("42")
+/** @since 0.4.0 */
+export const projectId42 = Schema.decodeUnknownSync(ProjectId)(42)
 
-export const homeRoute = Route.make({
-  id: "home",
-  path: "/",
-  params: {},
-  search: {}
-})
+/** @since 0.4.0 */
+export const Project = Schema.Struct({ id: Schema.Number, title: Schema.String })
+/** @since 0.4.0 */
+export type Project = typeof Project.Type
 
-export const projectRoute = Route.make({
-  id: "project",
-  path: "/projects/:projectId",
-  params: { projectId: ProjectId },
-  search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
-  hash: Schema.Literals(["", "details"])
-})
+/** @since 0.4.0 */
+export class ProjectNotFound extends Schema.TaggedError<ProjectNotFound>()("ProjectNotFound", {
+  projectId: Schema.Number
+}) {}
 
-const importModule = Effect.fn("RouterExample.importModule")(function* <A extends PageMetadata>(
-  routeId: string,
-  importPage: () => Promise<{ readonly page: A }>
-) {
-  const module = yield* Effect.tryPromise({
-    try: importPage,
-    catch: (cause) => new ModuleLoadError({ routeId, message: `Could not load ${routeId}`, cause })
-  })
-  return module.page
-})
-
-export const lazyRoute = Route.make({
-  id: "lazy",
-  path: "/lazy",
-  params: {},
-  search: {},
-  lazy: () => importModule("lazy", () => import("./pages/lazy.ts"))
-})
-
-export type SlowLoaderEvent = "started" | "finalized"
-
-const slowLoaderListeners = new Set<(event: SlowLoaderEvent) => void>()
-
-const publishSlowLoaderEvent = (event: SlowLoaderEvent): void => {
-  for (const listener of slowLoaderListeners) {
-    listener(event)
+/** @since 0.4.0 */
+export class Projects extends Context.Service<
+  Projects,
+  {
+    readonly get: (id: number) => Effect.Effect<Project, ProjectNotFound>
   }
-}
+>()("example/Projects") {}
 
-export const subscribeToSlowLoader = (listener: (event: SlowLoaderEvent) => void): (() => void) => {
-  slowLoaderListeners.add(listener)
-  return () => slowLoaderListeners.delete(listener)
-}
+/** @since 0.4.0 */
+export const demoProjectsLayer = Layer.succeed(
+  Projects,
+  Projects.of({
+    get: (id: number) => Effect.succeed({ id, title: `Project ${id}` })
+  })
+)
 
-const loadSlowRoute = Effect.fn("RouterExample.loadSlowRoute")(function* () {
-  yield* Effect.acquireRelease(
-    Effect.sync(() => publishSlowLoaderEvent("started")),
-    () => Effect.sync(() => publishSlowLoaderEvent("finalized"))
-  )
-  yield* Effect.sleep("3 seconds")
-  return yield* importModule("slow", () => import("./pages/slow.ts"))
+/** A concise named contract with typed destinations and optional success. @since 0.4.0 */
+export const Routes = Router.schema("Example", {
+  home: "/",
+  project: {
+    path: "/projects/:projectId",
+    params: { projectId: ProjectId },
+    search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
+    success: Project,
+    error: ProjectNotFound
+  },
+  details: {
+    path: "/projects/:projectId/details",
+    params: { projectId: ProjectId }
+  },
+  slow: {
+    path: "/slow",
+    success: Schema.Void
+  }
 })
 
-export const slowRoute = Route.make({
-  id: "slow",
-  path: "/slow",
-  params: {},
-  search: {},
-  lazy: loadSlowRoute
-})
+const ProjectLive = Router.route(Routes.project, ({ params }) =>
+  Projects.use((projects) => projects.get(params.projectId))
+)
 
-export const routes = [homeRoute, projectRoute, lazyRoute, slowRoute] as const
+const SlowLive = Router.route(Routes.slow, () => Effect.sleep("1 seconds"))
 
-export const router = Router.make({
-  routes,
-  layer: BrowserHistory.layer
-})
+const DetailsLive = Router.route(Routes.details, () => Effect.void)
 
-export const href = <R extends (typeof routes)[number]>(route: R, input: Route.Route.Input<R>): string =>
-  Result.getOrElse(router.href(route, input), (error) => `#encode-error-${error.part}`)
-
-export const destinations = {
-  home: href(homeRoute, { params: {}, search: {}, hash: "" }),
-  project: href(projectRoute, {
-    params: { projectId: projectId42 },
-    search: { tab: "activity" },
-    hash: "details"
-  }),
-  lazy: href(lazyRoute, { params: {}, search: {}, hash: "" }),
-  slow: href(slowRoute, { params: {}, search: {}, hash: "" }),
-  malformed: "/projects/not-a-number?tab=unknown#wrong"
-} as const
+/** The complete router Layer: implementations, history, and domain services. @since 0.4.0 */
+export const AppLive = Router.layer(Routes).pipe(
+  Layer.provide(Layer.mergeAll(ProjectLive, SlowLive, DetailsLive)),
+  Layer.provide(BrowserHistory.layer),
+  Layer.provide(demoProjectsLayer)
+)

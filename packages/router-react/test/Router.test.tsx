@@ -1,289 +1,209 @@
 // @vitest-environment happy-dom
+import * as Effect from "effect/Effect"
+import * as Deferred from "effect/Deferred"
+import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import { RegistryProvider } from "@effect/atom-react"
 import { MemoryHistory, Router } from "@effect-stack/router"
-import {
-  createRootRoute,
-  createRoute,
-  createRouter,
-  Link,
-  Navigate,
-  Outlet,
-  RouterProvider
-} from "@effect-stack/router-react"
-import { Deferred, Effect } from "effect"
-import { AtomRegistry } from "effect/unstable/reactivity"
+import { Link, Outlet, RouterProvider, useRoute, type ErrorProps, type Views } from "@effect-stack/router-react"
+import { Atom } from "effect/unstable/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { requireElement } from "../../../test-utils/dom.ts"
+import { afterEach, describe, expect, it } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-const cleanups: Array<() => Promise<void>> = []
-afterEach(async () => {
-  await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
+
+const cleanups: Array<() => void> = []
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup()
 })
 
-describe("React router", { concurrent: false }, () => {
-  it("does not repeat redirects when a root pending fallback remounts the layout", async () => {
-    const started = Effect.runSync(Deferred.make<void>())
-    const ready = Effect.runSync(Deferred.make<void>())
-    let visits = 0
-    const rootRoute = createRootRoute({
-      component: () => (
-        <>
-          <Navigate to="/child" />
-          <Outlet />
-        </>
-      )
-    })
-    const home = createRoute({ getParentRoute: () => rootRoute, path: "/" })
-    const child = createRoute({
-      getParentRoute: () => rootRoute,
-      path: "child",
-      loader: () =>
-        Effect.gen(function* () {
-          visits++
-          yield* Deferred.succeed(started, undefined)
-          yield* Deferred.await(ready)
-        }),
-      component: () => <p>Arrived</p>
-    })
-    const router = createRouter({ routeTree: rootRoute.addChildren([home, child]), history: MemoryHistory.layer() })
-    const registry = AtomRegistry.make()
-    const container = document.createElement("div")
-    const root = createRoot(container)
-    cleanups.push(async () => {
-      await React.act(async () => root.unmount())
-      registry.dispose()
-    })
-    await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
-    await Effect.runPromise(Deferred.await(started))
-    expect(container.textContent).toBe("Loading…")
-    await React.act(async () => {
-      Effect.runSync(Deferred.succeed(ready, undefined))
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
-    })
-    expect(container.textContent).toBe("Arrived")
-    expect(visits).toBe(1)
-    expect((await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))).location.index).toBe(1)
-  })
-
-  it("preserves explicit state in same-URL declarative replacement", async () => {
-    const state = { acknowledged: true }
-    const rootRoute = createRootRoute({ component: () => <Navigate to="/" replace state={state} /> })
-    const router = createRouter({ routeTree: rootRoute, history: MemoryHistory.layer() })
-    const registry = AtomRegistry.make()
-    const root = createRoot(document.createElement("div"))
-    cleanups.push(async () => {
-      await React.act(async () => root.unmount())
-      registry.dispose()
-    })
-    await React.act(async () => root.render(<RouterProvider router={router} registry={registry} />))
-    const match = await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state))
-    expect(match.location.state).toEqual(state)
-    expect(match.location.index).toBe(0)
-  })
-
-  it("disposes provider-owned loader scopes after StrictMode unmount", async () => {
-    const finalized = Effect.runSync(Deferred.make<void>())
-    const started = Effect.runSync(Deferred.make<void>())
-    const route = createRootRoute({
-      loader: () =>
-        Effect.gen(function* () {
-          yield* Effect.addFinalizer(() => Deferred.succeed(finalized, undefined))
-          yield* Deferred.succeed(started, undefined)
-          return yield* Effect.never
-        })
-    })
-    const router = createRouter({ routeTree: route, history: MemoryHistory.layer() })
-    const container = document.createElement("div")
-    const root = createRoot(container)
-    await React.act(async () => {
-      root.render(
-        <React.StrictMode>
-          <RouterProvider router={router} />
-        </React.StrictMode>
-      )
-    })
-    await Effect.runPromise(Deferred.await(started))
-    vi.useFakeTimers()
-    try {
-      await React.act(async () => {
-        root.unmount()
-        await vi.advanceTimersByTimeAsync(501)
-      })
-      await Effect.runPromise(Deferred.await(finalized))
-    } finally {
-      vi.useRealTimers()
+const Routes = Router.schema("React", {
+  home: "/",
+  slow: {
+    path: "/slow",
+    success: Schema.Struct({ title: Schema.String })
+  },
+  areas: {
+    path: "/areas",
+    children: {
+      detail: {
+        path: ":areaId",
+        params: { areaId: Schema.FiniteFromString },
+        success: Schema.Struct({ name: Schema.String }),
+        error: Schema.Struct({ code: Schema.Number })
+      }
     }
+  }
+})
+
+class AreaMissing extends Schema.TaggedError<AreaMissing>()("AreaMissing", { code: Schema.Number }) {}
+
+const AreaDetailLive = Router.route(Routes.areas.detail, () => Effect.fail(new AreaMissing({ code: 1 })))
+
+function HomePage() {
+  useRoute(Routes.home)
+  return (
+    <main>
+      <h1>Home</h1>
+      <Link to={Routes.slow()}>Slow</Link>
+    </main>
+  )
+}
+
+function SlowPending() {
+  return <p role="status">Preparing…</p>
+}
+
+function SlowError(props: ErrorProps) {
+  return <button onClick={props.reset}>Retry</button>
+}
+
+function SlowPage() {
+  const { data } = useRoute(Routes.slow)
+  return <h1>{data.title}</h1>
+}
+
+function AreasLayout() {
+  return (
+    <div data-testid="areas-layout">
+      <h2>Areas layout</h2>
+      <Outlet />
+    </div>
+  )
+}
+
+function AreaDetailPage() {
+  const { data } = useRoute(Routes.areas.detail)
+  return <p>{data.name}</p>
+}
+
+function AreaDetailError(props: ErrorProps) {
+  return <p data-testid="area-error">Area failed: {String(props.error)}</p>
+}
+
+const views = {
+  home: HomePage,
+  slow: { component: SlowPage, pending: SlowPending, error: SlowError },
+  areas: {
+    component: AreasLayout,
+    children: {
+      detail: { component: AreaDetailPage, error: AreaDetailError }
+    }
+  }
+} satisfies Views<typeof Routes>
+
+const mount = (element: React.ReactElement) => {
+  const container = document.createElement("div")
+  document.body.append(container)
+  const root = createRoot(container)
+  cleanups.push(() => {
+    React.act(() => root.unmount())
+    container.remove()
+  })
+  React.act(() => {
+    root.render(element)
+  })
+  return { container, root }
+}
+
+const waitForText = async (container: HTMLElement, text: string, attempts = 100): Promise<boolean> => {
+  if ((container.textContent ?? "").includes(text)) return true
+  if (attempts <= 0) return false
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  return waitForText(container, text, attempts - 1)
+}
+
+describe("React router adapter", { concurrent: false }, () => {
+  it("shows pending views, resolves typed data, and navigates through links", async () => {
+    const gate = Effect.runSync(Deferred.make<void>())
+    const SlowLive = Router.route(Routes.slow, () => Deferred.await(gate).pipe(Effect.as({ title: "Ready" })))
+    const AppLive = Router.layer(Routes).pipe(
+      Layer.provide(Layer.merge(SlowLive, AreaDetailLive)),
+      Layer.provide(MemoryHistory.layer("/slow"))
+    )
+    const runtime = Atom.runtime(AppLive)
+    const { container } = mount(
+      <RegistryProvider>
+        <RouterProvider routes={Routes} runtime={runtime} views={views} />
+      </RegistryProvider>
+    )
+    expect(await waitForText(container, "Preparing…")).toBe(true)
+    await React.act(async () => {
+      Effect.runSync(Deferred.succeed(gate, undefined))
+    })
+    expect(await waitForText(container, "Ready")).toBe(true)
   })
 
-  it("keeps ancestor layouts around pending lazy views and nested not-found views", async () => {
-    const started = Effect.runSync(Deferred.make<void>())
-    const ready = Effect.runSync(Deferred.make<void>())
-    const rootRoute = createRootRoute({
-      component: () => (
-        <>
-          <h1>Shell</h1>
-          <Outlet />
-        </>
-      )
-    })
-    const section = createRoute({
-      getParentRoute: () => rootRoute,
-      path: "section",
-      component: () => (
-        <>
-          <h2>Section</h2>
-          <Outlet />
-        </>
-      ),
-      notFoundComponent: () => <p>Section missing</p>
-    })
-    const lazy = createRoute({
-      getParentRoute: () => section,
-      path: "lazy",
-      pendingComponent: () => <p>Waiting for view</p>,
-      lazy: () =>
-        Effect.gen(function* () {
-          yield* Deferred.succeed(started, undefined)
-          yield* Deferred.await(ready)
-          return { default: () => <p>Lazy view</p> }
-        })
-    })
-    const router = createRouter({
-      routeTree: rootRoute.addChildren([section.addChildren([lazy])]),
-      history: MemoryHistory.layer("/section/lazy")
-    })
-    const registry = AtomRegistry.make()
-    const container = document.createElement("div")
-    const root = createRoot(container)
-    cleanups.push(async () => {
-      await React.act(async () => root.unmount())
-      registry.dispose()
-    })
-    const unmountState = registry.mount(router.core.state)
-    await Effect.runPromise(Deferred.await(started))
+  it("renders home and follows a typed link", async () => {
+    const SlowLive = Router.route(Routes.slow, () => Effect.succeed({ title: "Ready" }))
+    const AppLive = Router.layer(Routes).pipe(
+      Layer.provide(Layer.merge(SlowLive, AreaDetailLive)),
+      Layer.provide(MemoryHistory.layer("/"))
+    )
+    const runtime = Atom.runtime(AppLive)
+    const { container } = mount(
+      <RegistryProvider>
+        <RouterProvider routes={Routes} runtime={runtime} views={views} />
+      </RegistryProvider>
+    )
+    await React.act(async () => {})
+    expect(await waitForText(container, "Home")).toBe(true)
+    const link = container.querySelector("a")
+    expect(link?.getAttribute("href")).toBe("/slow")
     await React.act(async () => {
-      root.render(<RouterProvider router={router} registry={registry} />)
+      link?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
     })
-    expect(container.textContent).toBe("ShellSectionWaiting for view")
-    await React.act(async () => {
-      Effect.runSync(Deferred.succeed(ready, undefined))
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
-    })
-    expect(container.textContent).toBe("ShellSectionLazy view")
-    unmountState()
-
-    const missingRouter = createRouter({
-      routeTree: rootRoute.addChildren([section.addChildren([lazy])]),
-      history: MemoryHistory.layer("/section/missing")
-    })
-    await React.act(async () => {
-      root.render(<RouterProvider router={missingRouter} registry={registry} />)
-      await Effect.runPromise(
-        AtomRegistry.getResult(registry, missingRouter.core.state, { suspendOnWaiting: true }).pipe(Effect.exit)
-      )
-    })
-    expect(container.textContent).toBe("ShellSection missing")
+    expect(await waitForText(container, "Ready")).toBe(true)
   })
 
-  it("renders typed data, preserves layout state, and uses real anchor navigation", async () => {
-    const rootRoute = createRootRoute({ component: Layout })
-    const home = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => <p>Home</p> })
-    const project = createRoute({
-      getParentRoute: () => rootRoute,
-      path: "project",
-      loader: () => Effect.succeed("Project data"),
-      component: Project
-    })
-    function Layout() {
-      const [count, setCount] = React.useState(0)
-      return (
-        <>
-          <button onClick={() => setCount(count + 1)}>Count {count}</button>
-          <Link to="/project">Project</Link>
-          <Outlet />
-        </>
-      )
-    }
-    function Project() {
-      return <p>{project.useLoaderData()}</p>
-    }
-    const router = createRouter({ routeTree: rootRoute.addChildren([home, project]), history: MemoryHistory.layer() })
-    const registry = AtomRegistry.make()
-    const container = document.createElement("div")
-    document.body.append(container)
-    const root = createRoot(container)
-    cleanups.push(async () => {
-      await React.act(async () => root.unmount())
-      registry.dispose()
-      container.remove()
-    })
+  it("keeps hooks on the retained branch while a different route is pending", async () => {
+    const gate = Effect.runSync(Deferred.make<void>())
+    const SlowLive = Router.route(Routes.slow, () => Deferred.await(gate).pipe(Effect.as({ title: "Ready" })))
+    const AppLive = Router.layer(Routes).pipe(
+      Layer.provide(Layer.merge(SlowLive, AreaDetailLive)),
+      Layer.provide(MemoryHistory.layer("/"))
+    )
+    const runtime = Atom.runtime(AppLive)
+    const { container } = mount(
+      <RegistryProvider>
+        <RouterProvider routes={Routes} runtime={runtime} views={views} />
+      </RegistryProvider>
+    )
+    await React.act(async () => {})
+    expect(await waitForText(container, "Home")).toBe(true)
+    const link = container.querySelector("a")
     await React.act(async () => {
-      root.render(
-        <React.StrictMode>
-          <RouterProvider router={router} registry={registry} />
-        </React.StrictMode>
-      )
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }))
+      link?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
+      // Keep act active while the pending navigation transition publishes, so
+      // its updates are covered by act rather than warned about.
+      await new Promise((resolve) => setTimeout(resolve, 30))
     })
+    // While the new route prepares, the retained branch (and `useRoute(home)`)
+    // must remain consistent rather than throwing or showing the pending route.
     expect(container.textContent).toContain("Home")
-    await React.act(async () => requireElement(container, "button").click())
-    const anchor = container.querySelector("a")
-    if (anchor === null) throw new Error("Expected anchor")
-    expect(anchor.getAttribute("href")).toBe("/project")
-    const modified = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true })
+    expect(container.textContent).not.toContain("Unable to display")
     await React.act(async () => {
-      anchor.dispatchEvent(modified)
+      Effect.runSync(Deferred.succeed(gate, undefined))
     })
-    expect(modified.defaultPrevented).toBe(false)
-    await React.act(async () => {
-      anchor.click()
-      await Effect.runPromise(AtomRegistry.getResult(registry, router.core.navigation, { suspendOnWaiting: true }))
-    })
-    expect(container.textContent).toContain("Project data")
-    expect(container.textContent).toContain("Count 1")
-    expect(container.querySelector("a")?.getAttribute("aria-current")).toBe("page")
+    expect(await waitForText(container, "Ready")).toBe(true)
   })
 
-  it("bubbles loader errors to a route boundary and retries on refresh", async () => {
-    let fail = true
-    const rootRoute = createRootRoute({
-      component: () => (
-        <>
-          <h1>Layout</h1>
-          <Outlet />
-        </>
-      )
-    })
-    const child = createRoute({
-      getParentRoute: () => rootRoute,
-      path: "child",
-      loader: () => (fail ? Effect.fail("missing") : Effect.succeed("Recovered")),
-      component: () => <p>{child.useLoaderData()}</p>,
-      errorComponent: ({ reset }) => <button onClick={reset}>Try again</button>
-    })
-    const router = createRouter({ routeTree: rootRoute.addChildren([child]), history: MemoryHistory.layer("/child") })
-    const registry = AtomRegistry.make()
-    const container = document.createElement("div")
-    const root = createRoot(container)
-    cleanups.push(async () => {
-      await React.act(async () => root.unmount())
-      registry.dispose()
-    })
-    await React.act(async () => {
-      root.render(<RouterProvider router={router} registry={registry} />)
-      await Effect.runPromise(
-        AtomRegistry.getResult(registry, router.core.state, { suspendOnWaiting: true }).pipe(Effect.exit)
-      )
-    })
-    expect(container.textContent).toBe("LayoutTry again")
-    fail = false
-    await React.act(async () => {
-      await Effect.runPromise(
-        router.core.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-      )
-    })
-    expect(container.textContent).toBe("LayoutRecovered")
+  it("keeps ancestor layouts around a nested route failure", async () => {
+    const SlowLive = Router.route(Routes.slow, () => Effect.succeed({ title: "Ready" }))
+    const AppLive = Router.layer(Routes).pipe(
+      Layer.provide(Layer.merge(SlowLive, AreaDetailLive)),
+      Layer.provide(MemoryHistory.layer("/areas/7"))
+    )
+    const runtime = Atom.runtime(AppLive)
+    const { container } = mount(
+      <RegistryProvider>
+        <RouterProvider routes={Routes} runtime={runtime} views={views} />
+      </RegistryProvider>
+    )
+    await React.act(async () => {})
+    expect(await waitForText(container, "Areas layout")).toBe(true)
+    expect(container.textContent).toContain("Area failed")
+    expect(container.textContent).not.toContain("Unable to display")
   })
 })

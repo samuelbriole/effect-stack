@@ -20,6 +20,7 @@
   },
   "files": [
     "src/**/*.ts",
+    "src/**/*.tsx",
     "dist/**",
     "README.md",
     "LICENSE"
