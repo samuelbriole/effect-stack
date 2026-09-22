@@ -1,16 +1,34 @@
-import type { Router } from "@effect-stack/router"
-import { inject, type InjectionKey, type Ref } from "vue"
-import type { RegisteredRouter, RuntimeRouter } from "./router.ts"
+import type { AtomRouter } from "@effect-stack/router/AtomRouter"
+import type { RouterService } from "@effect-stack/router/Router"
+import { useAtomValue } from "@effect/atom-vue"
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import { inject, type ComputedRef, type InjectionKey } from "vue"
+import type { ViewOptions } from "./route.ts"
 
-export const routerKey: InjectionKey<RuntimeRouter> = Symbol("effect-stack/router")
-export const branchKey: InjectionKey<Readonly<Ref<Router.Branch>>> = Symbol("effect-stack/branch")
-export const depthKey: InjectionKey<number> = Symbol("effect-stack/depth")
-export const snapshotKey: InjectionKey<"resolved" | "incoming"> = Symbol("effect-stack/snapshot")
-
-/** @since 0.1.0 */
-export function useRouter(): RegisteredRouter {
-  const router = inject(routerKey)
-  if (router === undefined) throw new Error("Router hooks require RouterProvider")
-  return router as RegisteredRouter
+/** @since 0.4.0 */
+export interface RouterContextValue {
+  readonly atomRouter: AtomRouter<unknown>
+  readonly views: ReadonlyMap<string, ViewOptions>
 }
-export const useRuntime = (): RuntimeRouter => useRouter() as RuntimeRouter
+
+/** @since 0.4.0 */
+export const routerKey: InjectionKey<RouterContextValue> = Symbol.for("@effect-stack/router-vue/context")
+/** @since 0.4.0 */
+export const depthKey: InjectionKey<ComputedRef<number>> = Symbol.for("@effect-stack/router-vue/depth")
+
+/** @since 0.4.0 */
+export function useRouterContext(): RouterContextValue {
+  const value = inject(routerKey, null)
+  if (value === null) throw new Error("Router composables require RouterProvider")
+  return value
+}
+
+/** @since 0.4.0 */
+export function useRouterService(): () => RouterService<unknown> {
+  const context = useRouterContext()
+  const result = useAtomValue(() => context.atomRouter.service)
+  return () => {
+    if (!AsyncResult.isSuccess(result.value)) throw new Error("Router service is not available yet")
+    return result.value.value
+  }
+}

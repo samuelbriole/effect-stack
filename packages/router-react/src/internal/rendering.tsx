@@ -1,25 +1,55 @@
-import { RenderPolicy, type Route } from "@effect-stack/router"
+import type { RouterState } from "@effect-stack/router/Router"
 import { useAtomValue } from "@effect/atom-react"
-import { Atom } from "effect/unstable/reactivity"
+import { Cause } from "effect"
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as Option from "effect/Option"
 import * as React from "react"
-import { DepthContext, SnapshotContext, useRuntime } from "./context.ts"
+import { DepthContext, useRouterContext } from "./context.ts"
 import { useRetry } from "./navigation.tsx"
-import type { ErrorProps, Views } from "./route.ts"
+import type { ErrorProps, ViewOptions } from "./route.ts"
 
-export const DefaultPending = () => <div role="status">Loading…</div>
-export const DefaultNotFound = () => <div role="status">Page not found</div>
-export const DefaultError = ({ reset }: ErrorProps) => (
+/** @since 0.4.0 */
+export const DefaultPending = (): React.ReactNode => <div role="status">Loading…</div>
+/** @since 0.4.0 */
+export const DefaultNotFound = (): React.ReactNode => <div role="status">Page not found</div>
+/** @since 0.4.0 */
+export const DefaultError = ({ reset }: ErrorProps): React.ReactNode => (
   <div role="alert">
     Unable to display this route. <button onClick={reset}>Retry</button>
   </div>
 )
+
+interface Display {
+  readonly entries: RouterState<unknown>["presentation"] extends Option.Option<infer P>
+    ? P extends { readonly entries: infer E }
+      ? E
+      : never
+    : never
+  readonly failureOwner?: string
+  readonly failureError?: unknown
+}
+
+const displayOf = (state: RouterState<unknown>): Display => {
+  const presentation = Option.getOrUndefined(state.presentation)
+  if (presentation === undefined) return { entries: [] }
+  if (presentation._tag === "Pending") {
+    const resolved = Option.getOrUndefined(state.resolved)
+    return { entries: (resolved?.entries ?? presentation.entries) as Display["entries"] }
+  }
+  if (presentation._tag === "Resolved") return { entries: presentation.entries as Display["entries"] }
+  return {
+    entries: presentation.entries as Display["entries"],
+    failureOwner: presentation.owner,
+    failureError: presentation.error
+  }
+}
 
 class RenderBoundary extends React.Component<
   {
     readonly children: React.ReactNode
     readonly fallback: React.ComponentType<ErrorProps>
     readonly reset: () => void
-    readonly recoveryKey: object | undefined
+    readonly recoveryKey: string
   },
   { readonly failed: boolean; readonly error: unknown }
 > {
@@ -33,133 +63,55 @@ class RenderBoundary extends React.Component<
     }
   }
   override render() {
-    const Fallback = this.props.fallback
-    return this.state.failed ? (
-      <SnapshotContext.Provider value="incoming">
-        <Fallback error={this.state.error} reset={this.props.reset} />
-      </SnapshotContext.Provider>
-    ) : (
-      this.props.children
-    )
+    if (this.state.failed) {
+      const Fallback = this.props.fallback
+      return <Fallback error={this.state.error} reset={this.props.reset} />
+    }
+    return this.props.children
   }
 }
 
-const ReactMemoType = Symbol.for("react.memo")
-const ReactLazyType = Symbol.for("react.lazy")
-const ReactForwardRefType = Symbol.for("react.forward_ref")
-const ReactBuiltinViews = new Set([
-  Symbol.for("react.fragment"),
-  Symbol.for("react.strict_mode"),
-  Symbol.for("react.profiler"),
-  Symbol.for("react.suspense"),
-  Symbol.for("react.activity")
-])
-const isReactView = (value: unknown): value is React.ComponentType => {
-  if (typeof value === "function") return true
-  if (typeof value === "symbol") return ReactBuiltinViews.has(value)
-  const exotic =
-    typeof value === "object" && value !== null ? (value as { readonly $$typeof?: symbol }).$$typeof : undefined
-  return exotic === ReactMemoType || exotic === ReactLazyType || exotic === ReactForwardRefType
-}
-// Selection stays total; the actionable failure surfaces inside the render boundary so the
-// nearest errorComponent catches it with the route ID in the message.
-const invalidReactView = (routeId: string, value: unknown): React.ComponentType =>
-  function InvalidLazyReactView(): React.ReactNode {
-    throw new Error(
-      `Route "${routeId}" selected a lazy module view that is not a React component (received ${
-        value === null ? "null" : Array.isArray(value) ? "array" : typeof value
-      }). Export the page as the module 'default' or 'component' view.`
-    )
-  }
-
-interface Presentation {
-  readonly selection: RenderPolicy.Selection
-  readonly route: Route.Any | undefined
-  readonly module: unknown
-  readonly recoveryKey: object | undefined
-}
-
-/** Renders the next route in the active branch. @since 0.1.0 */
+/**
+ * Renders the next route in the active branch. Layout components render an
+ * `Outlet` to continue the branch.
+ *
+ * @since 0.4.0
+ * @category components
+ */
 export function Outlet(): React.ReactNode {
   const depth = React.useContext(DepthContext)
-  const { core } = useRuntime()
+  const { atomRouter, views } = useRouterContext()
+  const result = useAtomValue(atomRouter.state)
   const reset = useRetry()
-  const presentation = React.useMemo(
-    () =>
-      Atom.map(core.branch, (branch) => {
-        const selection = RenderPolicy.select(branch, depth, (route, kind) => (route as Views)[kind] !== undefined)
-        const entry = branch.matches[depth]
-        return {
-          selection,
-          route: entry?.route,
-          module: entry?.result._tag === "Success" ? entry.result.value.module : undefined,
-          recoveryKey: entry === undefined ? undefined : RenderPolicy.recoveryKey(branch, entry.route.id)
-        }
-      }).pipe(
-        Atom.withEquality<Presentation>(
-          (a, b) =>
-            RenderPolicy.sameSelection(a.selection, b.selection)
-            && a.route === b.route
-            && a.module === b.module
-            && a.recoveryKey === b.recoveryKey
-        )
-      ),
-    [core, depth]
-  )
-  const { selection, route, module, recoveryKey } = useAtomValue(presentation)
-  const views = (route ?? {}) as Views
-  const View = React.useMemo(() => {
-    const lazy = module as { readonly default?: unknown; readonly component?: unknown } | undefined
-    const selected: unknown =
-      views.component !== undefined
-        ? views.component
-        : lazy?.component !== undefined
-          ? lazy.component
-          : lazy?.default !== undefined
-            ? lazy.default
-            : Outlet
-    return isReactView(selected) ? selected : invalidReactView(route?.id ?? "unknown", selected)
-  }, [views.component, module, route?.id])
-  const content = React.useMemo(
-    () => (
-      <SnapshotContext.Provider value="resolved">
-        <DepthContext.Provider value={depth + 1}>
-          <View />
-        </DepthContext.Provider>
-      </SnapshotContext.Provider>
-    ),
-    [depth, View, route?.id]
-  )
-  if (selection._tag === "Empty") return null
-  if (selection._tag === "Boundary") {
-    if (selection.kind === "errorComponent") {
-      const ErrorView = views.errorComponent ?? DefaultError
-      return (
-        <SnapshotContext.Provider value="incoming">
-          <ErrorView error={selection.error} reset={reset} />
-        </SnapshotContext.Provider>
-      )
-    }
-    const Fallback =
-      selection.kind === "pendingComponent"
-        ? (views.pendingComponent ?? DefaultPending)
-        : (views.notFoundComponent ?? DefaultNotFound)
-    return (
-      <SnapshotContext.Provider value="incoming">
-        <Fallback />
-      </SnapshotContext.Provider>
-    )
+  if (!AsyncResult.isSuccess(result)) return null
+  const { entries, failureOwner, failureError } = displayOf(result.value)
+  if (failureOwner === "<notfound>") return <DefaultNotFound />
+  if (failureOwner !== undefined && !entries.some((candidate) => candidate.id === failureOwner)) {
+    // A router-level failure (redirect loop, encoding, history) has no owning
+    // entry: the root outlet renders it once, descendants defer.
+    return depth === 0 ? <DefaultError error={failureError} reset={reset} /> : null
   }
-  return views.errorComponent !== undefined || depth === 0 ? (
-    <RenderBoundary
-      key={selection.routeId}
-      recoveryKey={recoveryKey}
-      fallback={views.errorComponent ?? DefaultError}
-      reset={reset}
-    >
+  const entry = entries[depth]
+  if (entry === undefined) return null
+  const options: ViewOptions = views.get(entry.id) ?? {}
+  if (failureOwner === entry.id && !AsyncResult.isSuccess(entry.data)) {
+    // Only the outlet that declares the failing node replaces itself and its
+    // descendants; ancestors keep rendering their prepared contexts.
+    const ErrorView = options.error ?? DefaultError
+    const error = AsyncResult.isFailure(entry.data) ? Cause.squash(entry.data.cause) : failureError
+    return <ErrorView error={error} reset={reset} />
+  }
+  if (!AsyncResult.isSuccess(entry.data) && Option.isNone(entry.retained)) {
+    const Pending = options.pending ?? DefaultPending
+    return <Pending />
+  }
+  const View = options.component
+  const content = (
+    <DepthContext.Provider value={depth + 1}>{View === undefined ? null : <View />}</DepthContext.Provider>
+  )
+  return (
+    <RenderBoundary recoveryKey={entry.id} fallback={options.error ?? DefaultError} reset={reset}>
       {content}
     </RenderBoundary>
-  ) : (
-    <React.Fragment key={selection.routeId}>{content}</React.Fragment>
   )
 }

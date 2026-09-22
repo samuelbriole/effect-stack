@@ -1,19 +1,15 @@
 /** First-party client-side Solid routing. @since 0.1.0 */
-
-/** Augment with `interface Register { router: typeof router }`. @since 0.1.0 */
-export interface Register {}
-
-export { useRouter } from "./internal/context.ts"
-export { type RouteHook, type SelectorOptions, useRouterState } from "./internal/hooks.ts"
+export { useRoute, useRouter, useRouterState, type RouteResult } from "./internal/hooks.ts"
+export { Link, Navigate, useLocation, useNavigate, useNavigateEffect, useRetry } from "./internal/navigation.ts"
+export { RouterProvider, type RouterProviderProps } from "./internal/provider.ts"
+export { DefaultError, DefaultNotFound, DefaultPending, Outlet } from "./internal/rendering.ts"
 export {
-  Link,
-  type LinkProps,
-  Navigate,
-  type NavigationError,
-  useNavigate,
-  useNavigateEffect
-} from "./internal/navigation.ts"
-export { RouterProvider } from "./internal/provider.ts"
-export { Outlet } from "./internal/rendering.ts"
-export { createRootRoute, createRoute, type ErrorProps, type SolidRoute, type Views } from "./internal/route.ts"
-export { type ClientRouter, createRouter, type Destination, type RegisteredRouter } from "./internal/router.ts"
+  flattenViews,
+  type ErrorProps,
+  type GroupView,
+  type LeafView,
+  type LinkDestination,
+  type ViewOptions,
+  type Views,
+  type ViewsRecord
+} from "./internal/route.ts"

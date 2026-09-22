@@ -20,24 +20,38 @@ Platform adapter -> core service interface
 Cores must remain platform- and renderer-independent. Browser and memory history implement the core `History.Service`.
 React, Solid, and Vue adapters depend on `@effect-stack/router` and their official Effect Atom adapters.
 
-`RouteTree` owns tree validation, inherited URL schemas, and typed destinations. A shared internal planner handles flat
-and nested matching. Compiled trees expose `routes`, `plan`, and `target`; indexes stay private. See the
-[Router reference](../packages/router/README.md#matching-and-trees) for matching rules.
+## Contracts and Layers
 
-`RenderPolicy` owns fallback selection and declarative-navigation comparison. Adapters own providers, route hooks,
-links, views, error capture, and native subscription lifetimes. Share helpers only where they preserve inference and
-renderer semantics; re-exporting Atom hooks alone does not justify a package.
+A route collection is a declarative contract created with `Router.schema(collectionId, defs)`. The contract owns:
+
+- Typed destination constructors (`Routes.project({ params, search })`).
+- Qualified, ancestry-aware node identities.
+- The runtime service key (`Routes.service`).
+- Optional `success` and `error` schemas that determine handler and view types.
+
+Implementations are ordinary Layers. `Router.route(descriptor, handler)` records one handler; `Router.layer(contract)`
+requires the union of mandatory implementation services plus `History.Service` and returns the contract's service.
+Application composition is `Layer.provide`/`Layer.provideMerge`/`Layer.mergeAll`; there is no registration pass, global
+augmentation, or renderer binding factory.
+
+Implementation Layers are constructed once per router runtime. Per-navigation handler execution is scoped separately;
+the handler scope closes before resolved data is published. Applications that need long-lived resources own them in
+application service Layers or Effect Atom scopes.
 
 ## Runtime ownership
 
-- Each Atom registry builds a scoped Router runtime from the supplied Layer. Applications compose services and Layers;
-  renderer context carries the router and registry.
-- A `SubscriptionRef` owns state, and a scoped `FiberMap` owns the current transition. Serialized acceptance and
-  transition identity prevent orphaned work and stale publication.
-- Operation claims independently protect `navigation`: an older traversal or transition cannot overwrite a newer
-  operation's outcome. Commands enter through `execute`; Atoms observe the runtime.
-- Code and data loading use transition scopes. Long-lived resources and remote caching belong to application services
-  or Effect Atom. Router retains resolved match data, not a remote-resource cache.
+- One scoped `Router` service owns history observation, commands, transition workers, and the authoritative snapshot.
+  Atom and renderer adapters only observe that service. `AtomRouter.make(runtime, contract)` retrieves the service from
+  an existing `AtomRuntime`; it never creates a second engine.
+- A `SubscriptionRef` holds the snapshot: observed location, latest command status, accepted pending attempt,
+  destination-associated failure, and the last resolved branch. Command status and presentation are deliberately
+  separate, so a rejected new command cannot cancel accepted work or overwrite a newer rejection.
+- Attempts receive monotonic identities. Acceptance is serialized; obsolete attempts lose publication authority before
+  they can publish or redirect. Handler scopes close before publication. Expected terminal values are `Committed`,
+  `Superseded`, and `Cancelled`; domain failures stay in the Effect error channel and defects remain in `Cause`.
+- Browser and memory history are renderer-independent. Listeners are established before the initial location is read so
+  an external change cannot race initial observation, and programmatic push/replace produce exactly one attempt.
 
-See [navigation contracts](router-navigation.md) for completion, cancellation, snapshots, and recovery, and the
-[roadmap](roadmap.md) for deferred work.
+See [navigation contracts](router-navigation.md) for attempts, completion, cancellation, snapshots, and recovery, the
+[migration guide](migration-router.md) for changes from the previous API, and the [roadmap](roadmap.md) for deferred
+work.

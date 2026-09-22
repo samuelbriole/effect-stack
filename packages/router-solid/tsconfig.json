@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "references": [{ "path": "../router" }],
-  "compilerOptions": { "lib": ["ES2022", "DOM"], "jsx": "preserve", "jsxImportSource": "solid-js" }
+  "compilerOptions": { "lib": ["ES2022", "DOM"], "jsx": "react-jsx", "jsxImportSource": "solid-js" }
 }

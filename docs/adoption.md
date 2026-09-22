@@ -7,87 +7,87 @@ Choose an integration; each package can be adopted independently. Router targets
 | Nested React views                    | [React adapter](../packages/router-react) · [example](../packages/router-react/examples/basic) |
 | Nested Solid views                    | [Solid adapter](../packages/router-solid) · [example](../packages/router-solid/examples/basic) |
 | Nested Vue views                      | [Vue adapter](../packages/router-vue) · [example](../packages/router-vue/examples/basic)       |
-| Headless routing or a custom renderer | [Core API](../packages/router) and the examples below                                          |
+| Headless routing or a custom renderer | [Core API](../packages/router) and the example below                                           |
+
+## Define a contract
+
+```ts
+import * as Router from "@effect-stack/router/Router"
+import { Schema } from "effect"
+
+export const Routes = Router.schema("App", {
+  home: "/",
+  project: {
+    path: "/projects/:projectId",
+    params: { projectId: Schema.FiniteFromString },
+    search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
+    success: Schema.Struct({ title: Schema.String }),
+    error: Schema.Struct({ code: Schema.Number })
+  }
+})
+```
+
+## Implement routes as Layers
+
+```ts
+import * as BrowserHistory from "@effect-stack/router/BrowserHistory"
+import { Effect, Layer } from "effect"
+
+const ProjectLive = Router.route(Routes.project, ({ params }) =>
+  ProjectService.use((projects) => projects.get(params.projectId))
+)
+
+export const RouterLive = Router.layer(Routes).pipe(Layer.provide(ProjectLive), Layer.provide(BrowserHistory.layer))
+```
+
+Missing implementation Layers and missing application services remain visible to the compiler. `Router.layer` does not
+fail when initial route preparation fails; the failure is published against the observed URL.
 
 ## Headless usage
 
-```sh
-pnpm add @effect-stack/router effect@rc
-```
-
-This complete example uses memory history and owns its registry. Browser applications can use `BrowserHistory.layer`.
-
 ```ts
-import { MemoryHistory, Route, Router } from "@effect-stack/router"
 import { Effect } from "effect"
-import { AtomRegistry } from "effect/unstable/reactivity"
 
-const home = Route.make({ id: "home", path: "/", params: {}, search: {} })
-const router = Router.make({ routes: [home], layer: MemoryHistory.layer() })
+const program = Effect.gen(function* () {
+  const router = yield* Routes.service
+  const outcome = yield* router.navigate(Routes.project({ params: { projectId: 1 } }))
+  const state = yield* router.state
+  return { outcome, state }
+}).pipe(Effect.provide(RouterLive))
 
-const state = await Effect.runPromise(
-  Effect.scoped(
-    Effect.gen(function* () {
-      const registry = AtomRegistry.make()
-      yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
-      yield* AtomRegistry.mount(registry, router.state)
-      yield* router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-      return registry.get(router.state)
-    })
-  )
-)
+await Effect.runPromise(program)
 ```
 
-Use the same registry for observations and commands. Dispose registries you create; borrowed registries remain owned by
-their caller. `execute` returns an Effect; observing an Atom does not dispatch a command.
+No renderer or `AtomRegistry` is required for headless navigation. Use `MemoryHistory.layer(initialHref)` in tests.
 
-## Direct renderer integration
-
-For a custom UI over the headless core, use the official Effect Atom adapters. First-party Router adapters add typed
-links, outlets, route hooks, and boundaries on top of these primitives.
-
-| Renderer | Package                 | Read state                                             | Access the registry                                              |
-| -------- | ----------------------- | ------------------------------------------------------ | ---------------------------------------------------------------- |
-| React    | `@effect/atom-react@rc` | `useAtomValue(router.state)`                           | `useContext(RegistryContext)` inside `RegistryProvider`          |
-| Solid    | `@effect/atom-solid@rc` | `useAtomValue(() => router.state)` returns an accessor | `useContext(RegistryContext)` inside `RegistryProvider`          |
-| Vue      | `@effect/atom-vue@rc`   | `useAtomValue(() => router.state)` returns a ref       | `inject(registryKey)` after `app.provide(registryKey, registry)` |
-
-For example, after exporting your core `router` from `./router.ts`, a React view can observe navigation and dispatch a
-refresh. Install `@effect/atom-react@rc` alongside the core and React:
+## Renderer integration
 
 ```tsx
-import { Router } from "@effect-stack/router"
-import { RegistryContext, RegistryProvider, useAtomValue } from "@effect/atom-react"
-import { Effect } from "effect"
-import { AtomRegistry } from "effect/unstable/reactivity"
-import { useContext } from "react"
-import { router } from "./router.ts"
+import { RegistryProvider } from "@effect/atom-react"
+import { Atom } from "effect/unstable/reactivity"
+import { RouterProvider, useRoute } from "@effect-stack/router-react"
+import { RouterLive, Routes } from "./router.ts"
 
-const View = () => {
-  const navigation = useAtomValue(router.navigation)
-  const registry = useContext(RegistryContext)
-  const refresh = () =>
-    void Effect.runPromise(
-      router.execute(Router.refresh).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry))
-    ).catch(() => {}) // Failures are rendered from the observed result below.
-  return (
-    <>
-      <button onClick={refresh} disabled={navigation.waiting}>
-        Refresh
-      </button>
-      {navigation._tag === "Failure" && <p role="alert">Navigation failed.</p>}
-    </>
-  )
+const runtime = Atom.runtime(RouterLive)
+
+function ProjectPage() {
+  const { params, data } = useRoute(Routes.project)
+  return <h1>{data.title}</h1>
+}
+
+const views = {
+  home: HomePage,
+  project: { component: ProjectPage, pending: ProjectPending, error: ProjectError }
 }
 
 export const App = () => (
   <RegistryProvider>
-    <View />
+    <RouterProvider routes={Routes} runtime={runtime} views={views} />
   </RegistryProvider>
 )
 ```
 
-Solid and Vue event handlers run `execute` with their registry in the same way. In Vue, register disposal with
-`app.onUnmount(() => registry.dispose())` when the application owns the registry.
+Solid and Vue expose the same provider shape with native returns: Solid hooks return accessors and Vue hooks return
+computed refs. `AtomRouter.make(runtime, Routes)` exposes read-only atoms when a renderer wants lower-level access.
 
 See [navigation contracts](router-navigation.md) for completion, cancellation, retained data, and recovery.

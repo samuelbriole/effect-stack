@@ -1,17 +1,34 @@
+import type { AtomRouter } from "@effect-stack/router/AtomRouter"
+import type { RouterService } from "@effect-stack/router/Router"
+import { useAtomValue } from "@effect/atom-react"
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import * as React from "react"
-import type { RegisteredRouter, RuntimeRouter } from "./router.ts"
+import type { ViewOptions } from "./route.ts"
 
-export const RouterContext = React.createContext<RuntimeRouter | null>(null)
-export const SnapshotContext = React.createContext<"resolved" | "incoming">("resolved")
-export const DepthContext = React.createContext(0)
-
-/** @since 0.1.0 */
-export function useRouter(): RegisteredRouter {
-  const router = React.useContext(RouterContext)
-  if (router === null) throw new Error("Router hooks require RouterProvider")
-  return router as RegisteredRouter
+/** @since 0.4.0 */
+export interface RouterContextValue {
+  readonly atomRouter: AtomRouter<unknown>
+  readonly views: ReadonlyMap<string, ViewOptions>
 }
 
-export function useRuntime(): RuntimeRouter {
-  return useRouter() as RuntimeRouter
+/** @since 0.4.0 */
+export const RouterContext = React.createContext<RouterContextValue | null>(null)
+/** @since 0.4.0 */
+export const DepthContext = React.createContext(0)
+
+/** @since 0.4.0 */
+export function useRouterContext(): RouterContextValue {
+  const value = React.useContext(RouterContext)
+  if (value === null) throw new Error("Router hooks require RouterProvider")
+  return value
+}
+
+/** @since 0.4.0 */
+export function useRouterService(): RouterService<unknown> {
+  const { atomRouter } = useRouterContext()
+  const result = useAtomValue(atomRouter.service)
+  if (!AsyncResult.isSuccess(result)) {
+    throw new Error("Router service is not available yet")
+  }
+  return result.value
 }

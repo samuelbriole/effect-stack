@@ -17,13 +17,11 @@
   "exports": {
     "./package.json": "./package.json",
     ".": "./src/index.ts",
-    "./Route": "./src/Route.ts",
+    "./Router": "./src/Router.ts",
     "./History": "./src/History.ts",
     "./BrowserHistory": "./src/BrowserHistory.ts",
     "./MemoryHistory": "./src/MemoryHistory.ts",
-    "./Router": "./src/Router.ts",
-    "./RouteTree": "./src/RouteTree.ts",
-    "./RenderPolicy": "./src/RenderPolicy.ts",
+    "./AtomRouter": "./src/AtomRouter.ts",
     "./internal/*": null
   },
   "files": [
@@ -41,13 +39,11 @@
     "exports": {
       "./package.json": "./package.json",
       ".": "./dist/index.js",
-      "./Route": "./dist/Route.js",
+      "./Router": "./dist/Router.js",
       "./History": "./dist/History.js",
       "./BrowserHistory": "./dist/BrowserHistory.js",
       "./MemoryHistory": "./dist/MemoryHistory.js",
-      "./Router": "./dist/Router.js",
-      "./RouteTree": "./dist/RouteTree.js",
-      "./RenderPolicy": "./dist/RenderPolicy.js",
+      "./AtomRouter": "./dist/AtomRouter.js",
       "./internal/*": null
     }
   },

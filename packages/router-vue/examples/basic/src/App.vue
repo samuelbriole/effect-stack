@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { RouterProvider } from "@effect-stack/router-vue"
-import { router } from "./router.ts"
+import { Routes } from "@effect-stack-example/router-shared"
+import { runtime, views } from "./router.ts"
 </script>
 
 <template>
-  <RouterProvider :router="router" />
+  <RouterProvider :routes="Routes" :runtime="runtime" :views="views" />
 </template>

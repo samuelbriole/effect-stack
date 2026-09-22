@@ -1,100 +1,83 @@
-import { createRootRoute, createRoute, createRouter, Link, Outlet, RouterProvider } from "@effect-stack/router-react"
-import { Effect, Schema } from "effect"
+import { Link, Outlet, RouterProvider, useRoute, type ErrorProps, type Views } from "@effect-stack/router-react"
+import { AppLive, projectId42, Routes } from "@effect-stack-example/router-shared"
+import { RegistryProvider } from "@effect/atom-react"
+import { Atom } from "effect/unstable/reactivity"
 import { useState } from "react"
-import { demoLayer, Projects } from "./Projects.ts"
 
-const rootRoute = createRootRoute({
-  component: Layout,
-  pendingComponent: () => <p role="status">Loading route…</p>,
-  notFoundComponent: () => (
-    <main>
-      <h1>Page not found</h1>
-      <Link to="/">Home</Link>
-    </main>
-  ),
-  errorComponent: ({ error, reset }) => (
-    <main>
-      <h1>Route failed</h1>
+const runtime = Atom.runtime(AppLive)
+
+function Nav() {
+  return (
+    <nav>
+      <Link to={Routes.home()}>Home</Link>
+      <Link to={Routes.project({ params: { projectId: projectId42 } })}>Project 42</Link>
+      <Link to={Routes.slow()}>Slow</Link>
+    </nav>
+  )
+}
+
+function HomePage() {
+  return (
+    <section>
+      <Nav />
+      <h2>Home</h2>
+      <p>Native Effect handlers and typed React navigation.</p>
+    </section>
+  )
+}
+
+function ProjectPending() {
+  return <p role="status">Loading project…</p>
+}
+
+function ProjectBoundary({ error, reset }: ErrorProps) {
+  return (
+    <section>
+      <Nav />
+      <h3>Project failed</h3>
       <pre>{String(error)}</pre>
       <button onClick={reset}>Retry</button>
-      <Link to="/">Home</Link>
-    </main>
-  )
-})
-const homeRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/",
-  component: () => (
-    <section>
-      <h2>Home</h2>
-      <p>Native Effect loaders and typed React navigation.</p>
     </section>
   )
-})
-const projectRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "projects/:projectId",
-  params: { projectId: Schema.FiniteFromString },
-  search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
-  loader: ({ params }) => Projects.use((projects) => projects.get(params.projectId)),
-  component: ProjectLayout
-})
-const projectIndex = createRoute({
-  getParentRoute: () => projectRoute,
-  path: "/",
-  component: () => <p>Project overview</p>
-})
-const detailsRoute = createRoute({
-  getParentRoute: () => projectRoute,
-  path: "details",
-  lazy: () => Effect.promise(() => import("./ProjectDetails.tsx")),
-  pendingComponent: () => <p role="status">Loading details…</p>
-})
-export const router = createRouter({
-  routeTree: rootRoute.addChildren([homeRoute, projectRoute.addChildren([projectIndex, detailsRoute])]),
-  layer: demoLayer
-})
-declare module "@effect-stack/router-react" {
-  interface Register {
-    router: typeof router
-  }
 }
 
-function Layout() {
+function ProjectPage() {
+  const { params, search, data } = useRoute(Routes.project)
   const [count, setCount] = useState(0)
   return (
-    <main>
-      <p className="eyebrow">First-party React adapter</p>
-      <h1>EffectStack Router</h1>
-      <nav>
-        <Link to="/" exact>
-          Home
-        </Link>
-        <Link to="/projects/:projectId" params={{ projectId: 42 }}>
-          Project 42
-        </Link>
-      </nav>
-      <button onClick={() => setCount(count + 1)}>Layout counter: {count}</button>
-      <Outlet />
-    </main>
-  )
-}
-function ProjectLayout() {
-  const project = projectRoute.useLoaderData()
-  const params = projectRoute.useParams()
-  return (
     <section>
-      <h2>{project.title}</h2>
+      <Nav />
+      <h2>{data.title}</h2>
+      <p>
+        id {params.projectId} · tab {search.tab ?? "overview"}
+      </p>
+      <button onClick={() => setCount(count + 1)}>Layout counter: {count}</button>
       <nav>
-        <Link to="/projects/:projectId" params={params} exact>
-          Overview
-        </Link>
-        <Link to="/projects/:projectId/details" params={params}>
-          Details
-        </Link>
+        <Link to={Routes.project({ params, search })}>Overview</Link>
+        <Link to={Routes.details({ params })}>Details</Link>
       </nav>
       <Outlet />
     </section>
   )
 }
-export const App = () => <RouterProvider router={router} />
+
+function DetailsPage() {
+  return <p>This view is rendered through a nested layout Outlet.</p>
+}
+
+function SlowPage() {
+  return <p>The slow route finished preparing.</p>
+}
+
+const views = {
+  home: HomePage,
+  project: { component: ProjectPage, pending: ProjectPending, error: ProjectBoundary },
+  details: DetailsPage,
+  slow: { component: SlowPage, pending: () => <p role="status">Preparing…</p> }
+} satisfies Views<typeof Routes>
+
+export const App = () => (
+  <RegistryProvider>
+    <RouterProvider routes={Routes} runtime={runtime} views={views} />
+  </RegistryProvider>
+)

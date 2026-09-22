@@ -7,6 +7,7 @@
     "build": "vue-tsc -b && vite build"
   },
   "dependencies": {
+    "@effect-stack-example/router-shared": "workspace:*",
     "@effect-stack/router": "workspace:*",
     "@effect-stack/router-vue": "workspace:*",
     "@effect/atom-vue": "4.0.0-rc.116",
