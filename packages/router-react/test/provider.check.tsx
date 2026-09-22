@@ -7,17 +7,17 @@ import * as Schema from "effect/Schema"
 import * as Atom from "effect/unstable/reactivity/Atom"
 import type { RouterProviderProps, Views } from "@effect-stack/router-react"
 import * as Router from "@effect-stack/router/Router"
+import * as Route from "@effect-stack/router/Route"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import * as Effect from "effect/Effect"
 
-const Routes = Router.schema("React", {
-  home: "/",
-  project: {
-    path: "/projects/:projectId",
+const Routes = Router.make("React").add(
+  Route.make("home", "/"),
+  Route.make("project", "/projects/:projectId", {
     params: { projectId: Schema.FiniteFromString },
     success: Schema.Struct({ title: Schema.String })
-  }
-})
+  })
+)
 
 const ProjectLive = Router.route(Routes.project, () => Effect.succeed({ title: "x" }))
 const AppLive = Router.layer(Routes).pipe(Layer.provide(ProjectLive), Layer.provide(MemoryHistory.layer()))

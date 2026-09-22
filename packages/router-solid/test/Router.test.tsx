@@ -4,9 +4,10 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { RegistryProvider } from "@effect/atom-solid"
-import { MemoryHistory, Router } from "@effect-stack/router"
+import { MemoryHistory, Route, RouteGroup, Router } from "@effect-stack/router"
 import { Link, Outlet, RouterProvider, useRoute, type ErrorProps, type Views } from "@effect-stack/router-solid"
 import { Atom } from "effect/unstable/reactivity"
+import { createSignal } from "solid-js"
 import { render } from "solid-js/web"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -15,24 +16,28 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup()
 })
 
-const Routes = Router.schema("Solid", {
-  home: "/",
-  slow: {
-    path: "/slow",
+// A `_blank` link's default action would otherwise make happy-dom attempt a
+// real page navigation; the router handler behavior is what is under test.
+const happyDOMWindow = (
+  window as unknown as { happyDOM?: { settings: { navigation: { disableMainFrameNavigation: boolean } } } }
+).happyDOM
+if (happyDOMWindow !== undefined) happyDOMWindow.settings.navigation.disableMainFrameNavigation = true
+
+const Routes = Router.make("Solid").add(
+  Route.make("home", "/"),
+  Route.make("slow", "/slow", {
     success: Schema.Struct({ title: Schema.String })
-  },
-  areas: {
-    path: "/areas",
-    children: {
-      detail: {
-        path: ":areaId",
+  }),
+  RouteGroup.make("areas")
+    .add(
+      Route.make("detail", "/:areaId", {
         params: { areaId: Schema.FiniteFromString },
         success: Schema.Struct({ name: Schema.String }),
         error: Schema.Struct({ code: Schema.Number })
-      }
-    }
-  }
-})
+      })
+    )
+    .prefix("/areas")
+)
 
 class AreaMissing extends Schema.TaggedError<AreaMissing>()("AreaMissing", { code: Schema.Number }) {}
 
@@ -201,5 +206,83 @@ describe("Solid router adapter", { concurrent: false }, () => {
     expect(await waitForText(container, "Areas layout")).toBe(true)
     expect(container.textContent).toContain("Area failed")
     expect(container.textContent).not.toContain("Unable to display")
+  })
+
+  it("updates Link and Navigate targets when the destination changes", async () => {
+    const SlowLive = Router.route(Routes.slow, () => Effect.succeed({ title: "Ready" }))
+    const AppLive = Router.layer(Routes).pipe(
+      Layer.provide(Layer.merge(SlowLive, AreaDetailLive)),
+      Layer.provide(MemoryHistory.layer("/"))
+    )
+    const runtime = Atom.runtime(AppLive)
+    const [target, setTarget] = createSignal<Router.Destination<string>>(Routes.home())
+    const DynamicHome = () => (
+      <main>
+        <Link to={target()}>Go</Link>
+      </main>
+    )
+    const dynamicViews = { ...views, home: DynamicHome }
+    const container = createContainer()
+    const dispose = render(
+      () => (
+        <RegistryProvider>
+          <RouterProvider routes={Routes} runtime={runtime} views={dynamicViews} />
+        </RegistryProvider>
+      ),
+      container
+    )
+    cleanups.push(() => {
+      dispose()
+      container.remove()
+    })
+    expect(await waitForText(container, "Go")).toBe(true)
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/")
+    setTarget(Routes.slow())
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/slow")
+    container.querySelector("a")?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
+    expect(await waitForText(container, "Ready")).toBe(true)
+  })
+
+  it("forwards reactive native attributes and honors live target changes in the click handler", async () => {
+    const SlowLive = Router.route(Routes.slow, () => Effect.succeed({ title: "Ready" }))
+    const AppLive = Router.layer(Routes).pipe(
+      Layer.provide(Layer.merge(SlowLive, AreaDetailLive)),
+      Layer.provide(MemoryHistory.layer("/"))
+    )
+    const runtime = Atom.runtime(AppLive)
+    const [linkTarget, setLinkTarget] = createSignal<string | undefined>("_self")
+    const DynamicHome = () => (
+      <main>
+        <Link to={Routes.slow()} target={linkTarget()}>
+          Go
+        </Link>
+      </main>
+    )
+    const dynamicViews = { ...views, home: DynamicHome }
+    const container = createContainer()
+    const dispose = render(
+      () => (
+        <RegistryProvider>
+          <RouterProvider routes={Routes} runtime={runtime} views={dynamicViews} />
+        </RegistryProvider>
+      ),
+      container
+    )
+    cleanups.push(() => {
+      dispose()
+      container.remove()
+    })
+    expect(await waitForText(container, "Go")).toBe(true)
+    expect(container.querySelector("a")?.getAttribute("target")).toBe("_self")
+    setLinkTarget("_blank")
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(container.querySelector("a")?.getAttribute("target")).toBe("_blank")
+    // A live `_blank` target must block router navigation even though the
+    // attribute was forwarded reactively after mount.
+    container.querySelector("a")?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(container.textContent).toContain("Go")
+    expect(container.textContent).not.toContain("Ready")
   })
 })

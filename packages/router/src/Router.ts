@@ -8,7 +8,9 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type * as Option from "effect/Option"
-import type * as Result from "effect/Result"
+import type { Pipeable } from "effect/Pipeable"
+import { pipeArguments } from "effect/Pipeable"
+import * as Result from "effect/Result"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
@@ -26,42 +28,63 @@ import { make as makeCoordinator } from "./internal/coordinator.ts"
 import { compile } from "./internal/compiler.ts"
 import type {
   AllNodes,
+  AnyBoundNode,
   AnyNode,
-  ContractDefs,
-  ContractRoutes,
+  BindEntries,
+  BoundRecord,
+  ContractRuntime,
   Destination,
   ErrorOf,
   HandlerInputOf,
   ImplementationRequirements,
+  NonEmptyDeclarations,
   NodeInfo,
   RuntimeNode,
+  ServiceId,
   SuccessOf
 } from "./internal/contract.ts"
-import { collectNodes, ContractNodes, makeContract } from "./internal/contract.ts"
-import { RouteDefinitionError } from "./internal/errors.ts"
-import type { RouteDecodeError, RouteEncodeError, RouteNotFound } from "./internal/errors.ts"
+import {
+  addDeclarations,
+  collectNodes,
+  ContractNodes,
+  getContractNodes,
+  validateCollectionId
+} from "./internal/contract.ts"
+import { RouteEncodeError, RouteDefinitionError } from "./internal/errors.ts"
+import type { RouteDecodeError, RouteNotFound } from "./internal/errors.ts"
 import type { Redirect } from "./internal/redirect.ts"
 import { redirect as makeRedirect } from "./internal/redirect.ts"
 import * as HistoryService from "./History.ts"
 import { encode } from "./internal/url.ts"
 
 export type {
-  AnyGroupDescriptor,
+  AnyBoundGroup,
+  AnyBoundNode,
+  AnyBoundRoute,
   AnyNode,
-  ContractDef,
-  ContractDefs,
-  ContractRoutes,
+  BoundGroup,
+  BoundRecord,
+  BoundRoute,
+  ChildKeys,
+  ChildrenOf,
+  DeclarationIdentifier,
+  DeclarationRecord,
   Destination,
+  DestinationOptions,
   ErrorOf,
-  GroupDescriptor,
+  Fields,
+  GroupInfo,
   HandlerInputOf,
   HashOf,
   IdOf,
+  ImplementationId,
   ImplementationRequirements,
+  InfoOf,
   InputOfNode,
   NodeInfo,
   ParamsOf,
-  RouteDescriptor,
+  RouteDeclaration,
+  RouteGroupDeclaration,
   RuntimeGroupNode,
   RuntimeNode,
   SearchOf,
@@ -93,7 +116,7 @@ type ImplementationIdOf<D> = D extends { readonly "~node": infer I extends NodeI
 type NodeCollectionId<D> = D extends { readonly "~node": infer I extends NodeInfo } ? I["collectionId"] : never
 
 /** The union of domain errors declared by a contract. @since 0.4.0 */
-export type DomainErrors<C> = AllNodes<C> extends infer N ? (N extends AnyNode ? ErrorOf<N> : never) : never
+export type DomainErrors<C> = AllNodes<C> extends infer N ? (N extends AnyBoundNode ? ErrorOf<N> : never) : never
 
 /** Failures observable from navigation for a contract. @since 0.4.0 */
 export type NavigationError<C> =
@@ -147,40 +170,66 @@ export interface RouterService<C> {
   readonly href: (destination: Destination<CollectionIdOf<C>>) => Result.Result<string, RouteEncodeError>
 }
 
-type ServiceId<CollectionId extends string> = `@effect-stack/router/${CollectionId}/service`
-
 /**
- * A named route contract.
+ * A named route contract: direct access to its bound children plus the runtime
+ * service and immutable builder methods.
  *
  * @since 0.4.0
  * @category models
  */
-export type Contract<CollectionId extends string, Defs extends ContractDefs> = ContractRoutes<CollectionId, Defs> & {
-  readonly service: Context.Service<ServiceId<CollectionId>, RouterService<Contract<CollectionId, Defs>>>
+export type RouterContract<CollectionId extends string, Children extends BoundRecord> = RouterContractBase<
+  CollectionId,
+  Children
+>
+  & Children
+
+interface RouterContractBase<CollectionId extends string, Children extends BoundRecord> extends Pipeable {
+  readonly service: Context.Service<ServiceId<CollectionId>, RouterService<RouterContract<CollectionId, Children>>>
+  add<const A extends NonEmptyDeclarations>(
+    ...declarations: A
+  ): RouterContract<CollectionId, Children & BindEntries<CollectionId, A>>
 }
 
-/**
- * Declares a named route contract with typed destinations and a runtime service
- * key.
- *
- * @since 0.4.0
- * @category constructors
- */
-export const schema = <const CollectionId extends string, const Defs extends ContractDefs>(
-  collectionId: CollectionId,
-  defs: Defs
-): Contract<CollectionId, Defs> => {
-  const contract = makeContract(collectionId, defs)
-  const value = { ...contract.routes, service: contract.service } as Record<PropertyKey, unknown>
+const makeContractValue = (runtime: ContractRuntime): object => {
+  const value: Record<PropertyKey, unknown> = {}
+  for (const [key, node] of Object.entries(runtime.nodes)) value[key] = node
+  const service = Context.Service<unknown, unknown>(`@effect-stack/router/${runtime.collectionId}/service`)
+  Object.defineProperty(value, "service", { value: service, enumerable: true, configurable: false, writable: false })
   Object.defineProperty(value, ContractNodes, {
-    value: contract.routes,
+    value: runtime.nodes,
     enumerable: false,
     configurable: false,
     writable: false
   })
-  return value as unknown as Contract<CollectionId, Defs>
+  Object.defineProperty(value, "add", {
+    value: (...declarations: ReadonlyArray<unknown>) => makeContractValue(addDeclarations(runtime, declarations)),
+    enumerable: false,
+    configurable: false,
+    writable: false
+  })
+  Object.defineProperty(value, "pipe", {
+    value: function (this: unknown) {
+      return pipeArguments(this, arguments)
+    },
+    enumerable: false,
+    configurable: false,
+    writable: false
+  })
+  return value
 }
 
+/**
+ * Creates an empty named collection contract.
+ *
+ * @since 0.4.0
+ * @category constructors
+ */
+export const make = <const CollectionId extends string>(
+  collectionId: CollectionId
+): RouterContract<CollectionId, {}> => {
+  validateCollectionId(collectionId)
+  return makeContractValue({ collectionId, nodes: {} }) as unknown as RouterContract<CollectionId, {}>
+}
 /**
  * Returns the runtime nodes carried by a contract. Intended for renderer
  * adapters; not part of ordinary application code.
@@ -188,11 +237,10 @@ export const schema = <const CollectionId extends string, const Defs extends Con
  * @since 0.4.0
  * @category utilities
  */
-export const nodes = (contract: unknown): Record<string, RuntimeNode> =>
-  (contract as { readonly [ContractNodes]: Record<string, RuntimeNode> })[ContractNodes]
+export const nodes = (contract: unknown): Record<string, RuntimeNode> => getContractNodes(contract)
 
 /**
- * Encodes a typed destination into a canonical href.
+ * Encodes a typed destination into a canonical href. Collection-independent.
  *
  * @since 0.4.0
  * @category encoding
@@ -201,7 +249,7 @@ export const href = <CollectionId extends string>(
   destination: Destination<CollectionId>
 ): Result.Result<string, RouteEncodeError> =>
   encode(
-    destination.node,
+    destination.node as unknown as RuntimeNode,
     destination.input as {
       readonly params: unknown
       readonly search: unknown
@@ -256,7 +304,7 @@ export interface RouteBuilder<D extends AnyNode> {
 }
 
 /**
- * Implements one route or group directly with a handler Layer.
+ * Implements one bound route or group with a handler Layer.
  *
  * @since 0.4.0
  * @category layers
@@ -264,7 +312,7 @@ export interface RouteBuilder<D extends AnyNode> {
 export function route<D extends AnyNode>(descriptor: D): RouteBuilder<D>
 
 /**
- * Implements one route or group directly with a handler Layer.
+ * Implements one bound route or group directly with a handler Layer.
  *
  * @since 0.4.0
  * @category layers
@@ -280,7 +328,8 @@ export function route<
 ): Layer.Layer<ImplementationIdOf<D>, never, Exclude<R, Scope.Scope>>
 
 /**
- * Implements one route or group with an application-scoped handler factory.
+ * Implements one bound route or group with an application-scoped handler
+ * factory.
  *
  * @since 0.4.0
  * @category layers
@@ -303,6 +352,9 @@ export function route(
   // oxlint-disable-next-line typescript/no-explicit-any -- The overload implementation erases every output for runtime dispatch.
 ): Layer.Layer<any, any, any> | RouteBuilder<AnyNode> {
   const node = descriptor as unknown as RuntimeNode
+  if (node === undefined || node._tag === undefined || node.id === undefined) {
+    throw new RouteDefinitionError({ message: "Router.route requires a route bound to a collection" })
+  }
   if (arguments.length < 2) {
     const builder: RouteBuilder<AnyNode> = {
       descriptor,
@@ -343,7 +395,7 @@ export function route(
 export const layer = <C extends { readonly service: Context.Key<unknown, unknown> }>(
   contract: C
 ): Layer.Layer<ServiceIdOf<C>, never, ImplementationRequirements<C> | HistoryService.Service> => {
-  const routes = (contract as unknown as { readonly [ContractNodes]: Record<string, RuntimeNode> })[ContractNodes]
+  const routes = getContractNodes(contract)
   const compiled = compile(routes)
   const runtimeNodes = collectNodes(routes)
   const build = Effect.gen(function* () {
@@ -352,10 +404,17 @@ export const layer = <C extends { readonly service: Context.Key<unknown, unknown
     for (const node of runtimeNodes) {
       if (node.implementationTag === undefined) continue
       const implementation = (yield* node.implementationTag) as RouteImplementation
+      if (implementation === undefined || implementation.node !== node) {
+        return yield* Effect.die(
+          new RouteDefinitionError({
+            message: `Implementation for route "${node.id}" does not target the canonical bound node`
+          })
+        )
+      }
       implementations.set(node.id, implementation)
     }
     const coordinator = yield* makeCoordinator(compiled, implementations)
-    return makeService(contract, coordinator)
+    return makeService(contract, coordinator, compiled)
   })
   const serviceTag = (contract as unknown as { readonly service: Context.Key<ServiceIdOf<C>, RouterService<C>> })
     .service
@@ -378,33 +437,48 @@ const toPublicState =
     routes
   })
 
-const makeService = <C>(contract: C, coordinator: Coordinator): RouterService<C> => ({
-  routes: contract,
-  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-  awaitInitial: coordinator.awaitInitial as Effect.Effect<void, NavigationError<C>>,
-  state: SubscriptionRef.get(coordinator.snapshot).pipe(Effect.map(toPublicState(contract))),
-  changes: SubscriptionRef.changes(coordinator.snapshot).pipe(Stream.map(toPublicState(contract))),
-  navigate: (destination, options) =>
+const makeService = <C>(
+  contract: C,
+  coordinator: Coordinator,
+  compiled: ReturnType<typeof compile>
+): RouterService<C> => {
+  const owns = (node: RuntimeNode): boolean => compiled.byId.get(node.id) === node
+  return {
+    routes: contract, // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
+    awaitInitial: coordinator.awaitInitial as Effect.Effect<void, NavigationError<C>>,
+    state: SubscriptionRef.get(coordinator.snapshot).pipe(Effect.map(toPublicState(contract))),
+    changes: SubscriptionRef.changes(coordinator.snapshot).pipe(Stream.map(toPublicState(contract))),
+    navigate: (destination, options) =>
+      // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
+      coordinator.navigate(destination, options) as Effect.Effect<NavigationOutcome, NavigationError<C>>,
+    submit: (destination, options) => {
+      const handleEffect = coordinator.submit(destination, options).pipe(
+        Effect.map((handle): NavigationHandle<C> => ({
+          id: handle.id,
+          // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
+          await: handle.await as Effect.Effect<NavigationOutcome, NavigationError<C>>,
+          cancel: handle.cancel
+        }))
+      )
+      // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
+      return handleEffect as Effect.Effect<NavigationHandle<C>, NavigationError<C>>
+    },
     // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-    coordinator.navigate(destination, options) as Effect.Effect<NavigationOutcome, NavigationError<C>>,
-  submit: (destination, options) => {
-    const handleEffect = coordinator.submit(destination, options).pipe(
-      Effect.map((handle): NavigationHandle<C> => ({
-        id: handle.id,
-        // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-        await: handle.await as Effect.Effect<NavigationOutcome, NavigationError<C>>,
-        cancel: handle.cancel
-      }))
-    )
+    refresh: coordinator.refresh as Effect.Effect<NavigationOutcome, NavigationError<C>>,
     // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-    return handleEffect as Effect.Effect<NavigationHandle<C>, NavigationError<C>>
-  },
-  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-  refresh: coordinator.refresh as Effect.Effect<NavigationOutcome, NavigationError<C>>,
-  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-  retry: coordinator.retry as Effect.Effect<NavigationOutcome, NavigationError<C>>,
-  back: coordinator.back,
-  forward: coordinator.forward,
-  go: coordinator.go,
-  href
-})
+    retry: coordinator.retry as Effect.Effect<NavigationOutcome, NavigationError<C>>,
+    back: coordinator.back,
+    forward: coordinator.forward,
+    go: coordinator.go,
+    href: (destination) =>
+      owns(destination.node as unknown as RuntimeNode)
+        ? href(destination)
+        : Result.fail(
+            new RouteEncodeError({
+              routeId: destination.node.id,
+              part: "path",
+              message: "Destination does not belong to this router collection"
+            })
+          )
+  }
+}

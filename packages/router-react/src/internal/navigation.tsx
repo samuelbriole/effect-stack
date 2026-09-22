@@ -1,5 +1,4 @@
 import type { Destination, NavigationOutcome } from "@effect-stack/router/Router"
-import { Router } from "@effect-stack/router"
 import { useAtomValue } from "@effect/atom-react"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -52,7 +51,7 @@ export function Link(
   const { to, onClick, ...anchor } = props
   const { atomRouter } = useRouterContext()
   const navigate = useNavigate()
-  const href = Router.href(to)
+  const href = atomRouter.href(to)
   if (Result.isFailure(href)) throw href.failure
   const pathname = href.success.split(/[?#]/)[0] ?? href.success
   const location = useAtomValue(atomRouter.location)
@@ -101,7 +100,7 @@ export function Navigate(props: {
   const navigate = useNavigate()
   const { atomRouter } = useRouterContext()
   const location = useAtomValue(atomRouter.location)
-  const href = Router.href(props.to)
+  const href = atomRouter.href(props.to)
   if (Result.isFailure(href)) throw href.failure
   const url = href.success
   React.useEffect(() => {

@@ -12,19 +12,19 @@ Choose an integration; each package can be adopted independently. Router targets
 ## Define a contract
 
 ```ts
+import * as Route from "@effect-stack/router/Route"
 import * as Router from "@effect-stack/router/Router"
 import { Schema } from "effect"
 
-export const Routes = Router.schema("App", {
-  home: "/",
-  project: {
-    path: "/projects/:projectId",
+export const Routes = Router.make("App").add(
+  Route.make("home", "/"),
+  Route.make("project", "/projects/:projectId", {
     params: { projectId: Schema.FiniteFromString },
     search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
     success: Schema.Struct({ title: Schema.String }),
     error: Schema.Struct({ code: Schema.Number })
-  }
-})
+  })
+)
 ```
 
 ## Implement routes as Layers

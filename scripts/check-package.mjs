@@ -17,7 +17,7 @@ const forbiddenDependencies = {
 
 /** @type {Array<[keyof typeof forbiddenDependencies, string[]]>} */
 const packages = [
-  ["router", ["index", "Router", "History", "BrowserHistory", "MemoryHistory", "AtomRouter"]],
+  ["router", ["index", "Router", "Route", "RouteGroup", "History", "BrowserHistory", "MemoryHistory", "AtomRouter"]],
   ["router-react", ["index"]],
   ["router-solid", ["index"]],
   ["router-vue", ["index"]]

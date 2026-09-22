@@ -14,8 +14,18 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import * as Atom from "effect/unstable/reactivity/Atom"
 import type { Location } from "./History.ts"
 import type { EntryState, NavigationStatus } from "./internal/coordinator.ts"
-import type { Destination, AnyNode, HashOf, InputOfNode, ParamsOf, SearchOf, SuccessOf } from "./internal/contract.ts"
-import type { RouteEncodeError } from "./internal/errors.ts"
+import type {
+  AnyNode,
+  Destination,
+  HashOf,
+  InputOfNode,
+  ParamsOf,
+  RuntimeNode,
+  SearchOf,
+  SuccessOf
+} from "./internal/contract.ts"
+import { collectNodes, getContractNodes } from "./internal/contract.ts"
+import { RouteDefinitionError, RouteEncodeError } from "./internal/errors.ts"
 import type { CollectionIdOf, NavigationError, RouterService, RouterState, ServiceIdOf } from "./Router.ts"
 import { href } from "./Router.ts"
 
@@ -53,7 +63,7 @@ export interface AtomRouter<C> {
   readonly branch: Atom.Atom<ReadonlyArray<AnyNode>>
   /** A typed read-only projection for one node, `None` when inactive. @since 0.4.0 */
   readonly route: <D extends AnyNode>(descriptor: D) => Atom.Atom<Option.Option<RouteView<D>>>
-  /** Encodes a destination. @since 0.4.0 */
+  /** Encodes a destination that belongs to this contract. @since 0.4.0 */
   readonly href: (destination: Destination<CollectionIdOf<C>>) => Result.Result<string, RouteEncodeError>
 }
 
@@ -136,7 +146,10 @@ const displayEntries = (state: RouterState<unknown>): ReadonlyArray<EntryState> 
 }
 
 /**
- * Builds read-only router atoms from an existing application runtime.
+ * Builds read-only router atoms from an existing application runtime. Both the
+ * service atom and the snapshot observation validate the finalized contract
+ * carried by the acquired runtime, so a runtime assembled from a different
+ * collection version fails at startup.
  *
  * @since 0.4.0
  * @category constructors
@@ -146,10 +159,32 @@ export const make = <C extends { readonly service: Key<string, unknown> }, R, ER
   contract: C
 ): AtomRouter<C> => {
   const atomRuntime = runtime as Atom.AtomRuntime<R, ER>
+  const contractNodes = getContractNodes(contract)
+  const byId = new Map<string, RuntimeNode>()
+  for (const node of collectNodes(contractNodes)) byId.set(node.id, node)
+  const owns = (node: { readonly id: string }): boolean => byId.get(node.id) === (node as unknown as RuntimeNode)
+  const foreignError = (node: { readonly id: string }): RouteEncodeError =>
+    new RouteEncodeError({
+      routeId: node.id,
+      part: "path",
+      message: "Destination does not belong to this router contract"
+    })
+
   const serviceEffect = contract.service as unknown as Effect.Effect<RouterService<C>, never, R>
+  const validatedService = Effect.gen(function* () {
+    const router = yield* serviceEffect
+    if ((router as unknown as { readonly routes: unknown }).routes !== contract) {
+      return yield* Effect.die(
+        new RouteDefinitionError({
+          message: "The router runtime was assembled from a different contract version than the supplied collection"
+        })
+      )
+    }
+    return router
+  })
   const snapshotRef = atomRuntime.subscriptionRef<RouterState<C>, NavigationError<C>>(
     Effect.gen(function* () {
-      const router = yield* serviceEffect
+      const router = yield* validatedService
       const initial = yield* router.state
       const ref = yield* SubscriptionRef.make(initial)
       yield* router.changes.pipe(
@@ -159,7 +194,9 @@ export const make = <C extends { readonly service: Key<string, unknown> }, R, ER
       return ref
     }) as Effect.Effect<SubscriptionRef.SubscriptionRef<RouterState<C>>, NavigationError<C>, R | Scope.Scope>
   )
-  const serviceAtom = atomRuntime.atom(serviceEffect) as Atom.Atom<AsyncResult.AsyncResult<RouterService<C>, unknown>>
+  const serviceAtom = atomRuntime.atom(validatedService) as Atom.Atom<
+    AsyncResult.AsyncResult<RouterService<C>, unknown>
+  >
 
   const state = snapshotRef as Atom.Atom<AsyncResult.AsyncResult<RouterState<C>, unknown>>
 
@@ -177,18 +214,26 @@ export const make = <C extends { readonly service: Key<string, unknown> }, R, ER
   const branch = Atom.make((get) =>
     Option.match(AsyncResult.value(get(state)), {
       onNone: () => [] as ReadonlyArray<AnyNode>,
-      onSome: (value) => displayEntries(value).map((entry) => entry.node as AnyNode)
+      onSome: (value) => displayEntries(value).map((entry) => entry.node as unknown as AnyNode)
     })
   )
 
-  const route = <D extends AnyNode>(descriptor: D): Atom.Atom<Option.Option<RouteView<D>>> =>
-    Atom.make((get): Option.Option<RouteView<D>> => {
+  const route = <D extends AnyNode>(descriptor: D): Atom.Atom<Option.Option<RouteView<D>>> => {
+    if (!owns(descriptor)) {
+      throw new RouteDefinitionError({
+        message: `Route projection "${descriptor.id}" does not belong to this router contract`
+      })
+    }
+    return Atom.make((get): Option.Option<RouteView<D>> => {
       const result = get(state)
       if (!AsyncResult.isSuccess(result)) return Option.none()
-      const entry = displayEntries(result.value).find((candidate) => candidate.id === descriptor.id)
+      const entry = displayEntries(result.value).find(
+        (candidate) => candidate.node === (descriptor as unknown as RuntimeNode)
+      )
       if (entry === undefined) return Option.none()
       return resolveView<D>(entry)
     }).pipe(Atom.withEquality<Option.Option<RouteView<D>>>(sameOption))
+  }
 
   return {
     routes: contract as unknown as C,
@@ -198,6 +243,6 @@ export const make = <C extends { readonly service: Key<string, unknown> }, R, ER
     status,
     branch,
     route,
-    href: href as AtomRouter<C>["href"]
+    href: (destination) => (owns(destination.node) ? href(destination) : Result.fail(foreignError(destination.node)))
   }
 }
