@@ -35,14 +35,14 @@
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.3.0",
-    "@effect/atom-solid": "^4.0.0-rc.116",
-    "effect": "^4.0.0-rc.116",
+    "@effect/atom-solid": "^4.0.0-rc.118",
+    "effect": "^4.0.0-rc.118",
     "solid-js": "^1.9.15"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-solid": "4.0.0-rc.116",
-    "effect": "4.0.0-rc.116",
+    "@effect/atom-solid": "4.0.0-rc.118",
+    "effect": "4.0.0-rc.118",
     "solid-js": "1.9.15"
   },
   "scripts": {

@@ -5,7 +5,7 @@
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import * as Atom from "effect/unstable/reactivity/Atom"
+import * as Atom from "effect/reactivity/Atom"
 import * as AtomRouter from "@effect-stack/router/AtomRouter"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import * as Route from "@effect-stack/router/Route"

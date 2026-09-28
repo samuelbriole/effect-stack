@@ -64,7 +64,7 @@ No renderer or `AtomRegistry` is required for headless navigation. Use `MemoryHi
 
 ```tsx
 import { RegistryProvider } from "@effect/atom-react"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 import { RouterProvider, useRoute } from "@effect-stack/router-react"
 import { RouterLive, Routes } from "./router.ts"
 

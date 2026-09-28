@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { MemoryHistory, Route, RouteGroup, Router } from "@effect-stack/router"
 import { Link, Outlet, RouterProvider, useRoute, type Views } from "@effect-stack/router-vue"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 import { afterEach, describe, expect, it } from "vitest"
 import { defineComponent, h, nextTick, render } from "vue"
 

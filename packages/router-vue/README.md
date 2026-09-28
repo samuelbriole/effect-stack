@@ -11,7 +11,7 @@ pnpm add @effect-stack/router-vue @effect-stack/router @effect/atom-vue effect@r
 ```ts
 import { createApp, h } from "vue"
 import { RouterProvider } from "@effect-stack/router-vue"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 import { RouterLive, Routes } from "./router.ts"
 
 const runtime = Atom.runtime(RouterLive)

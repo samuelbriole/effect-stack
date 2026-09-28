@@ -35,15 +35,15 @@
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.3.0",
-    "@effect/atom-react": "^4.0.0-rc.116",
-    "effect": "^4.0.0-rc.116",
+    "@effect/atom-react": "^4.0.0-rc.118",
+    "effect": "^4.0.0-rc.118",
     "react": "^19.3.0"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-react": "4.0.0-rc.116",
+    "@effect/atom-react": "4.0.0-rc.118",
     "@types/react": "19.3.0",
-    "effect": "4.0.0-rc.116",
+    "effect": "4.0.0-rc.118",
     "react": "19.3.0"
   },
   "scripts": {

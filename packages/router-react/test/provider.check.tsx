@@ -4,7 +4,7 @@
  */
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import * as Atom from "effect/unstable/reactivity/Atom"
+import * as Atom from "effect/reactivity/Atom"
 import type { RouterProviderProps, Views } from "@effect-stack/router-react"
 import * as Router from "@effect-stack/router/Router"
 import * as Route from "@effect-stack/router/Route"

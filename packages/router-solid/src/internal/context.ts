@@ -1,7 +1,7 @@
 import type { AtomRouter } from "@effect-stack/router/AtomRouter"
 import type { RouterService } from "@effect-stack/router/Router"
 import { useAtomValue } from "@effect/atom-solid"
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { createContext, type Accessor, useContext } from "solid-js"
 import type { ViewOptions } from "./route.ts"
 

@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-solid"
 import { Cause } from "effect"
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as Option from "effect/Option"
 import { createComponent, createMemo, ErrorBoundary, type JSX, Show, useContext } from "solid-js"
 import { Dynamic } from "solid-js/web"

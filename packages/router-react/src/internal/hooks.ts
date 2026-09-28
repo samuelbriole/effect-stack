@@ -9,7 +9,7 @@ import type {
   SuccessOf
 } from "@effect-stack/router/Router"
 import { useAtomValue } from "@effect/atom-react"
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as Option from "effect/Option"
 import * as React from "react"
 import { useRouterContext, useRouterService } from "./context.ts"

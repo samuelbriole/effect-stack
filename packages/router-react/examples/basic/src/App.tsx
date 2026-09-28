@@ -1,7 +1,7 @@
 import { Link, Outlet, RouterProvider, useRoute, type ErrorProps, type Views } from "@effect-stack/router-react"
 import { AppLive, projectId42, Routes } from "@effect-stack-example/router-shared"
 import { RegistryProvider } from "@effect/atom-react"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 import { useState } from "react"
 
 const runtime = Atom.runtime(AppLive)

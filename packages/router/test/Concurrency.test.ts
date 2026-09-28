@@ -10,7 +10,7 @@ import * as Option from "effect/Option"
 import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { MemoryHistory, Route, Router } from "@effect-stack/router"
 
 class Gate extends Context.Service<

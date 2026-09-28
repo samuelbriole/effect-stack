@@ -11,7 +11,7 @@ pnpm add @effect-stack/router-solid @effect-stack/router @effect/atom-solid effe
 ```tsx
 import { RegistryProvider } from "@effect/atom-solid"
 import { RouterProvider } from "@effect-stack/router-solid"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 import { RouterLive, Routes } from "./router.ts"
 
 const runtime = Atom.runtime(RouterLive)

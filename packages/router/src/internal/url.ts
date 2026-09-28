@@ -8,7 +8,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import * as UrlParams from "effect/unstable/http/UrlParams"
+import * as UrlParams from "effect/http/UrlParams"
 import { RouteDecodeError, RouteEncodeError } from "./errors.ts"
 
 /**
