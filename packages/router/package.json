@@ -17,13 +17,13 @@
   "exports": {
     "./package.json": "./package.json",
     ".": "./src/index.ts",
+    "./Adapter": "./src/Adapter.ts",
     "./Router": "./src/Router.ts",
-    "./Route": "./src/Route.ts",
-    "./RouteGroup": "./src/RouteGroup.ts",
     "./History": "./src/History.ts",
     "./BrowserHistory": "./src/BrowserHistory.ts",
     "./MemoryHistory": "./src/MemoryHistory.ts",
     "./AtomRouter": "./src/AtomRouter.ts",
+    "./Presentation": "./src/Presentation.ts",
     "./internal/*": null
   },
   "files": [
@@ -41,13 +41,13 @@
     "exports": {
       "./package.json": "./package.json",
       ".": "./dist/index.js",
+      "./Adapter": "./dist/Adapter.js",
       "./Router": "./dist/Router.js",
-      "./Route": "./dist/Route.js",
-      "./RouteGroup": "./dist/RouteGroup.js",
       "./History": "./dist/History.js",
       "./BrowserHistory": "./dist/BrowserHistory.js",
       "./MemoryHistory": "./dist/MemoryHistory.js",
       "./AtomRouter": "./dist/AtomRouter.js",
+      "./Presentation": "./dist/Presentation.js",
       "./internal/*": null
     }
   },

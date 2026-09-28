@@ -1,93 +1,119 @@
 # Adopt Router
 
-Choose an integration; each package can be adopted independently. Router targets Effect v4 RC.
+Router targets Effect v4 RC. Choose [React](../packages/router-react), [Solid](../packages/router-solid),
+[Vue](../packages/router-vue), or the [headless core](../packages/router).
 
-| Use case                              | Start here                                                                                     |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Nested React views                    | [React adapter](../packages/router-react) · [example](../packages/router-react/examples/basic) |
-| Nested Solid views                    | [Solid adapter](../packages/router-solid) · [example](../packages/router-solid/examples/basic) |
-| Nested Vue views                      | [Vue adapter](../packages/router-vue) · [example](../packages/router-vue/examples/basic)       |
-| Headless routing or a custom renderer | [Core API](../packages/router) and the example below                                           |
+Routes own URL schemas, an optional direct transition gate, and native presentation. Application data belongs to
+official Effect Atom resources, not routing. Each renderer's `examples/basic` is a standalone application demonstrating
+branded decoded IDs, one composed runtime for navigation and domain resources, reachable resource failure, and refresh
+recovery.
 
-## Define a contract
+## Headless setup
 
 ```ts
-import * as Route from "@effect-stack/router/Route"
-import * as Router from "@effect-stack/router/Router"
-import { Schema } from "effect"
+import { Effect, Layer, Schema } from "effect"
+import { MemoryHistory, Router } from "@effect-stack/router"
 
-export const Routes = Router.make("App").add(
-  Route.make("home", "/"),
-  Route.make("project", "/projects/:projectId", {
-    params: { projectId: Schema.FiniteFromString },
-    search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
-    success: Schema.Struct({ title: Schema.String }),
-    error: Schema.Struct({ code: Schema.Number })
-  })
+const Home = Router.route("home", "/")
+const Project = Router.layout("project", "/projects/:projectId", {
+  params: { projectId: Schema.FiniteFromString }
+})
+const Index = Project.index()
+const App = Router.make("Example", [Home, Index])
+
+await Effect.runPromise(
+  Effect.gen(function* () {
+    const router = yield* App.service
+    yield* router.navigate(Index.to({ params: { projectId: 42 } }))
+    return yield* router.state
+  }).pipe(Effect.provide(App.layer.pipe(Layer.provide(MemoryHistory.layer("/")))))
 )
 ```
 
-## Implement routes as Layers
+No renderer or Atom registry is required for headless navigation. Child constructors inherit exact decoded
+params/search and carry the actual typed parent. Hash schemas inherit unless overridden; ancestor schemas still validate. Layouts are not navigable endpoints;
+`parent.index(options)` is shorthand for `parent.route("index", "/", options)` at the parent's path.
 
-```ts
-import * as BrowserHistory from "@effect-stack/router/BrowserHistory"
-import { Effect, Layer } from "effect"
-
-const ProjectLive = Router.route(Routes.project, ({ params }) =>
-  ProjectService.use((projects) => projects.get(params.projectId))
-)
-
-export const RouterLive = Router.layer(Routes).pipe(Layer.provide(ProjectLive), Layer.provide(BrowserHistory.layer))
-```
-
-Missing implementation Layers and missing application services remain visible to the compiler. `Router.layer` does not
-fail when initial route preparation fails; the failure is published against the observed URL.
-
-## Headless usage
-
-```ts
-import { Effect } from "effect"
-
-const program = Effect.gen(function* () {
-  const router = yield* Routes.service
-  const outcome = yield* router.navigate(Routes.project({ params: { projectId: 1 } }))
-  const state = yield* router.state
-  return { outcome, state }
-}).pipe(Effect.provide(RouterLive))
-
-await Effect.runPromise(program)
-```
-
-No renderer or `AtomRegistry` is required for headless navigation. Use `MemoryHistory.layer(initialHref)` in tests.
-
-## Renderer integration
+## React with one application runtime
 
 ```tsx
-import { RegistryProvider } from "@effect/atom-react"
-import { Atom } from "effect/reactivity"
-import { RouterProvider, useRoute } from "@effect-stack/router-react"
-import { RouterLive, Routes } from "./router.ts"
+import { Context, Effect, Layer, Schema } from "effect"
+import { Atom, AsyncResult } from "effect/reactivity"
+import { RegistryProvider, useAtomValue, useAtomRefresh } from "@effect/atom-react"
+import { make, Provider, route, useRouteInput } from "@effect-stack/router-react"
+import * as BrowserHistory from "@effect-stack/router/BrowserHistory"
+import type { ReactNode } from "react"
 
-const runtime = Atom.runtime(RouterLive)
+const ProjectId = Schema.FiniteFromString.pipe(Schema.brand("ProjectId"))
+class Projects extends Context.Service<
+  Projects,
+  {
+    readonly get: (id: typeof ProjectId.Type) => Effect.Effect<string>
+  }
+>()("example/Projects") {}
+const domainLayer = Layer.succeed(Projects, { get: (id) => Effect.succeed(`Project ${id}`) })
 
-function ProjectPage() {
-  const { params, data } = useRoute(Routes.project)
-  return <h1>{data.title}</h1>
+const Project = route("project", "/projects/:projectId", {
+  params: { projectId: ProjectId },
+  component: ProjectPage
+})
+function ProjectPage(): ReactNode {
+  const input = useRouteInput(Project)
+  const resource = projectResource(input.params.projectId)
+  const result = useAtomValue(resource)
+  const refresh = useAtomRefresh(resource)
+  return (
+    <section>
+      {AsyncResult.isSuccess(result) ? result.value : AsyncResult.isFailure(result) ? "Resource failed" : "Loading…"}
+      <button onClick={refresh}>Refresh resource</button>
+    </section>
+  )
 }
-
-const views = {
-  home: HomePage,
-  project: { component: ProjectPage, pending: ProjectPending, error: ProjectError }
-}
-
+export const Application = make("Example", [Project])
+const services = Layer.merge(BrowserHistory.layer, domainLayer)
+const runtime = Atom.runtime(Application.layer.pipe(Layer.provideMerge(services)))
+const projectResource = Atom.family((id: typeof ProjectId.Type) =>
+  runtime.atom(Projects.use((projects) => projects.get(id)))
+)
 export const App = () => (
   <RegistryProvider>
-    <RouterProvider routes={Routes} runtime={runtime} views={views} />
+    <Provider app={Application} runtime={runtime} />
   </RegistryProvider>
 )
 ```
 
-Solid and Vue expose the same provider shape with native returns: Solid hooks return accessors and Vue hooks return
-computed refs. `AtomRouter.make(runtime, Routes)` exposes read-only atoms when a renderer wants lower-level access.
+The same runtime supplies navigation gates and resource atoms. `Layer.provideMerge` supplies the router's requirements
+while exposing the domain services to atoms. Data remains application-owned: cancelling a gate does not cancel an
+independently subscribed resource, and router retry does not refresh it. Separate runtimes remain an option when service
+lifetimes or Layer startup failures should be independent.
 
-See [navigation contracts](router-navigation.md) for completion, cancellation, retained data, and recovery.
+Solid uses official `useAtomValue(() => atom)` accessors or `useAtomResource`; Vue uses official
+`useAtomValue(() => atom)` refs with computed selection and `injectRegistry().refresh(atom)`. Native components receive
+no mandatory router props. `useRouteInput(def)` reads displayed input, retaining the previous input while navigation is
+pending. Annotate a native component's return type when it reads its own definition to avoid a TypeScript inference cycle.
+In these small examples, definitions, application assembly, runtime, and resource families share `routes.tsx`/`routes.ts`.
+Components read resources only when rendered, after module initialization, so no eager application import cycle is needed.
+
+## Gates and recovery
+
+An optional `prepare: (decodedInput) => Effect<void, E, R>` is for transition authorization/readiness, not data publication.
+Supply its requirements through Layers. The router writes history first, then runs ancestor gates before descendants;
+all transient scopes close before atomic publication. `retry` reruns gates, not application resource refresh. Resource
+failure recovery uses the official Atom refresh API. Do not add a gate that waits on every resource by default.
+Initial navigation uses the Provider's optional `pending` component; later preparation retains the displayed branch.
+Native render exceptions and boundary resets belong to application components, not route retry.
+
+## Type-only path helpers
+
+```tsx
+// navigation.tsx
+import type { Application } from "./App.tsx"
+import { makeNavigation } from "@effect-stack/router-react"
+export const { Link } = makeNavigation<typeof Application>()
+```
+
+Route components can import this helper without importing route definition modules or eagerly creating parent/child
+cycles. The erased application type cannot be verified at runtime: unbound helpers resolve against the nearest provider.
+Use `makeNavigation(Application)` or `useRouter(Application)` when exact provider-token checks matter.
+
+See [navigation contracts](router-navigation.md) and [architecture](architecture.md).

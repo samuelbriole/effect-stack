@@ -7,7 +7,6 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@effect-stack-example/router-shared": "workspace:*",
     "@effect-stack/router": "workspace:*",
     "@effect-stack/router-react": "workspace:*",
     "@effect/atom-react": "4.0.0-rc.118",

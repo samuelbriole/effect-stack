@@ -17,7 +17,10 @@ const forbiddenDependencies = {
 
 /** @type {Array<[keyof typeof forbiddenDependencies, string[]]>} */
 const packages = [
-  ["router", ["index", "Router", "Route", "RouteGroup", "History", "BrowserHistory", "MemoryHistory", "AtomRouter"]],
+  [
+    "router",
+    ["index", "Adapter", "Router", "History", "BrowserHistory", "MemoryHistory", "AtomRouter", "Presentation"]
+  ],
   ["router-react", ["index"]],
   ["router-solid", ["index"]],
   ["router-vue", ["index"]]
@@ -37,9 +40,14 @@ await Promise.all(
       )
     )
     const packedFiles = new Set(pack.files.map((file) => file.path))
+    const developmentSegments = new Set(["test", "tests", "typetest", "examples", "dev"])
     for (const file of packedFiles) {
-      if (file.startsWith("examples/") || file.startsWith("test/") || file.startsWith("typetest/")) {
+      const segments = file.split("/")
+      if (segments.some((segment) => developmentSegments.has(segment))) {
         throw new Error(`Development file included in ${name} package: ${file}`)
+      }
+      if (file.endsWith(".tsbuildinfo") || file.includes(".tsbuildinfo.")) {
+        throw new Error(`Build metadata included in ${name} package: ${file}`)
       }
     }
     const builtFiles = (await readdir(root, { recursive: true })).filter(

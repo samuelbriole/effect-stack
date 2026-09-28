@@ -117,7 +117,7 @@ export const make = Effect.fn("BrowserHistory.make")(function* () {
     })
   })
 
-  return History.Service.of({
+  return History.History.of({
     current,
     push,
     replace,
@@ -132,4 +132,4 @@ export const make = Effect.fn("BrowserHistory.make")(function* () {
  * @since 0.1.0
  * @category layers
  */
-export const layer: Layer.Layer<History.Service, History.HistoryError> = Layer.effect(History.Service, make())
+export const layer: Layer.Layer<History.History, History.HistoryError> = Layer.effect(History.History, make())

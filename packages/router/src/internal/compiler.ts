@@ -1,13 +1,15 @@
 /**
- * Contract compilation: validation, precedence, and branch planning over
- * runtime nodes. Internal module.
+ * Route compilation: validation, precedence, and branch planning over
+ * canonical runtime nodes. Internal module.
+ *
+ * Assembly passes the trusted nodes of a selection directly; there is no
+ * contract lookup or id rebinding here.
  *
  * @since 0.4.0
  */
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
-import { collectNodes } from "./contract.ts"
-import type { RuntimeGroupNode, RuntimeNode } from "./contract.ts"
+import type { RuntimeNode } from "./definition.ts"
 import { RouteDecodeError, RouteDefinitionError } from "./errors.ts"
 import type { DecodedMatch } from "./url.ts"
 import { match, pathSegments } from "./url.ts"
@@ -55,7 +57,7 @@ export interface Plan {
 }
 
 /**
- * A validated contract ready for repeated matching.
+ * A validated selection ready for repeated matching.
  *
  * @since 0.4.0
  * @category models
@@ -88,8 +90,8 @@ const validate = (nodes: ReadonlyArray<RuntimeNode>): void => {
   }
 }
 
-const structural = (expected: ReadonlyArray<string>, actual: ReadonlyArray<string>, exact: boolean): boolean => {
-  if (exact ? actual.length !== expected.length : actual.length < expected.length) return false
+const structural = (expected: ReadonlyArray<string>, actual: ReadonlyArray<string>): boolean => {
+  if (actual.length !== expected.length) return false
   return expected.every((part, index) => {
     if (part.startsWith(":")) return true
     const candidate = actual[index]
@@ -126,13 +128,12 @@ const decodePrefix = (
 }
 
 /**
- * Validates and indexes a contract's runtime nodes.
+ * Validates and indexes a selection's canonical nodes.
  *
  * @since 0.4.0
  * @category constructors
  */
-export const compile = (routes: Record<string, RuntimeNode>): Compiled => {
-  const nodes = collectNodes(routes)
+export const compile = (nodes: ReadonlyArray<RuntimeNode>): Compiled => {
   validate(nodes)
   const byId = new Map<string, RuntimeNode>()
   for (const node of nodes) if (!byId.has(node.id)) byId.set(node.id, node)
@@ -153,14 +154,7 @@ export const compile = (routes: Record<string, RuntimeNode>): Compiled => {
   })
   const plan = (location: DecodedInput["location"]): Plan => {
     const actual = pathSegments(location.pathname)
-    const find = (accept: (entry: Ranked) => boolean, exact: boolean): Ranked | undefined => {
-      for (const entry of ranked) {
-        if (accept(entry) && structural(entry.segments, actual, exact)) return entry
-      }
-      return undefined
-    }
-    const exact = find((entry) => !entry.layout, true)
-    const leaf = exact ?? find((entry) => entry.node.kind !== "index", false)
+    const leaf = ranked.find((entry) => !entry.layout && structural(entry.segments, actual))
     const chain: Array<Ranked> = []
     let current = leaf
     while (current !== undefined) {
@@ -171,7 +165,7 @@ export const compile = (routes: Record<string, RuntimeNode>): Compiled => {
           : ranked.find((entry) => entry.node.id === current?.node.parentId)
     }
     return {
-      notFound: exact === undefined,
+      notFound: leaf === undefined,
       entries: chain.map((entry) => ({
         node: entry.node,
         input: decodePrefix(entry.node, location)
@@ -180,6 +174,3 @@ export const compile = (routes: Record<string, RuntimeNode>): Compiled => {
   }
   return { nodes, byId, plan }
 }
-
-/** @since 0.4.0 */
-export const isGroup = (node: RuntimeNode): node is RuntimeGroupNode => node._tag === "GroupDescriptor"

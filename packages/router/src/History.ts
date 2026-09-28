@@ -71,7 +71,7 @@ export interface Interface {
  * @since 0.1.0
  * @category services
  */
-export class Service extends Context.Service<Service, Interface>()("@effect-stack/router/History") {}
+export class History extends Context.Service<History, Interface>()("@effect-stack/router/History") {}
 
 /**
  * Converts a destination to a relative href.

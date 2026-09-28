@@ -108,5 +108,5 @@ export const make = Effect.fn("MemoryHistory.make")(function* (initialHref: stri
  * @since 0.1.0
  * @category layers
  */
-export const layer = (initialHref = "/"): Layer.Layer<History.Service> =>
-  Layer.effect(History.Service, make(initialHref))
+export const layer = (initialHref = "/"): Layer.Layer<History.History> =>
+  Layer.effect(History.History, make(initialHref))

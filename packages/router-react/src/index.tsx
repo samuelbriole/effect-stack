@@ -1,15 +1,35 @@
 /** First-party client-side React routing. @since 0.1.0 */
-export { useRoute, useRouter, useRouterState, type RouteResult } from "./internal/hooks.ts"
-export { Link, Navigate, useNavigate, useNavigateEffect, useRetry } from "./internal/navigation.tsx"
-export { RouterProvider, type RouterProviderProps } from "./internal/provider.tsx"
+export {
+  layout,
+  route,
+  type Layout,
+  type LayoutConstructor,
+  type NestedLayout,
+  type Route,
+  type RouteConstructor
+} from "./internal/route.ts"
+export { make, Provider, type ProviderProps } from "./internal/application.tsx"
+export { useRouteInput, useRouter, useRouterState } from "./internal/hooks.ts"
+export {
+  Link,
+  Navigate,
+  makeNavigation,
+  useNavigate,
+  useNavigateEffect,
+  useRetry,
+  type NavigationHelpers
+} from "./internal/navigation.tsx"
 export { DefaultError, DefaultNotFound, DefaultPending, Outlet } from "./internal/rendering.tsx"
 export {
-  flattenViews,
-  type ErrorProps,
-  type GroupView,
-  type LeafView,
-  type LinkDestination,
-  type ViewOptions,
-  type Views,
-  type ViewsRecord
+  type DirectOptions,
+  type EmptyOptions,
+  type ErrorComponent,
+  type LinkProps,
+  type NavigateProps,
+  type NavigateTarget,
+  type PathTarget,
+  type PathTargets,
+  type PresentationOptions,
+  type ViewComponent,
+  type ViewFailureProps
 } from "./internal/route.ts"

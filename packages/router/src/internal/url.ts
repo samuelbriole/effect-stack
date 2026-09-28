@@ -242,11 +242,18 @@ export const match = (node: UrlCodecs, url: UrlParts): Result.Result<Option.Opti
   let hash: unknown = undefined
   const hashSchema = node.hashSchema
   if (hashSchema !== undefined) {
-    const encodedHash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash
-    const decodedHash = decodeUriPart(node.id, "hash", encodedHash)
-    if (Result.isFailure(decodedHash)) return Result.fail(decodedHash.failure)
+    // Absence of a fragment is validated as `undefined` by the declared schema,
+    // symmetric with encoding: required schemas reject a missing fragment while
+    // optional/undefined schemas accept it.
+    let raw: unknown = undefined
+    if (url.hash.length > 0) {
+      const encodedHash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash
+      const decodedHash = decodeUriPart(node.id, "hash", encodedHash)
+      if (Result.isFailure(decodedHash)) return Result.fail(decodedHash.failure)
+      raw = decodedHash.success
+    }
     const decoded = decodeSync(
-      () => Schema.decodeUnknownResult(hashSchema)(decodedHash.success),
+      () => Schema.decodeUnknownResult(hashSchema)(raw),
       (message) => new RouteDecodeError({ routeId: node.id, part: "hash", input: url.hash, message }),
       asyncDecodeMessage
     )
@@ -376,9 +383,30 @@ export const encode = (
     }
     const encoded = encodeUriPart(node.id, "path", value)
     if (Result.isFailure(encoded)) return encoded
+    if (key !== undefined && encoded.success.length === 0) {
+      return Result.fail(
+        new RouteEncodeError({
+          routeId: node.id,
+          part: "path",
+          message: `Path parameter ${key} cannot encode to an empty segment`
+        })
+      )
+    }
     pathnameSegments.push(encoded.success)
   }
   const pathname = pathnameSegments.length === 0 ? "/" : `/${pathnameSegments.join("/")}`
+  // A canonical internal path is exactly one leading slash. An empty segment
+  // would produce a protocol-relative `//host` href that native `new URL`
+  // resolves to an external origin.
+  if (pathname !== "/" && (pathname.startsWith("//") || !pathname.startsWith("/"))) {
+    return Result.fail(
+      new RouteEncodeError({
+        routeId: node.id,
+        part: "path",
+        message: "The encoded path is not a canonical internal path"
+      })
+    )
+  }
 
   const encodedSearchValue = encodeSync(
     () => Schema.encodeResult(node.searchSchema)(input.search as Record<string, unknown>),
@@ -393,7 +421,10 @@ export const encode = (
 
   let hash = ""
   const hashSchema = node.hashSchema
-  if (hashSchema !== undefined && input.hash !== undefined) {
+  if (hashSchema !== undefined) {
+    // A declared hash schema always validates the value, including `undefined`:
+    // a required schema rejects an absent fragment, while an optional/undefined
+    // schema accepts it. This keeps the encoded href decodable by the same node.
     const encodedHashValue = encodeSync(
       () => Schema.encodeResult(hashSchema)(input.hash),
       (message) => new RouteEncodeError({ routeId: node.id, part: "hash", message }),
@@ -402,14 +433,29 @@ export const encode = (
     if (Result.isFailure(encodedHashValue)) {
       return Result.fail(encodedHashValue.failure)
     }
-    if (typeof encodedHashValue.success !== "string") {
-      return Result.fail(
-        new RouteEncodeError({ routeId: node.id, part: "hash", message: "Hash must encode to a string" })
-      )
+    if (encodedHashValue.success !== undefined) {
+      if (typeof encodedHashValue.success !== "string") {
+        return Result.fail(
+          new RouteEncodeError({ routeId: node.id, part: "hash", message: "Hash must encode to a string" })
+        )
+      }
+      const encodedHash = encodeUriPart(node.id, "hash", encodedHashValue.success)
+      if (Result.isFailure(encodedHash)) return encodedHash
+      // An empty fragment is indistinguishable from an absent fragment on
+      // decode, so an empty encoded hash is unrepresentable. A schema that
+      // permits `undefined` represents absence; an actual empty string (or a
+      // transformation producing one) is rejected instead of silently lost.
+      if (encodedHash.success.length === 0) {
+        return Result.fail(
+          new RouteEncodeError({
+            routeId: node.id,
+            part: "hash",
+            message: "A declared hash cannot encode to an empty fragment"
+          })
+        )
+      }
+      hash = `#${encodedHash.success}`
     }
-    const encodedHash = encodeUriPart(node.id, "hash", encodedHashValue.success)
-    if (Result.isFailure(encodedHash)) return encodedHash
-    hash = encodedHash.success.length === 0 ? "" : `#${encodedHash.success}`
   }
   return Result.succeed(`${pathname}${search.success}${hash}`)
 }

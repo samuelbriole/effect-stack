@@ -1,15 +1,28 @@
 /** First-party client-side Solid routing. @since 0.1.0 */
-export { useRoute, useRouter, useRouterState, type RouteResult } from "./internal/hooks.ts"
-export { Link, Navigate, useLocation, useNavigate, useNavigateEffect, useRetry } from "./internal/navigation.ts"
-export { RouterProvider, type RouterProviderProps } from "./internal/provider.ts"
+export { layout, route, type LayoutConstructor, type RouteConstructor } from "./internal/route.ts"
+export { make, Provider, type ProviderProps } from "./internal/application.ts"
+export { useRouteInput, useRouter, useRouterState } from "./internal/hooks.ts"
+export {
+  Link,
+  Navigate,
+  makeNavigation,
+  useLocation,
+  useNavigate,
+  useNavigateEffect,
+  useRetry,
+  type NavigationHelpers
+} from "./internal/navigation.ts"
 export { DefaultError, DefaultNotFound, DefaultPending, Outlet } from "./internal/rendering.ts"
 export {
-  flattenViews,
-  type ErrorProps,
-  type GroupView,
-  type LeafView,
-  type LinkDestination,
-  type ViewOptions,
-  type Views,
-  type ViewsRecord
+  type DirectOptions,
+  type EmptyOptions,
+  type ErrorComponent,
+  type LinkProps,
+  type NavigateProps,
+  type NavigateTarget,
+  type PathTarget,
+  type PathTargets,
+  type PresentationOptions,
+  type ViewComponent,
+  type ViewFailureProps
 } from "./internal/route.ts"

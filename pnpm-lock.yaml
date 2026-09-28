@@ -280,9 +280,6 @@ importers:
 
   packages/router-react/examples/basic:
     dependencies:
-      '@effect-stack-example/router-shared':
-        specifier: workspace:*
-        version: link:../../../router/examples/shared
       '@effect-stack/router':
         specifier: workspace:*
         version: link:../../../router
@@ -338,9 +335,6 @@ importers:
 
   packages/router-solid/examples/basic:
     dependencies:
-      '@effect-stack-example/router-shared':
-        specifier: workspace:*
-        version: link:../../../router/examples/shared
       '@effect-stack/router':
         specifier: workspace:*
         version: link:../../../router
@@ -381,9 +375,6 @@ importers:
 
   packages/router-vue/examples/basic:
     dependencies:
-      '@effect-stack-example/router-shared':
-        specifier: workspace:*
-        version: link:../../../router/examples/shared
       '@effect-stack/router':
         specifier: workspace:*
         version: link:../../../router
@@ -412,15 +403,6 @@ importers:
       vue-tsc:
         specifier: 3.3.11
         version: 3.3.11(typescript@6.0.3)
-
-  packages/router/examples/shared:
-    dependencies:
-      '@effect-stack/router':
-        specifier: workspace:*
-        version: link:../..
-      effect:
-        specifier: 4.0.0-rc.118
-        version: 4.0.0-rc.118
 
 packages:
 
