@@ -10,14 +10,14 @@
     "@effect-stack-example/router-shared": "workspace:*",
     "@effect-stack/router": "workspace:*",
     "@effect-stack/router-vue": "workspace:*",
-    "@effect/atom-vue": "4.0.0-rc.116",
-    "effect": "4.0.0-rc.116",
+    "@effect/atom-vue": "4.0.0-rc.118",
+    "effect": "4.0.0-rc.118",
     "vue": "3.5.43"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.9",
     "typescript": "6.0.3",
-    "vite": "8.3.0",
+    "vite": "8.3.1",
     "vue-tsc": "3.3.11"
   }
 }

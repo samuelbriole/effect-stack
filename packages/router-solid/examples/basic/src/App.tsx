@@ -1,7 +1,7 @@
 import { Link, Outlet, RouterProvider, useRoute, type ErrorProps, type Views } from "@effect-stack/router-solid"
 import { AppLive, projectId42, Routes } from "@effect-stack-example/router-shared"
 import { RegistryProvider } from "@effect/atom-solid"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 import { createSignal } from "solid-js"
 
 const runtime = Atom.runtime(AppLive)

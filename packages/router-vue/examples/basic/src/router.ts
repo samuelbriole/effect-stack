@@ -1,6 +1,6 @@
 import { Link, Outlet, useRoute, type Views } from "@effect-stack/router-vue"
 import { AppLive, projectId42, Routes } from "@effect-stack-example/router-shared"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 import { defineComponent, h, ref } from "vue"
 
 export const runtime = Atom.runtime(AppLive)

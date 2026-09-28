@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-vue"
 import { Cause } from "effect"
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as Option from "effect/Option"
 import {
   computed,

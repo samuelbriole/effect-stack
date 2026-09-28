@@ -8,7 +8,7 @@ import type {
   SuccessOf
 } from "@effect-stack/router/Router"
 import { useAtomValue } from "@effect/atom-vue"
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as Option from "effect/Option"
 import { computed, type ComputedRef } from "vue"
 import { useRouterContext, useRouterService } from "./context.ts"

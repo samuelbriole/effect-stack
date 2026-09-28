@@ -5,7 +5,7 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import { MemoryHistory, Route, RouteGroup, Router } from "@effect-stack/router"
 
 const ProjectId = Schema.FiniteFromString
