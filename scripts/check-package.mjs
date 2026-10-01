@@ -9,10 +9,19 @@ const decodePack = Schema.decodeResult(
 )
 
 const forbiddenDependencies = {
-  router: ["react", "solid-js", "vue", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"],
+  router: ["react", "solid-js", "vue", "foldkit", "@effect/atom-react", "@effect/atom-solid", "@effect/atom-vue"],
   "router-react": ["solid-js", "vue", "@effect/atom-solid", "@effect/atom-vue", "@tanstack/"],
   "router-solid": ["react", "vue", "@effect/atom-react", "@effect/atom-vue", "@tanstack/"],
-  "router-vue": ["react", "solid-js", "@effect/atom-react", "@effect/atom-solid", "@tanstack/"]
+  "router-vue": ["react", "solid-js", "@effect/atom-react", "@effect/atom-solid", "@tanstack/"],
+  "router-foldkit": [
+    "react",
+    "solid-js",
+    "vue",
+    "@effect/atom-react",
+    "@effect/atom-solid",
+    "@effect/atom-vue",
+    "@tanstack/"
+  ]
 }
 
 /** @type {Array<[keyof typeof forbiddenDependencies, string[]]>} */
@@ -23,7 +32,8 @@ const packages = [
   ],
   ["router-react", ["index"]],
   ["router-solid", ["index"]],
-  ["router-vue", ["index"]]
+  ["router-vue", ["index"]],
+  ["router-foldkit", ["index"]]
 ]
 
 await Promise.all(

@@ -10,7 +10,11 @@
     "packages/*/typetest/**/*.tsx"
   ],
   "exclude": ["**/node_modules/**", "**/dist/**", "packages/router-solid/**", "packages/router-vue/**"],
-  "references": [{ "path": "packages/router" }, { "path": "packages/router-react" }],
+  "references": [
+    { "path": "packages/router" },
+    { "path": "packages/router-react" },
+    { "path": "packages/router-foldkit" }
+  ],
   "compilerOptions": {
     "rootDir": ".",
     "jsx": "react-jsx",

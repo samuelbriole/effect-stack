@@ -2,23 +2,24 @@
 
 EffectStack packages are independently adoptable. Each domain has one owner:
 
-| Domain                                                   | Owner                                |
-| -------------------------------------------------------- | ------------------------------------ |
-| URLs, matching, history, navigation, transition gates    | Router                               |
-| Remote-resource state and mutations                      | Effect Atom and application services |
-| Editing, validation, submission                          | Form (planned)                       |
-| Normalized entities, indexes, transactions, live queries | DB (exploring)                       |
+| Domain                                                   | Owner                                                      |
+| -------------------------------------------------------- | ---------------------------------------------------------- |
+| URLs, matching, history, navigation, transition gates    | Router                                                     |
+| Remote-resource state and mutations                      | Effect Atom by default; Foldkit Model/Commands for Foldkit |
+| Editing, validation, submission                          | Form (planned)                                             |
+| Normalized entities, indexes, transactions, live queries | DB (exploring)                                             |
 
 ## Dependency direction
 
 ```text
 Renderer adapter -> headless core -> Effect
-                 -> official Effect Atom adapter + renderer
+                 -> native renderer (and official Effect Atom adapter where applicable)
 Platform adapter -> core service interface
 ```
 
 Cores must remain platform- and renderer-independent. Browser and memory history implement the core `History.History`.
 React, Solid, and Vue adapters depend on `@effect-stack/router` and their official Effect Atom adapters.
+The Foldkit adapter depends on the core and Foldkit's Commands, Subscriptions, and HTML builder, not an Atom registry.
 
 ## Unified route definitions
 
@@ -51,16 +52,24 @@ Application Layers supply gate dependencies. Gates capture that context without 
 before branch publication. Long-lived resources belong to application Layers or Effect Atom, not gates.
 
 `Router.layer(assembly)` acquires the canonical application and scoped router under `Router.RuntimeApplication`.
-Compose one application Layer per runtime, sharing that runtime with resource atoms by default. Independent routers use
+For React, Solid, and Vue, compose one application Layer per runtime, sharing that runtime with resource atoms by default. Independent routers use
 independent runtimes; different registries or factories must not be assumed to share services. Resource retention and
 preload policy belong to Atom, not navigation cancellation or router retry.
 
 The supported `@effect-stack/router/Adapter` bridge shares definition construction, application assembly, and target
 normalization. Native option types, providers, hooks, rendering, and lifecycle stay in each adapter; core never calls
-components. Presentation is stored privately and checked against the adapter's factory. `RouterProvider` reads the
+components. Presentation is stored privately and checked against the adapter's factory. React/Solid/Vue `RouterProvider` reads the
 acquired application through the supplied runtime, displaying startup pending/failure before mounting router context.
 The standard service selects the application; private checks authenticate canonical and renderer ownership.
 Native render boundaries belong to the application. Endpoints need presentation or `empty: true`; layouts may be transparent.
+
+Foldkit keeps application data and a serializable presentation snapshot in its Model, with runtime definitions/services
+outside it. Execute its lazy assembly Effect explicitly to obtain the application; assembly does not acquire services.
+Its pure views receive the application Model, native HTML builder, decoded displayed input, and a lazy outlet. A persistent
+Subscription acquires the router in a fresh scope, shares it with navigation Commands, and resynchronizes after
+Model preservation. Commands fold operational failures into Messages; startup failures do not expose gate retry.
+
+`Adapter.getApplicationNodes` and `getApplicationNode` expose validated canonical schema facts, not gate records or private definition metadata. `Presentation.projectPresentation` and `selectOutlet` share retained-branch and failure selection with data-only adapters.
 
 ## Navigation identity and typed paths
 

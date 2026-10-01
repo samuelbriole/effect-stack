@@ -5,6 +5,7 @@
   "references": [
     { "path": "packages/router-react/examples/basic" },
     { "path": "packages/router-solid/examples/basic" },
-    { "path": "packages/router-vue/examples/basic" }
+    { "path": "packages/router-vue/examples/basic" },
+    { "path": "packages/router-foldkit/examples/basic" }
   ]
 }

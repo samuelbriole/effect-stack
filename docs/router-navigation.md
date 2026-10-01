@@ -1,6 +1,6 @@
 # Navigation contracts
 
-Shared behavior for the headless Router and its React, Solid, and Vue adapters.
+Shared behavior for the headless Router and its React, Solid, Vue, and Foldkit adapters.
 See [adoption](adoption.md) for setup.
 
 ## Commands and completion
@@ -92,7 +92,7 @@ therefore remain coherent with the displayed component. The router publishes no 
 
 ## Rendering and recovery
 
-`layer(make(...))` acquires the canonical application and router inside the Atom runtime. Native `RouterProvider` takes
+For React, Solid, and Vue, `layer(make(...))` acquires the canonical application and router inside the Atom runtime. `RouterProvider` takes
 only `runtime` and optional `pending`; startup pending/failure render outside router context. Changing the runtime selects
 its acquired application. Every endpoint needs presentation (`component` or Vue `render`) or `empty: true`; layouts may
 be transparent. `index(options)` is shorthand for `route("index", "/", options)` at the parent's path.
@@ -103,7 +103,7 @@ React's Promise navigation and retry helpers execute through independent runtime
 Overlapping calls retain their own completion outcomes. Component unmount does not cancel accepted work; registry disposal
 rejects outstanding waits and closes the runtime's scoped resources. `useNavigateEffect` remains available for Effect composition.
 
-Components receive no mandatory injected props; `useRouteInput(def)` reads displayed input (React value, Solid accessor,
+React/Solid/Vue components receive no mandatory injected props; `useRouteInput(def)` reads displayed input (React value, Solid accessor,
 Vue computed ref). Layouts render an `Outlet` to continue the branch. Initial preparation uses `RouterProvider`'s optional
 `pending` component; later preparation retains the committed branch. Routing error views replace the failing node and
 descendants while preserving layouts above it. Bound navigation helpers reject a different provider token.
@@ -114,6 +114,14 @@ so infrastructure failures are never cast to the gate's domain error. Startup fa
 acquisition failed. Route retry reruns gates without rebuilding the runtime or refreshing resource atoms.
 Application-owned resource errors and refresh use official Effect Atom APIs independently of routing. Native render
 exceptions propagate to application-owned error boundaries; their reset does not implicitly retry navigation.
+
+Foldkit follows the same navigation/gate/retained-branch contracts with explicit pure views and a Model snapshot, rather
+than hooks/Providers. Execute its lazy assembly Effect to obtain the application before composing its Model and Messages.
+Its error views receive `Domain` values only after an `errorSchema` round trip; other failures are `Diagnostic` values
+retaining failure/defect/interruption categories, not restored raw Causes. History state in navigation Messages must be
+JSON or undefined and is excluded from the presentation snapshot. A persistent CommandSubscription owns scoped runtime
+acquisition; restarting it always reacquires live routing authority, while a preserved Model is only cached presentation.
+See the [Foldkit adapter](../packages/router-foldkit) for its native interface.
 
 `Link` renders a real anchor with a typed destination and preserves native modifier keys, alternate targets, and
 downloads. Hooks return native values: React values, Solid accessors, and Vue computed refs. React `Link` also accepts

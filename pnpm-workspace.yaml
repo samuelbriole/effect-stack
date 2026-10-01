@@ -5,6 +5,13 @@ packages:
 verifyDepsBeforeRun: error
 enableGlobalVirtualStore: false
 
+# Foldkit 0.168.0 pins stable Effect/platform-browser 4.0.0 peers exactly.
+# Allow only the workspace's 4.0.5 patch versions; published peers are unchanged.
+peerDependencyRules:
+  allowedVersions:
+    "foldkit>effect": "4.0.5"
+    "foldkit>@effect/platform-browser": "4.0.5"
+
 allowBuilds:
   esbuild: false
   msgpackr-extract: false
