@@ -1,5 +1,32 @@
 # @effect-stack/router-solid
 
+## 0.4.0
+
+### Minor Changes
+
+- [#19](https://github.com/samuelbriole/effect-stack/pull/19) [`1ea52e8`](https://github.com/samuelbriole/effect-stack/commit/1ea52e84d9582428197ba0f46c83bfa248b82114) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Replace split route contracts and implementations with unified route and layout definitions for the core, React,
+  Solid, and Vue. Definitions inherit typed URL schemas and support direct `prepare` gates; ordinary native components use
+  `useRouteInput` and application-owned Effect atoms instead of router loader data or injected data props. Remove the redundant
+  `useRoute` hook and `RouteResult` alias.
+  
+  Assemble one canonical application; native `Provider` takes `app` and `runtime`. Add type-only path navigation, optional
+  exact application binding through `makeNavigation(app)`, and single-runtime examples. `index` is shorthand for an ordinary
+  endpoint at its parent's path. Expose definition and aggregate application error/requirement projections; rename the
+  history service to `History.History`.
+  
+  Use application-level initial pending views and application-owned native render boundaries. Pre-acceptance failures leave
+  accepted navigation status unchanged; initial history acquisition failures surface as startup errors. Fix nested provider
+  outlets and omitted Vue navigation defaults, and prevent resubmission of unchanged `Navigate` targets. Self-interrupting
+  gates settle as cause-level failures. Resource refresh remains independent of navigation retry and cancellation.
+
+### Patch Changes
+
+- [#20](https://github.com/samuelbriole/effect-stack/pull/20) [`bb29d92`](https://github.com/samuelbriole/effect-stack/commit/bb29d927966179e83631671df8304d57b616e1ff) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Imports now use the new Effect module paths: `effect/unstable/reactivity` is replaced by `effect/reactivity` and `effect/unstable/http` by `effect/http`.
+
+- [#21](https://github.com/samuelbriole/effect-stack/pull/21) [`b3aada0`](https://github.com/samuelbriole/effect-stack/commit/b3aada0e732aa5ff324f15f4c3c158128de52b4c) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Require stable Effect 4.0.0 and the matching Effect Atom adapters instead of the v4 release candidates.
+- Updated dependencies [[`bb29d92`](https://github.com/samuelbriole/effect-stack/commit/bb29d927966179e83631671df8304d57b616e1ff), [`1ea52e8`](https://github.com/samuelbriole/effect-stack/commit/1ea52e84d9582428197ba0f46c83bfa248b82114), [`b3aada0`](https://github.com/samuelbriole/effect-stack/commit/b3aada0e732aa5ff324f15f4c3c158128de52b4c)]:
+  - @effect-stack/router@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@effect-stack/router-vue",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "license": "MIT",
   "description": "First-party Vue adapter for EffectStack Router",
@@ -36,7 +36,7 @@
     }
   },
   "peerDependencies": {
-    "@effect-stack/router": "^0.3.0",
+    "@effect-stack/router": "^0.4.0",
     "@effect/atom-vue": "^4.0.0",
     "effect": "^4.0.0",
     "vue": "^3.5.43"
