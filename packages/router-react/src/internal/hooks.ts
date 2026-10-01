@@ -1,50 +1,31 @@
-import type { AtomRouter } from "@effect-stack/router/AtomRouter"
 import type {
-  AnyNode,
-  HashOf,
-  ParamsOf,
+  AnyDefinition,
+  ApplicationErrorOf,
   RouterService,
   RouterState,
-  SearchOf,
-  SuccessOf
+  RoutesOf,
+  DecodedRouteInputOfDef
 } from "@effect-stack/router/Router"
 import { useAtomValue } from "@effect/atom-react"
-import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as Option from "effect/Option"
 import * as React from "react"
 import { useRouterContext, useRouterService } from "./context.ts"
 
-/** The decoded, resolved values for one route. @since 0.4.0 */
-export interface RouteResult<D> {
-  readonly params: ParamsOf<D>
-  readonly search: SearchOf<D>
-  readonly hash: HashOf<D>
-  readonly data: SuccessOf<D>
-}
-
 /**
- * Reads the active route's decoded inputs and prepared data. Throws a diagnosed
- * error when used outside the route's active, resolved branch.
+ * Reads the displayed definition's coherent decoded input. Throws a
+ * diagnosed error when used outside the definition's active, resolved branch.
  *
  * @since 0.4.0
  * @category hooks
  */
-export function useRoute<D extends AnyNode>(descriptor: D): RouteResult<D> {
+export function useRouteInput<Def extends AnyDefinition>(definition: Def): DecodedRouteInputOfDef<Def> {
   const { atomRouter } = useRouterContext()
-  const atom = React.useMemo(() => (atomRouter as AtomRouter<unknown>).route(descriptor), [atomRouter, descriptor])
+  const atom = React.useMemo(() => atomRouter.route(definition), [atomRouter, definition])
   const view = useAtomValue(atom)
   if (Option.isNone(view)) {
-    throw new Error(`useRoute(${descriptor.id}) is outside its active route branch`)
+    throw new Error(`useRouteInput(${definition.id}) is outside its active route branch`)
   }
-  if (Option.isNone(view.value.data)) {
-    throw new Error(`useRoute(${descriptor.id}) has no resolved data yet`)
-  }
-  return {
-    params: view.value.params,
-    search: view.value.search,
-    hash: view.value.hash,
-    data: view.value.data.value
-  } as RouteResult<D>
+  return view.value.input as DecodedRouteInputOfDef<Def>
 }
 
 /**
@@ -53,13 +34,15 @@ export function useRoute<D extends AnyNode>(descriptor: D): RouteResult<D> {
  * @since 0.4.0
  * @category hooks
  */
-export function useRouterState(): RouterState<unknown> {
-  const { atomRouter } = useRouterContext()
+export function useRouterState(): RouterState<unknown>
+export function useRouterState<App extends { readonly token: object }>(app: App): RouterState<RoutesOf<App>>
+export function useRouterState(app?: { readonly token: object }): RouterState<unknown> {
+  const { atomRouter } = useRouterContext(app)
   const result = useAtomValue(atomRouter.state)
-  if (!AsyncResult.isSuccess(result)) {
+  if (result._tag !== "Success") {
     throw new Error("Router state is not available yet")
   }
-  return result.value
+  return result.value as RouterState<unknown>
 }
 
 /**
@@ -68,6 +51,10 @@ export function useRouterState(): RouterState<unknown> {
  * @since 0.4.0
  * @category hooks
  */
-export function useRouter(): RouterService<unknown> {
-  return useRouterService()
+export function useRouter(): RouterService<unknown, unknown>
+export function useRouter<App extends { readonly token: object }>(
+  app: App
+): RouterService<RoutesOf<App>, ApplicationErrorOf<App>>
+export function useRouter(app?: { readonly token: object }): RouterService<unknown, unknown> {
+  return useRouterService(app)()
 }

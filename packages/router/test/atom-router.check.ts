@@ -8,31 +8,41 @@ import * as Schema from "effect/Schema"
 import * as Atom from "effect/reactivity/Atom"
 import * as AtomRouter from "@effect-stack/router/AtomRouter"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
-import * as Route from "@effect-stack/router/Route"
 import * as Router from "@effect-stack/router/Router"
 
-const Routes = Router.make("App").add(
-  Route.make("home", "/"),
-  Route.make("project", "/projects/:projectId", {
-    params: { projectId: Schema.FiniteFromString },
-    success: Schema.Struct({ title: Schema.String })
-  })
-)
+const Home = Router.route("home", "/")
+const Project = Router.route("project", "/projects/:projectId", {
+  params: { projectId: Schema.FiniteFromString },
+  prepare: () => Effect.void
+})
 
-const ProjectLive = Router.route(Routes.project, () => Effect.succeed({ title: "x" }))
-const AppLive = Router.layer(Routes).pipe(Layer.provide(ProjectLive), Layer.provide(MemoryHistory.layer()))
+const App = Router.make("App", [Home, Project])
+const AppLive = App.layer.pipe(Layer.provide(MemoryHistory.layer()))
 
 const appRuntime = Atom.runtime(AppLive)
-const good = AtomRouter.make(appRuntime, Routes)
+const good = AtomRouter.make(appRuntime, App)
 void good
 
 const emptyRuntime = Atom.runtime(Layer.empty)
-// @ts-expect-error The runtime must provide the contract's service identifier.
-const missing = AtomRouter.make(emptyRuntime, Routes)
+// @ts-expect-error The runtime must provide the application's service identifier.
+const missing = AtomRouter.make(emptyRuntime, App)
 void missing
 
-const Other = Router.make("Other").add(Route.make("home", "/"))
-const otherRuntime = Atom.runtime(Router.layer(Other).pipe(Layer.provide(MemoryHistory.layer())))
-// @ts-expect-error The runtime provides a different collection's service.
-const wrong = AtomRouter.make(otherRuntime, Routes)
+const Other = Router.route("home", "/")
+const OtherApp = Router.make("Other", [Other])
+const otherRuntime = Atom.runtime(OtherApp.layer.pipe(Layer.provide(MemoryHistory.layer())))
+// @ts-expect-error The runtime provides a different application's service.
+const wrong = AtomRouter.make(otherRuntime, App)
 void wrong
+
+// A runtime for the same application identifier but different gate metadata
+// is rejected statically by the branded service identifier.
+const OtherSpec = Router.route("project", "/projects/:projectId", {
+  params: { projectId: Schema.FiniteFromString },
+  prepare: () => Effect.fail("different" as const)
+})
+const OtherSpecApp = Router.make("App", [Home, OtherSpec])
+const otherSpecRuntime = Atom.runtime(OtherSpecApp.layer.pipe(Layer.provide(MemoryHistory.layer())))
+// @ts-expect-error The runtime provides different gate metadata.
+const wrongSpec = AtomRouter.make(otherSpecRuntime, App)
+void wrongSpec

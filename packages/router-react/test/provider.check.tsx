@@ -3,38 +3,43 @@
  * `pnpm check`; not run by Vitest.
  */
 import * as Layer from "effect/Layer"
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Atom from "effect/reactivity/Atom"
-import type { RouterProviderProps, Views } from "@effect-stack/router-react"
-import * as Router from "@effect-stack/router/Router"
-import * as Route from "@effect-stack/router/Route"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
-import * as Effect from "effect/Effect"
+import { make, route, Provider } from "@effect-stack/router-react"
 
-const Routes = Router.make("React").add(
-  Route.make("home", "/"),
-  Route.make("project", "/projects/:projectId", {
-    params: { projectId: Schema.FiniteFromString },
-    success: Schema.Struct({ title: Schema.String })
-  })
-)
+const Home = route("home", "/", { component: () => null })
+const Project = route("project", "/projects/:projectId", {
+  params: { projectId: Schema.FiniteFromString },
+  component: () => null
+})
 
-const ProjectLive = Router.route(Routes.project, () => Effect.succeed({ title: "x" }))
-const AppLive = Router.layer(Routes).pipe(Layer.provide(ProjectLive), Layer.provide(MemoryHistory.layer()))
+const App = make("React", [Home, Project])
+const AppLive = App.layer.pipe(Layer.provide(MemoryHistory.layer()))
 
-const views = {} as Views<typeof Routes>
-
-const good: RouterProviderProps<typeof Routes, Router.ServiceIdOf<typeof Routes>, never> = {
-  routes: Routes,
-  runtime: Atom.runtime(AppLive),
-  views
-}
+const good = <Provider app={App} runtime={Atom.runtime(AppLive)} />
 void good
 
-const missing: RouterProviderProps<typeof Routes, never, never> = {
-  routes: Routes,
-  // @ts-expect-error The provider runtime must supply the contract's service.
-  runtime: Atom.runtime(Layer.empty),
-  views
-}
+const missing = (
+  // @ts-expect-error The provider runtime must supply the application's service.
+  <Provider app={App} runtime={Atom.runtime(Layer.empty)} />
+)
 void missing
+
+const Other = make("OtherReact", [Home])
+const otherRuntime = Atom.runtime(Other.layer.pipe(Layer.provide(MemoryHistory.layer())))
+// @ts-expect-error app inference must not widen to accommodate a foreign service runtime.
+const foreignRuntime = <Provider app={App} runtime={otherRuntime} />
+void foreignRuntime
+const ErrorApp = make("React", [route("failure", "/", { empty: true, prepare: () => Effect.fail("failure" as const) })])
+// @ts-expect-error matching app ids do not erase the invariant application error/requirement witness.
+const sameIdRuntime = <Provider app={ErrorApp} runtime={Atom.runtime(AppLive)} />
+void sameIdRuntime
+const children = (
+  // @ts-expect-error Provider renders the application; ignored children are not supported.
+  <Provider app={App} runtime={Atom.runtime(AppLive)}>
+    ignored
+  </Provider>
+)
+void children

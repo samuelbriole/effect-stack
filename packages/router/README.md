@@ -1,114 +1,78 @@
 # @effect-stack/router
 
-Effect-native, renderer-independent routing for the web. A route collection is a declarative contract implemented by
-composable Layers.
+Effect-native, renderer-independent URLs, history, navigation, and transition gates. Application data belongs to
+official Effect Atom resources; the router owns no resource cache or success-data channel.
 
 ```sh
 pnpm add @effect-stack/router effect@rc
 ```
 
-## Declarations
-
-Routes and groups are immutable, pipeable declarations. Bind them into a named collection with `Router.make(...).add(...)`.
+## Headless setup
 
 ```ts
-import * as Route from "@effect-stack/router/Route"
-import * as RouteGroup from "@effect-stack/router/RouteGroup"
-import * as Router from "@effect-stack/router/Router"
-import { Schema } from "effect"
+import { Effect, Layer, Schema } from "effect"
+import { MemoryHistory, Router } from "@effect-stack/router"
 
-export const ProjectRoutes = RouteGroup.make("project", {
+const Home = Router.route("home", "/")
+const Project = Router.layout("project", "/projects/:projectId", {
   params: { projectId: Schema.FiniteFromString },
-  search: { tab: Schema.optionalKey(Schema.Literals(["overview", "activity"])) },
-  success: Schema.Struct({ title: Schema.String }),
-  error: Schema.Struct({ code: Schema.Number })
+  search: { tab: Schema.optionalKey(Schema.String) },
+  prepare: ({ params }) => Effect.log(`Preparing project ${params.projectId}`)
 })
-  .add(Route.make("index", "/"), Route.make("details", "/details", { success: Schema.Void }))
-  .prefix("/projects/:projectId")
+const Index = Project.index()
+const Details = Project.route("details", "/details")
+const App = Router.make("Example", [Home, Index, Details])
 
-export const Routes = Router.make("App").add(
-  Route.make("home", "/"),
-  Route.make("login", "/login", { search: { returnTo: Schema.optionalKey(Schema.String) } }),
-  ProjectRoutes
+await Effect.runPromise(
+  Effect.gen(function* () {
+    const router = yield* App.service
+    yield* router.navigate(Details.to({ params: { projectId: 42 } }))
+    return yield* router.state
+  }).pipe(Effect.provide(App.layer.pipe(Layer.provide(MemoryHistory.layer("/")))))
 )
 ```
 
-- `Route.make(identifier, path, options?)` declares one addressable leaf; `path` is slash-local (`/` is the index spelling).
-- `RouteGroup.make(identifier, options?)` declares a non-addressable group with `.add(...)`, `.prefix(path)`, and `.pipe`.
-- `params`, `search`, `hash`, `success`, and `error` schemas determine destination, handler, and view types.
-- `Routes.service` is the typed runtime service key; `Routes.project.details` is a bound destination.
-- Every `.add`/`.prefix` returns a new value. Standalone declarations are not implementation targets or destinations;
-  bound nodes cannot be added back as declarations.
+`route` declares an endpoint; `layout` declares a parent-aware layout or transparent group, exposing `route`, `layout`,
+and `index`. Selecting a child includes its ancestors once; selecting a parent never includes its children. Leading
+slashes are local to the parent; `parent.index(options)` is shorthand for `parent.route("index", "/", options)`.
+Names are qualified by parentage, not array order. Params/search inherit exact decoded
+types and reject redeclared fields. Hash inherits the nearest declared schema unless overridden; ancestors still validate their own schemas. URL codecs must be synchronous and context-free.
 
-## Paths, prefixes, and inheritance
+## Direct gates
 
-- Leading `/` is local to the parent mount and never escapes: `/projects` + `/:projectId` is `/projects/:projectId`.
-- Group prefixes are persistent and applied once when bound. `.prefix("/projects").prefix("/admin")` mounts at
-  `/admin/projects`; `.prefix("/")` is an identity, and a group without a prefix is pathless.
-- `params` and `search` are inherited by descendants. Redeclaring an inherited field — even the same schema — is rejected
-  at binding, so effective fields are always the disjoint union of inherited and own fields.
-- `hash`, `success`, and `error` stay node-local. Every matched ancestor decodes the raw fragment through its own hash
-  schema, so a child destination can fail an ancestor hash constraint as a typed decoding failure.
-- URL `params`, `search`, and `hash` schemas must be context-free codecs; service-requiring codecs are rejected statically.
-  An asynchronous transformation cannot be distinguished statically, so it is accepted at declaration time and the
-  actual encode or decode then fails with a typed `RouteEncodeError` or `RouteDecodeError` rather than a Fiber defect.
-- Options must be concrete object literals. A widened `Route.Options`, or a union of options, is rejected rather than
-  silently erasing the schema sections that drive destination, handler, and implementation types.
+`prepare` is an optional direct `(decodedInput) => Effect<void, E, R>`. Supply its requirements through Layers; construction
+failures remain Layer errors. Gates run after history writes, ancestors first, with scoped cleanup before publication.
+The application's Layer can fail with `HistoryError` when acquiring the initial location; gate failures remain navigation errors.
 
-## Destinations and hrefs
+`ErrorOf<Def>` and `RequirementsOf<Def>` project a gate's own E/R. `ApplicationErrorOf<App>` and
+`ApplicationRequirementsOf<App>` collect them across selected definitions and their actual parents.
+`DecodedRouteInputOfDef<Def>` describes the complete decoded params/search/hash and matched location.
 
-```ts
-const destination = Routes.project.details({ params: { projectId }, search: { tab: "activity" } })
-const href = Router.href(destination) // Result<string, RouteEncodeError>
-```
+## Navigation and observation
 
-Destination construction performs no navigation. Encoding remains fallible because refinements can reject runtime
-values. `Router.href` is collection-independent; the service's `router.href(destination)` and the renderer adapters
-reject destinations that do not belong to the bound collection.
+- `.to(input, options?)` constructs an identity destination; `Router.href(destination)` encodes it independently of a selection.
+- `navigate` awaits `Committed`, `Superseded`, or `Cancelled`; failures stay in Effect's error channel.
+- `submit` returns an identity-specific `await`/`cancel` handle. Caller interruption stops waiting, not accepted work.
+- `refresh`/`retry` rerun gates without adding history or refreshing application resources.
+- `back`/`forward`/`go` request history traversal.
+- `state` and `changes` expose the authoritative read-only snapshot.
+- `resolvePathDestination(App, template, input)` resolves canonical endpoint paths synchronously, without service acquisition.
 
-## Implementations
-
-```ts
-const ProjectLive = Router.route(Routes.project, ({ params }) =>
-  Projects.use((projects) => projects.get(params.projectId))
-)
-
-const RouterLive = Router.layer(Routes).pipe(Layer.provide(ProjectLive), Layer.provide(BrowserHistory.layer))
-```
-
-`Router.route` validates handler success against the declared `success` type and rejects undeclared errors while allowing
-`Router.redirect`. Declaring `success` or `error` (including `Schema.Void`) makes an implementation mandatory; a route
-with neither is a no-op. `Router.layer` requires every mandatory implementation service plus `History.Service`; missing
-pieces remain unsatisfied Layer requirements. Use `Router.route(descriptor).buildEffect(...)` when the handler is
-constructed effectfully. Layer assembly verifies that each implementation targets the canonical bound node.
-
-Implementation services use the same key for one qualified node, so ordinary `Context` composition applies: when two
-Layers provide the same implementation key, the later-provided Layer wins. The router does not attempt duplicate
-detection beyond `Context` merging, matching deliberate test substitution.
-
-## Runtime
-
-```ts
-const program = Effect.gen(function* () {
-  const router = yield* Routes.service
-  const outcome = yield* router.navigate(Routes.project.index({ params: { projectId } }))
-  return outcome
-}).pipe(Effect.provide(RouterLive))
-```
-
-The service exposes `navigate`, `submit` (an identity-specific handle with `await`/`cancel`), `refresh`, `retry`,
-`back`/`forward`/`go`, read-only `state`, and `changes`. Terminal outcomes are `Committed`, `Superseded`, and
-`Cancelled`; domain failures use the Effect error channel.
-
-## History
-
-`BrowserHistory.layer` provides browser-backed history. `MemoryHistory.layer(initialHref)` is deterministic and useful
-in tests. Both are renderer-independent.
+Definitions are frozen constructor-owned values. Copies, spreads, foreign destinations, and renderer-owner mismatches
+are rejected. `BrowserHistory.layer` and `MemoryHistory.layer(initialHref)` implement the same history service.
+Status describes accepted navigation; validation or history-write failures use the command's error channel without
+changing accepted work or its status.
 
 ## Atom integration
 
-`AtomRouter.make(runtime, Routes)` retrieves the contract's service from an existing `AtomRuntime` and exposes read-only
-observations (`state`, `location`, `status`, `branch`, and typed `route(node)` projections). It never creates a second
-engine and never exposes writable router state.
+`AtomRouter.make(runtime, App)` retrieves the existing router service and validates exact application identity; it never
+creates a second engine. It exposes official read-only atoms: `service`, `state`, `location`, `status`, `branch`, and
+`route(def)`. A route projection is `None` when inactive, otherwise coherent decoded input, never resource data or pending
+gate progress. Projections observe the displayed branch: old input is retained while a new navigation is pending.
 
-See the [navigation contracts](../../docs/router-navigation.md).
+Build resource families with the same `runtime.atom(effect)` and `Atom.family`. Refresh, errors, retention, and
+subscriptions belong to Atom, independently of navigation. The router does not guarantee preload handoff.
+
+React, Solid, and Vue adapters share the supported `@effect-stack/router/Adapter` definition engine while preserving native
+rendering. See [adoption](../../docs/adoption.md), [architecture](../../docs/architecture.md), and
+[navigation contracts](../../docs/router-navigation.md).

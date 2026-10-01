@@ -16,30 +16,29 @@ import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
-import * as AsyncResult from "effect/reactivity/AsyncResult"
 import type { Compiled, DecodedInput, Plan } from "./compiler.ts"
-import type { Destination, RuntimeNode } from "./contract.ts"
-import { RouteDefinitionError, RouteEncodeError, RouteNotFound } from "./errors.ts"
+import type { Destination, RuntimeNode } from "./definition.ts"
+import { RouteDefinitionError, RouteNotFound } from "./errors.ts"
+import { encodeDestination, foreignDestinationError, ownsNode } from "./href.ts"
 import * as History from "../History.ts"
 import { isRedirect } from "./redirect.ts"
-import { encode } from "./url.ts"
 
 /** Terminal outcomes of an accepted navigation attempt. @since 0.4.0 */
 export type NavigationOutcome = "Committed" | "Superseded" | "Cancelled"
-
-/** A retained, internally consistent presentation pair. @since 0.4.0 */
-export interface RetainedValue {
-  readonly input: DecodedInput
-  readonly data: unknown
-}
 
 /** One node in a presentation. @since 0.4.0 */
 export interface EntryState {
   readonly node: RuntimeNode
   readonly id: string
   readonly input: Result.Result<DecodedInput, unknown>
-  readonly data: AsyncResult.AsyncResult<unknown, unknown>
-  readonly retained: Option.Option<RetainedValue>
+  readonly failure: Option.Option<Cause.Cause<unknown>>
+  /**
+   * True only when the failure is the gate's own pure expected failure.
+   * Decode, redirect, and engine-generated failures are not domain failures.
+   *
+   * @since 0.4.0
+   */
+  readonly domain: boolean
 }
 
 /** A destination-associated failure. @since 0.4.0 */
@@ -48,7 +47,6 @@ export type Presentation =
       readonly _tag: "Pending"
       readonly attempt: number
       readonly location: History.Location
-      readonly entries: ReadonlyArray<EntryState>
     }
   | {
       readonly _tag: "Resolved"
@@ -61,19 +59,18 @@ export type Presentation =
       readonly attempt: number
       readonly location: History.Location
       readonly owner: string
-      readonly error: unknown
+      /** The full failure cause, preserving defects and mixed causes. @since 0.4.0 */
+      readonly cause: Cause.Cause<unknown>
       readonly entries: ReadonlyArray<EntryState>
     }
 
-/** The latest command's command-level status. @since 0.4.0 */
+/** The status of accepted navigation work. @since 0.4.0 */
 export type NavigationStatus =
   | { readonly _tag: "Idle" }
   | { readonly _tag: "Pending"; readonly attempt: number }
   | { readonly _tag: "Committed"; readonly attempt: number }
-  | { readonly _tag: "Superseded"; readonly attempt: number }
   | { readonly _tag: "Cancelled"; readonly attempt: number }
-  | { readonly _tag: "Rejected"; readonly error: unknown }
-  | { readonly _tag: "Failed"; readonly attempt: number; readonly owner: string; readonly error: unknown }
+  | { readonly _tag: "Failed"; readonly attempt: number; readonly owner: string; readonly cause: Cause.Cause<unknown> }
 
 /** A fully successful branch. @since 0.4.0 */
 export interface ResolvedBranch {
@@ -90,10 +87,10 @@ export interface Snapshot {
   readonly resolved: Option.Option<ResolvedBranch>
 }
 
-/** A route or group implementation captured at construction. @since 0.4.0 */
-export interface RouteImplementation {
+/** A route or group gate captured at construction. @since 0.4.0 */
+export interface RouteGate {
   readonly node: RuntimeNode
-  readonly run: (input: unknown) => Effect.Effect<unknown, unknown, Scope.Scope>
+  readonly run: (input: unknown) => Effect.Effect<void, unknown, Scope.Scope>
 }
 
 /** A navigation attempt handle. @since 0.4.0 */
@@ -141,19 +138,12 @@ interface ActiveAttempt {
   fiber: Fiber.Fiber<void>
 }
 
-const handlerInput = (decoded: DecodedInput): unknown => ({
+const decodedRouteInput = (decoded: DecodedInput): unknown => ({
   params: decoded.params,
   search: decoded.search,
   hash: decoded.hash,
   location: decoded.location
 })
-
-const firstFailure = (cause: Cause.Cause<unknown>): unknown => {
-  for (const reason of cause.reasons) {
-    if (Cause.isFailReason(reason)) return reason.error
-  }
-  return undefined
-}
 
 const findRedirect = (cause: Cause.Cause<unknown>): Destination | undefined => {
   // Only a pure single redirect failure is consumed. A cause that also carries
@@ -196,19 +186,26 @@ type PrepareOutcome =
     }
 
 const entriesOf = (presentation: Presentation | undefined): ReadonlyArray<EntryState> =>
-  presentation === undefined ? [] : presentation.entries
+  presentation === undefined || presentation._tag === "Pending" ? [] : presentation.entries
 
 const failedEntry = (
   node: RuntimeNode,
   input: Result.Result<DecodedInput, unknown>,
-  cause: Cause.Cause<unknown>
+  cause: Cause.Cause<unknown>,
+  domain: boolean
 ): EntryState => ({
   node,
   id: node.id,
   input,
-  data: AsyncResult.failure(cause),
-  retained: Option.none()
+  failure: Option.some(cause),
+  domain
 })
+
+const isPureGateFailure = (cause: Cause.Cause<unknown>): boolean => {
+  if (cause.reasons.length !== 1) return false
+  const reason = cause.reasons[0]
+  return reason !== undefined && Cause.isFailReason(reason) && !isRedirect(reason.error)
+}
 
 /**
  * Builds the navigation coordinator over a compiled contract and history.
@@ -218,9 +215,9 @@ const failedEntry = (
  */
 export const make = Effect.fn("Router.coordinator")(function* (
   compiled: Compiled,
-  implementations: ReadonlyMap<string, RouteImplementation>
-): Effect.fn.Return<Coordinator, never, History.Service | Scope.Scope> {
-  const history = yield* History.Service
+  gates: ReadonlyMap<string, RouteGate>
+): Effect.fn.Return<Coordinator, History.HistoryError, History.History | Scope.Scope> {
+  const history = yield* History.History
   const self = yield* Effect.scope
   const snapshot = yield* SubscriptionRef.make<Snapshot>(initialSnapshot)
   const nextId = yield* Ref.make(0)
@@ -231,68 +228,29 @@ export const make = Effect.fn("Router.coordinator")(function* (
   const isAuthorized = (id: number): Effect.Effect<boolean> =>
     Ref.get(active).pipe(Effect.map((current) => Option.isSome(current) && current.value.id === id))
 
-  // Destination membership is resolved against the canonical runtime nodes:
-  // a foreign contract can share a qualified id but never the node reference.
-  const isMember = (node: { readonly id: string }): boolean =>
-    compiled.byId.get(node.id) === (node as unknown as RuntimeNode)
-  const foreignDestinationError = (node: { readonly id: string }): RouteEncodeError =>
-    new RouteEncodeError({
-      routeId: node.id,
-      part: "path",
-      message: "Destination does not belong to this router collection"
-    })
-
   // Every ownership check and snapshot publication transition is serialized by
-  // this gate. No user handler or finalizer ever runs inside it, so awaiting a
+  // acceptance semaphore. No route gate or finalizer ever runs inside it, so awaiting a
   // fiber that itself publishes (for example during interruption) cannot
   // deadlock.
-  const gate = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => acceptance.withPermits(1)(effect)
+  const withAcceptance = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+    acceptance.withPermits(1)(effect)
 
-  const acceptUnsafe = (attempt: number, location: History.Location, plan: Plan): Effect.Effect<void> =>
-    SubscriptionRef.update(snapshot, (current): Snapshot => {
-      const previous = Option.flatMap(current.presentation, (presentation) =>
-        presentation._tag === "Resolved" ? Option.some(presentation.entries) : Option.none<ReadonlyArray<EntryState>>()
-      )
-      const entries: Array<EntryState> = plan.entries.map((planned): EntryState => {
-        const prior = previous.pipe(
-          Option.flatMap((values) => Option.fromUndefinedOr(values.find((entry) => entry.id === planned.node.id)))
-        )
-        const retained = Option.flatMap(prior, (entry) =>
-          Result.isSuccess(entry.input)
-          && Result.isSuccess(planned.input)
-          && entry.input.success.location.key === planned.input.success.location.key
-            ? AsyncResult.isSuccess(entry.data)
-              ? Option.some<RetainedValue>({ input: entry.input.success, data: entry.data.value })
-              : entry.retained
-            : Option.none<RetainedValue>()
-        )
-        const previousResult = retained.pipe(
-          Option.map((value): AsyncResult.AsyncResult<unknown, unknown> => AsyncResult.success(value.data))
-        )
-        return {
-          node: planned.node,
-          id: planned.node.id,
-          input: planned.input,
-          data: AsyncResult.waitingFrom(previousResult),
-          retained
-        }
-      })
-      return {
-        ...current,
-        location: Option.some(location),
-        status: { _tag: "Pending", attempt },
-        presentation: Option.some({ _tag: "Pending", attempt, location, entries })
-      }
-    })
+  const acceptUnsafe = (attempt: number, location: History.Location): Effect.Effect<void> =>
+    SubscriptionRef.update(snapshot, (current): Snapshot => ({
+      ...current,
+      location: Option.some(location),
+      status: { _tag: "Pending", attempt },
+      presentation: Option.some({ _tag: "Pending", attempt, location })
+    }))
 
   // Ownership check and pending publication are one gated transition: a stale
   // worker whose active slot changed (even before its interruption lands) must
   // not publish a pending presentation.
-  const acceptIfAuthorized = (attempt: number, location: History.Location, plan: Plan): Effect.Effect<boolean> =>
-    gate(
+  const acceptIfAuthorized = (attempt: number, location: History.Location): Effect.Effect<boolean> =>
+    withAcceptance(
       Effect.gen(function* () {
         if (!(yield* isAuthorized(attempt))) return false
-        yield* acceptUnsafe(attempt, location, plan)
+        yield* acceptUnsafe(attempt, location)
         return true
       })
     )
@@ -315,7 +273,7 @@ export const make = Effect.fn("Router.coordinator")(function* (
   const publishFailure = (
     attempt: number,
     owner: string,
-    error: unknown,
+    cause: Cause.Cause<unknown>,
     entries: ReadonlyArray<EntryState>
   ): Effect.Effect<void> =>
     SubscriptionRef.update(snapshot, (current): Snapshot => {
@@ -325,14 +283,14 @@ export const make = Effect.fn("Router.coordinator")(function* (
         ...current,
         status:
           current.status._tag === "Pending" && current.status.attempt === attempt
-            ? { _tag: "Failed", attempt, owner, error }
+            ? { _tag: "Failed", attempt, owner, cause }
             : current.status,
         presentation: Option.some({
           _tag: "Failed",
           attempt,
           location,
           owner,
-          error,
+          cause,
           entries
         })
       }
@@ -352,42 +310,42 @@ export const make = Effect.fn("Router.coordinator")(function* (
         const node = planned.node
         if (Result.isFailure(planned.input)) {
           const cause = Cause.fail(planned.input.failure)
-          entries.push(failedEntry(node, planned.input, cause))
+          entries.push(failedEntry(node, planned.input, cause, false))
           return { _tag: "Failed", owner: node.id, cause, entries }
         }
         const decoded = planned.input.success
-        const implementation = implementations.get(node.id)
-        if (implementation === undefined) {
+        const routeGate = gates.get(node.id)
+        if (routeGate === undefined) {
           entries.push({
             node,
             id: node.id,
             input: planned.input,
-            data: AsyncResult.success(undefined),
-            retained: Option.some<RetainedValue>({ input: decoded, data: undefined })
+            failure: Option.none(),
+            domain: false
           })
           continue
         }
-        const exit = yield* Effect.exit(Effect.scoped(implementation.run(handlerInput(decoded))))
+        const exit = yield* Effect.exit(Effect.scoped(routeGate.run(decodedRouteInput(decoded))))
         if (Exit.isSuccess(exit)) {
           entries.push({
             node,
             id: node.id,
             input: planned.input,
-            data: AsyncResult.success(exit.value),
-            retained: Option.some<RetainedValue>({ input: decoded, data: exit.value })
+            failure: Option.none(),
+            domain: false
           })
           continue
         }
         const redirect = findRedirect(exit.cause)
         if (redirect !== undefined) {
-          if (!isMember(redirect.node)) {
+          if (!ownsNode(compiled.byId, redirect.node)) {
             const cause = Cause.fail(foreignDestinationError(redirect.node))
-            entries.push(failedEntry(node, planned.input, cause))
+            entries.push(failedEntry(node, planned.input, cause, false))
             return { _tag: "Failed", owner: node.id, cause, entries }
           }
           return { _tag: "Redirect", destination: redirect }
         }
-        entries.push(failedEntry(node, planned.input, exit.cause))
+        entries.push(failedEntry(node, planned.input, exit.cause, isPureGateFailure(exit.cause)))
         return { _tag: "Failed", owner: node.id, cause: exit.cause, entries }
       }
       return { _tag: "Prepared", entries }
@@ -404,7 +362,7 @@ export const make = Effect.fn("Router.coordinator")(function* (
         // location instead of leaving an earlier presentation in place. A stale
         // worker must not accept at all: ownership is checked inside the same
         // gated transition as the pending publication.
-        if (!(yield* acceptIfAuthorized(record.id, location, plan))) {
+        if (!(yield* acceptIfAuthorized(record.id, location))) {
           return { _tag: "Superseded" }
         }
         if (plan.notFound) {
@@ -433,20 +391,13 @@ export const make = Effect.fn("Router.coordinator")(function* (
             entries: []
           }
         }
-        const href = encode(
-          outcome.destination.node as unknown as RuntimeNode,
-          outcome.destination.input as {
-            readonly params: unknown
-            readonly search: unknown
-            readonly hash: unknown
-          }
-        )
+        const href = encodeDestination(outcome.destination)
         if (Result.isFailure(href)) {
           return { _tag: "Failure", location, owner: RouterFailureOwner, cause: Cause.fail(href.failure), entries: [] }
         }
         // A redirect history write is also gated on ownership: a superseded
         // attempt whose interruption has not landed must not move history.
-        const redirected = yield* gate(
+        const redirected = yield* withAcceptance(
           Effect.gen(function* () {
             if (!(yield* isAuthorized(record.id))) return { _tag: "Superseded" } as const
             const replaced = yield* Effect.exit(
@@ -475,7 +426,7 @@ export const make = Effect.fn("Router.coordinator")(function* (
           return
         }
         if (result._tag === "Success") {
-          yield* gate(
+          yield* withAcceptance(
             Effect.gen(function* () {
               if (!(yield* isAuthorized(record.id))) {
                 yield* Deferred.succeed(record.outcome, "Superseded")
@@ -487,18 +438,21 @@ export const make = Effect.fn("Router.coordinator")(function* (
           )
           return
         }
-        if (Cause.hasInterruptsOnly(result.cause)) {
-          // No snapshot write: reading status and settling the waiter does not
-          // race an acceptance transition, and gating it could deadlock a
-          // cancel that is awaiting this fiber's interruption.
-          const status = yield* Ref.get(record.status)
-          yield* Deferred.succeed(record.outcome, status === "cancelled" ? "Cancelled" : "Superseded")
-          return
-        }
-        yield* gate(
+        yield* withAcceptance(
           Effect.gen(function* () {
-            if (yield* isAuthorized(record.id)) {
-              yield* publishFailure(record.id, result.owner, firstFailure(result.cause), result.entries)
+            const owns = yield* isAuthorized(record.id)
+            if (Cause.hasInterruptsOnly(result.cause)) {
+              const status = yield* Ref.get(record.status)
+              // An owned gate may interrupt itself. That is its cause-level
+              // failure, not an ownership change; cancellation and supersession
+              // keep their handle outcomes without publishing a gate failure.
+              if (status !== "running" || !owns) {
+                yield* Deferred.succeed(record.outcome, status === "cancelled" ? "Cancelled" : "Superseded")
+                return
+              }
+            }
+            if (owns) {
+              yield* publishFailure(record.id, result.owner, result.cause, result.entries)
             }
             yield* Deferred.failCause(record.outcome, result.cause)
           })
@@ -510,14 +464,14 @@ export const make = Effect.fn("Router.coordinator")(function* (
         yield* Deferred.succeed(record.outcome, status === "cancelled" ? "Cancelled" : "Superseded")
         return
       }
-      yield* gate(
+      yield* withAcceptance(
         Effect.gen(function* () {
           if (yield* isAuthorized(record.id)) {
             const current = yield* SubscriptionRef.get(snapshot)
             yield* publishFailure(
               record.id,
               RouterFailureOwner,
-              firstFailure(exit.cause),
+              exit.cause,
               entriesOf(Option.getOrUndefined(current.presentation))
             )
           }
@@ -549,7 +503,7 @@ export const make = Effect.fn("Router.coordinator")(function* (
         const exit = yield* Effect.exit(runAttempt(record))
         yield* Effect.uninterruptible(settle(record, exit))
       })
-      yield* gate(
+      yield* withAcceptance(
         Effect.gen(function* () {
           const current = yield* Ref.get(active)
           if (Option.isSome(current) && current.value.id > id) {
@@ -594,6 +548,9 @@ export const make = Effect.fn("Router.coordinator")(function* (
       return record
     })
 
+  // Reserve the initial read's ordering before observation: an external event
+  // accepted while that read is held must not be superseded by its stale result.
+  const initialId = yield* allocateId
   yield* history.changes.pipe(
     Stream.runForEach((location) =>
       Effect.gen(function* () {
@@ -608,39 +565,22 @@ export const make = Effect.fn("Router.coordinator")(function* (
         yield* start(yield* allocateId, location)
       })
     ),
-    Effect.catch((error) =>
-      gate(
-        SubscriptionRef.update(snapshot, (current): Snapshot => ({ ...current, status: { _tag: "Rejected", error } }))
-      )
-    ),
+    Effect.catch(() => Effect.void),
     Effect.forkIn(self)
   )
 
   // Initial navigation uses the same matching/preparation pipeline. A route
   // failure does not fail the Layer; it is published against the observed URL.
-  const initialRecord = yield* history.current.pipe(
-    Effect.flatMap((location) => Effect.flatMap(allocateId, (id) => start(id, location))),
-    Effect.catch((error) =>
-      Effect.gen(function* () {
-        yield* gate(
-          SubscriptionRef.update(snapshot, (current): Snapshot => ({
-            ...current,
-            status: { _tag: "Rejected", error }
-          }))
-        )
-        return undefined
-      })
-    )
-  )
-  const awaitInitial: Effect.Effect<void, unknown> =
-    initialRecord === undefined ? Effect.void : Deferred.await(initialRecord.outcome).pipe(Effect.asVoid)
+  const initialLocation = yield* history.current
+  const initialRecord = yield* start(initialId, initialLocation)
+  const awaitInitial: Effect.Effect<void, unknown> = Deferred.await(initialRecord.outcome).pipe(Effect.asVoid)
 
   const cancel = (record: ActiveAttempt): Effect.Effect<void> =>
     Effect.gen(function* () {
-      // Ownership check and the cancelled marking share the acceptance gate, so
+      // Ownership check and the cancelled marking share acceptance serialization, so
       // a concurrent acceptance either supersedes first (making this stale) or
       // observes the cancelled status.
-      const owns = yield* gate(
+      const owns = yield* withAcceptance(
         Effect.gen(function* () {
           const current = yield* Ref.get(active)
           if (Option.isSome(current) && current.value.id === record.id) {
@@ -651,9 +591,9 @@ export const make = Effect.fn("Router.coordinator")(function* (
         })
       )
       if (!owns) return
-      // Interrupting the worker is never done while holding the gate: the
-      // worker's own settle may need the gate, so awaiting its interruption
-      // under the gate would deadlock. Interruption, waiter settlement, and the
+      // Interrupting the worker is never done while holding the acceptance permit:
+      // the worker's own settle may need that permit, so awaiting its interruption
+      // while holding it would deadlock. Interruption, waiter settlement, and the
       // terminal status publication are all inside one uninterruptible region,
       // so a cancelling caller interrupted while a blocked finalizer runs still
       // completes the cancel sequence instead of leaving the snapshot Pending.
@@ -661,38 +601,26 @@ export const make = Effect.fn("Router.coordinator")(function* (
         Effect.gen(function* () {
           yield* Fiber.interrupt(record.fiber)
           yield* ensureSettled(record, "Cancelled")
-          yield* gate(publishCancelled(record.id))
+          yield* withAcceptance(publishCancelled(record.id))
         })
       )
     })
 
-  const reject = (error: unknown): Effect.Effect<void> =>
-    gate(SubscriptionRef.update(snapshot, (current): Snapshot => ({ ...current, status: { _tag: "Rejected", error } })))
-
   const submit = Effect.fn("Router.submit")(function* (destination: Destination, options?: NavigateOptions) {
     const id = yield* allocateId
-    if (!isMember(destination.node)) {
-      const error = foreignDestinationError(destination.node)
-      yield* reject(error)
-      return yield* Effect.fail(error)
-    }
-    const href = encode(
-      destination.node as unknown as RuntimeNode,
-      destination.input as {
-        readonly params: unknown
-        readonly search: unknown
-        readonly hash: unknown
-      }
-    )
+    const href = encodeDestination(destination, compiled.byId)
     if (Result.isFailure(href)) {
-      yield* reject(href.failure)
       return yield* Effect.fail(href.failure)
     }
-    const target = History.destinationFromHref(href.success, destination.state)
-    const write = options?.replace === true ? history.replace(target) : history.push(target)
+    const replace = options?.replace !== undefined ? options.replace : destination.replace
+    const state =
+      options !== undefined && Object.prototype.hasOwnProperty.call(options, "state")
+        ? options.state
+        : destination.state
+    const target = History.destinationFromHref(href.success, state)
+    const write = replace ? history.replace(target) : history.push(target)
     const written = yield* Effect.exit(write)
     if (Exit.isFailure(written)) {
-      yield* reject(firstFailure(written.cause))
       return yield* Effect.failCause(written.cause)
     }
     const record = yield* start(id, written.value)

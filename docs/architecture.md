@@ -4,7 +4,7 @@ EffectStack packages are independently adoptable. Each domain has one owner:
 
 | Domain                                                   | Owner                                |
 | -------------------------------------------------------- | ------------------------------------ |
-| URLs, matching, history, navigation, route loading       | Router                               |
+| URLs, matching, history, navigation, transition gates    | Router                               |
 | Remote-resource state and mutations                      | Effect Atom and application services |
 | Editing, validation, submission                          | Form (planned)                       |
 | Normalized entities, indexes, transactions, live queries | DB (exploring)                       |
@@ -17,47 +17,68 @@ Renderer adapter -> headless core -> Effect
 Platform adapter -> core service interface
 ```
 
-Cores must remain platform- and renderer-independent. Browser and memory history implement the core `History.Service`.
+Cores must remain platform- and renderer-independent. Browser and memory history implement the core `History.History`.
 React, Solid, and Vue adapters depend on `@effect-stack/router` and their official Effect Atom adapters.
 
-## Declarations, contracts, and Layers
+## Unified route definitions
 
-A route collection is a named contract assembled from immutable declarations: `Route.make(identifier, path, options?)`
-for leaves and `RouteGroup.make(identifier, options?).add(...).prefix(path)` for groups, combined with
-`Router.make(collectionId).add(...)`. The bound contract owns:
+A definition owns its identity, URL schemas, optional `prepare` gate, and native presentation together. `route` declares
+an endpoint; `layout` exposes parent-aware `route`, `layout`, and `index` constructors. `make(appId, definitions)` selects
+definitions and includes their ancestors, without separate implementation registration. `index` is shorthand for an
+endpoint at its parent's path, not a separate node kind.
 
-- Typed destination constructors (`Routes.project.index({ params, search })`).
-- Qualified, ancestry-aware node identities and effective paths.
-- The runtime service key (`Routes.service`).
-- Optional `success` and `error` schemas that determine handler and view types.
+```ts
+const Project = Router.layout("project", "/projects/:projectId", {
+  params: { projectId: ProjectId },
+  prepare: ({ params }) => Access.use((access) => access.check(params.projectId))
+})
+const ProjectIndex = Project.index()
+const App = Router.make("Example", [Home, ProjectIndex])
+```
 
-Declarations are reusable and never mutated; binding them supplies collection identity, inherited inputs, and runtime
-ownership. Groups carry persistent mount prefixes applied once, leading slashes are local, and `params`/`search`
-inheritance is a disjoint union that rejects redeclared fields.
+- Names are specified once and qualified by parentage (`project`, `project.index`); array order does not define identity.
+- Leading slashes are local; `params`/`search` inheritance is a disjoint union that rejects redeclared fields, and `hash`
+  inherits the nearest declared schema. A child's own hash schema overrides it; each ancestor still validates its own input.
+- Trusted facts live in a private `WeakMap` keyed by the exact constructor output. Definitions are frozen; copied or
+  spread values are rejected at assembly, and renderer ownership is a private capability, not a string. One neutral
+  definition engine backs both headless core and every native adapter.
 
-Implementations are ordinary Layers. `Router.route(descriptor, handler)` records one handler for a bound node;
-`Router.layer(contract)` requires the union of mandatory implementation services plus `History.Service`, verifies each
-implementation targets the canonical bound node, and returns the contract's service. Application composition is
-`Layer.provide`/`Layer.provideMerge`/`Layer.mergeAll`; there is no registration pass, global augmentation, or renderer
-binding factory.
+`prepare: (decodedInput) => Effect<void, E, R>` contributes inferred errors and requirements, excluding redirects and
+transient Scope. Assembly follows actual typed parents; erased evidence conservatively retains unknown E/R.
+`App.service` is invariant in aggregate E/R, and each application has its own service key and runtime token.
+Definitions may be shared across applications; runtime router instances remain independent.
 
-Implementation Layers are constructed once per router runtime. Per-navigation handler execution is scoped separately;
-the handler scope closes before resolved data is published. Applications that need long-lived resources own them in
-application service Layers or Effect Atom scopes.
+Application Layers supply gate dependencies. Gates capture that context without its Scope, run in fresh scopes, and close
+before branch publication. Long-lived resources belong to application Layers or Effect Atom, not gates.
+
+The default setup uses one composed `Atom.runtime` and registry for navigation and resource atoms. Sharing a runtime
+does not couple gate cancellation to resource subscriptions or make router retry refresh resources. Separate runtimes
+remain available for independent service lifetimes or startup failures; different registries or runtime factories must
+not be assumed to share services. Resource retention and preload policy belong to Atom.
+
+The supported `@effect-stack/router/Adapter` bridge shares definition construction, application assembly, and target
+normalization. Native option types, Providers, hooks, rendering, and lifecycle stay in each adapter; core never calls
+components. Native assembly returns the same canonical application, with opaque presentation stored privately and checked
+against the adapter's factory. Providers take that application and a runtime explicitly; applications own native render
+boundaries. Every native endpoint needs presentation or `empty: true`; layouts may be transparent.
+
+## Navigation identity and typed paths
+
+`makeNavigation<typeof App>()` provides typed path helpers with a type-only application import, avoiding eager definition
+import cycles. Unbound helpers resolve against the nearest provider; erased types cannot authenticate it.
+`makeNavigation(App)` and application-taking hooks validate the exact provider token.
+
+Path templates retain correlated params/search/hash types. Resolution reads the canonical endpoint index synchronously,
+without acquiring a service. `Adapter.resolveNavigationTarget` normalizes path and identity targets; href encoding and
+submission validate schemas and membership before history writes. Identity destinations from `.to()` remain supported.
 
 ## Runtime ownership
 
-- One scoped `Router` service owns history observation, commands, transition workers, and the authoritative snapshot.
-  Atom and renderer adapters only observe that service. `AtomRouter.make(runtime, contract)` retrieves the service from
-  an existing `AtomRuntime`; it never creates a second engine.
-- A `SubscriptionRef` holds the snapshot: observed location, latest command status, accepted pending attempt,
-  destination-associated failure, and the last resolved branch. Command status and presentation are deliberately
-  separate, so a rejected new command cannot cancel accepted work or overwrite a newer rejection.
-- Attempts receive monotonic identities. Acceptance is serialized; obsolete attempts lose publication authority before
-  they can publish or redirect. Handler scopes close before publication. Expected terminal values are `Committed`,
-  `Superseded`, and `Cancelled`; domain failures stay in the Effect error channel and defects remain in `Cause`.
-- Browser and memory history are renderer-independent. Listeners are established before the initial location is read so
-  an external change cannot race initial observation, and programmatic push/replace produce exactly one attempt.
+- One scoped Router owns history observation, commands, attempts, and the authoritative snapshot. AtomRouter observes
+  that service through the supplied runtime; it never creates another navigation engine.
+- Status describes accepted navigation; pre-acceptance failures use only the command's error channel. Retained branches
+  keep their original decoded input until commitment; initial preparation uses one application-level pending view.
+- The coordinator owns acceptance, cancellation, and publication authority together. Obsolete attempts cannot publish
+  or redirect, and transient scopes close before atomic branch publication.
 
-See [navigation contracts](router-navigation.md) for attempts, completion, cancellation, snapshots, and recovery, and the
-[roadmap](roadmap.md) for deferred work.
+See [navigation contracts](router-navigation.md), the [glossary](../GLOSSARY.md), and the [roadmap](roadmap.md).

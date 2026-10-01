@@ -9,7 +9,6 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@effect-stack-example/router-shared",
     "@effect-stack-example/router-react",
     "@effect-stack-example/router-solid",
     "@effect-stack-example/router-vue"
