@@ -76,3 +76,20 @@ subscriptions belong to Atom, independently of navigation. The router does not g
 React, Solid, and Vue adapters share the supported `@effect-stack/router/Adapter` definition engine while preserving native
 rendering. See [adoption](../../docs/adoption.md), [architecture](../../docs/architecture.md), and
 [navigation contracts](../../docs/router-navigation.md).
+
+## Renderer command bridge
+
+Custom renderer adapters can use `Adapter.navigateDetached(router, target, options?)` and `Adapter.retryDetached(router)`
+with the exact assembled router value. Targets retain the selected destination and correlated path-input types.
+The bridge owns scoped execution and reports unpublished failures with the application's Effect Logger and full `Cause`;
+it does not invoke native presentation or renderer lifecycle callbacks. Explicit Effect/Promise navigation remains available.
+
+Configure logging while acquiring the application, for example:
+
+```ts
+import { Layer, Logger } from "effect"
+
+const layer = App.layer.pipe(Layer.provide(MemoryHistory.layer("/")), Layer.provide(Logger.layer([Logger.consoleJson])))
+```
+
+See [observation failures](../../docs/router-navigation.md#observation-failures) for retry and diagnostic behavior.

@@ -2,7 +2,7 @@
  * Supported construction bridge for first-party and third-party renderer
  * adapters.
  *
- * The bridge owns one neutral definition engine. An adapter supplies a
+ * The bridge owns one neutral definition engine and detached-command policy. An adapter supplies a
  * renderer name for diagnostics, a presentation normalizer, and an
  * explicit-empty check; native contextual options, Providers, bound components
  * and hooks, and renderer lifecycles stay in the adapter. This is not a generic
@@ -12,8 +12,8 @@
  * One engine backs both top-level and nested constructors, so there are not
  * three separate constructor implementations. Type-level convenience wrappers
  * live in each adapter; the runtime here only builds trusted objects. Trusted
- * definition records stay private to the core: the bridge exposes construction
- * and finalization only, never the trusted WeakMap payload. The engine's factory
+ * definition records stay private to the core: the bridge exposes construction,
+ * finalization, and command dispatch, never the trusted WeakMap payload. The engine's factory
  * is its ownership capability; adapters must retain it rather than copy it.
  *
  * @since 0.4.0
@@ -26,10 +26,41 @@ import {
   type DefinitionFactory
 } from "./internal/definition.ts"
 import { applicationRuntime, makeApplication } from "./internal/application.ts"
-import type { ApplicationOf } from "./Router.ts"
+import type { ApplicationOf, NavigateOptions, NavigateTarget, RouterService } from "./Router.ts"
 import type { SelectionError, SelectionRequirements } from "./internal/gates.ts"
 import { RouteDefinitionError } from "./internal/errors.ts"
+import { detachedCommands } from "./internal/commands.ts"
 export { resolveNavigationTarget } from "./internal/destinations.ts"
+
+/**
+ * Launches a renderer command in the assembled router's Scope. Unpublished
+ * failures are reported with the application's Effect Logger and full Cause;
+ * failures already published by that exact attempt are not reported twice.
+ * Explicit Effect and Promise hooks retain their ordinary error channels.
+ *
+ * @since 0.4.0
+ * @category navigation
+ */
+export const navigateDetached = <Routes, E>(
+  router: RouterService<Routes, E>,
+  target: NavigateTarget<Routes>,
+  options?: NavigateOptions
+): void => {
+  const commands = detachedCommands(router)
+  if (commands === undefined) {
+    throw new RouteDefinitionError({ message: "Detached commands require an assembled router service" })
+  }
+  commands.navigate(target, options)
+}
+
+/** Retries the current URL with the same scoped diagnostic policy. @since 0.4.0 */
+export const retryDetached = <Routes, E>(router: RouterService<Routes, E>): void => {
+  const commands = detachedCommands(router)
+  if (commands === undefined) {
+    throw new RouteDefinitionError({ message: "Detached commands require an assembled router service" })
+  }
+  commands.retry()
+}
 
 /** The renderer-specific facts a `makeDefinitionEngine` call needs. @since 0.4.0 */
 export interface AdapterSpec<Presentation> {

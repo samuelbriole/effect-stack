@@ -26,6 +26,13 @@ Push/replace encode the destination, commit history, then accept the attempt. Pr
 use the command's Effect error channel without changing previously accepted work or its status.
 Browser/external changes are already committed locations and enter at the matching phase.
 
+Explicit Effect commands retain their typed failures and full `Cause`; Promise hooks reject on failure.
+Renderer `Link`, `Navigate`, and `useRetry` use the shared detached-command policy: work runs in the router's Scope,
+and otherwise-unobserved failures are logged through the Effect Logger captured during application acquisition.
+Failures already published by that exact attempt are not logged a second time. An obsolete attempt's unpublished
+cleanup failure is still reported, even after newer work commits. Shutdown interruption alone is not an error diagnostic.
+These diagnostics never change accepted status or replay a navigation or history write.
+
 `navigate`/`submit` options override a destination's defaults: the option `replace` beats the destination's captured
 `replace`, and an explicit option `state` beats the destination's captured `state` — including an explicit `undefined`
 option `state`, which clears the destination default. An absent option keeps the destination default. A declared hash
@@ -89,6 +96,23 @@ and location, not per-node preparation progress. While an attempt is pending, re
 route projections read the previous resolved branch and its original input, not the newest observed URL. On commitment,
 the whole new branch and its decoded input become visible together. Application Atom families selected by that input
 therefore remain coherent with the displayed component. The router publishes no data `Option` or resource result.
+
+### Observation failures
+
+`BrowserHistory` retries its read-only location snapshot twice, after 25 ms and 50 ms. Metadata repair, UUID-backed
+pushes, and other history writes are never replayed. An exhausted `popstate` read or failed metadata repair is logged
+with its full `Cause` and skipped; the same listener remains available for later events. A skipped location is not
+prepared automatically without another observation or explicit command. Initial acquisition failures remain startup failures.
+
+Defects and mixed causes are not retried or treated as recoverable observations. The router reports a terminal
+`History.changes` failure as `Router.historyObservationStopped`, preserving its full `Cause` and the last accepted
+snapshot. A custom History stream is not automatically restarted: restartability is not guaranteed by its interface.
+An intentional stream completion is not a failure. Observation health must not be inferred from navigation `status`.
+An observation source that self-interrupts while the router Scope is still open is a terminal failure, not normal shutdown.
+If logging a skipped browser observation fails, its terminal `Cause` retains both the history failure and the Logger defect.
+
+Use standard `Logger.layer` configuration around application acquisition to capture diagnostics; no separate
+router diagnostic state or custom logging module is required.
 
 ## Rendering and recovery
 

@@ -8,6 +8,7 @@ import * as Router from "@effect-stack/router/Router"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import * as Atom from "effect/reactivity/Atom"
 import type * as AtomRouter from "@effect-stack/router/AtomRouter"
+import { navigateDetached, retryDetached } from "@effect-stack/router/Adapter"
 
 describe("direct gates and actual parent metadata", () => {
   const Id = Schema.FiniteFromString.pipe(Schema.brand("Id"))
@@ -244,6 +245,24 @@ describe("direct gates and actual parent metadata", () => {
     expect<{ to: "/b/:b"; params: { b: typeof Id.Type } }>().type.toBeAssignableTo<Targets>()
     expect<{ to: "/a/:a"; params: { b: typeof Id.Type } }>().type.not.toBeAssignableTo<Targets>()
     expect<{ to: "/a/:a" }>().type.not.toBeAssignableTo<Targets>()
+  })
+  test("detached commands preserve selected destinations and correlated decoded path inputs", () => {
+    const Home = Router.route("home", "/")
+    const Item = Router.route("item", "/items/:id", { params: { id: Id } })
+    const Foreign = Router.route("foreign", "/foreign")
+    const Selection = Router.make("DetachedTypes", [Home, Item])
+    const router = null as unknown as Router.RouterService<Router.RoutesOf<typeof Selection>, Missing>
+    const id = Schema.decodeUnknownSync(Id)(1)
+    expect(navigateDetached).type.toBeCallableWith(router, Home.to())
+    expect(navigateDetached).type.toBeCallableWith(router, Item.to({ params: { id } }))
+    expect(navigateDetached).type.toBeCallableWith(router, { to: "/items/:id", params: { id } }, { replace: true })
+    expect(navigateDetached).type.not.toBeCallableWith(router, { to: "/items/:id" })
+    expect(navigateDetached).type.not.toBeCallableWith(router, { to: "/items/:id", params: { id: "unbranded" } })
+    expect(navigateDetached).type.not.toBeCallableWith(router, { to: "/foreign" })
+    expect(navigateDetached).type.not.toBeCallableWith(router, Foreign.to())
+    expect(navigateDetached(router, Home.to())).type.toBe<void>()
+    expect(retryDetached(router)).type.toBe<void>()
+    expect<Effect.Error<ReturnType<typeof router.navigate>>>().type.toBe<Router.NavigationError<Missing>>()
   })
   test("application service identity is invariant in the full gate specification", () => {
     type Id = Router.ApplicationServiceId<

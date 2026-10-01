@@ -1,7 +1,7 @@
 import type { Destination, NavigationOutcome } from "@effect-stack/router/Router"
 import type * as Router from "@effect-stack/router/Router"
 import { RouteDefinitionError } from "@effect-stack/router/Router"
-import { resolveNavigationTarget } from "@effect-stack/router/Adapter"
+import { navigateDetached, resolveNavigationTarget, retryDetached } from "@effect-stack/router/Adapter"
 import { useAtomValue } from "@effect/atom-vue"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -85,7 +85,7 @@ export function useNavigate(app?: {
 export function useRetry(): () => void {
   const service = useRouterService()
   return () => {
-    void Effect.runPromise(service().retry).catch(() => {})
+    retryDetached(service())
   }
 }
 
@@ -102,7 +102,7 @@ const LinkComponent = defineComponent({
   },
   setup(props, { attrs, slots }) {
     const context = useRouterContext()
-    const navigate = useNavigate()
+    const service = useRouterService()
     const location = useAtomValue(() => context.atomRouter.location)
     return (): VNode | null => {
       const destination = Result.getOrThrow(resolveNavigationTarget(context.atomRouter.app, props))
@@ -123,12 +123,10 @@ const LinkComponent = defineComponent({
           return
         }
         event.preventDefault()
-        const currentDestination = resolveNavigationTarget(context.atomRouter.app, props)
-        if (Result.isFailure(currentDestination)) return
-        void navigate(currentDestination.success, {
+        navigateDetached(service(), props as never, {
           ...(props.replace === undefined ? {} : { replace: props.replace }),
           ...(props.state === undefined ? {} : { state: props.state })
-        }).catch(() => {})
+        })
       }
       return h(
         "a",
@@ -160,7 +158,7 @@ const NavigateComponent = defineComponent({
   },
   setup(props) {
     const context = useRouterContext()
-    const navigate = useNavigate()
+    const service = useRouterService()
     const location = useAtomValue(() => context.atomRouter.location)
     const destination = computed((): Destination<unknown> =>
       Result.getOrThrow(resolveNavigationTarget(context.atomRouter.app, props))
@@ -175,10 +173,10 @@ const NavigateComponent = defineComponent({
         if (url === undefined) return
         const current = Option.getOrUndefined(location.value)
         if (current !== undefined && `${current.pathname}${current.search}${current.hash}` === url) return
-        void navigate(destination.value, {
+        navigateDetached(service(), props as never, {
           ...(props.replace === undefined ? {} : { replace: props.replace }),
           ...(props.state === undefined ? {} : { state: props.state })
-        }).catch(() => {})
+        })
       },
       { immediate: true }
     )

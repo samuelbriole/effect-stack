@@ -26,3 +26,9 @@ The resolved sequence of routes shown to the user, retained while an incoming UR
 
 **Incoming URL**:
 The observed location being prepared, which may differ from the displayed branch's location.
+
+**Navigation command**:
+A request to move to a Destination or prepare the current location again.
+
+**Observation failure**:
+An inability to read an Incoming URL, distinct from a Gate rejecting its preparation.

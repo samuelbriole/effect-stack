@@ -1,7 +1,7 @@
 import type { Destination, NavigationOutcome } from "@effect-stack/router/Router"
 import type { Location } from "@effect-stack/router/History"
 import type * as Router from "@effect-stack/router/Router"
-import { resolveNavigationTarget } from "@effect-stack/router/Adapter"
+import { navigateDetached, resolveNavigationTarget, retryDetached } from "@effect-stack/router/Adapter"
 import { useAtomValue } from "@effect/atom-solid"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -88,7 +88,7 @@ export function useNavigate(app?: {
 export function useRetry(): () => void {
   const service = useRouterService()
   return () => {
-    void Effect.runPromise(service().retry).catch(() => {})
+    retryDetached(service())
   }
 }
 
@@ -119,7 +119,7 @@ function LinkComponent(
     "onClick",
     "children"
   ])
-  const navigate = useNavigate()
+  const service = useRouterService()
   const location = useLocation()
   const context = useRouterContextAccessor()
   const href = createMemo(() =>
@@ -172,12 +172,10 @@ function LinkComponent(
           return
         }
         event.preventDefault()
-        const destination = resolveNavigationTarget(context().atomRouter.app, local)
-        if (Result.isFailure(destination)) return
-        void navigate(destination.success, {
+        navigateDetached(service(), local as never, {
           ...(local.replace === undefined ? {} : { replace: local.replace }),
           ...(local.state === undefined ? {} : { state: local.state })
-        }).catch(() => {})
+        })
       },
       get children() {
         return local.children
@@ -194,7 +192,7 @@ function NavigateComponent(props: {
   readonly replace?: boolean
   readonly state?: unknown
 }): JSX.Element {
-  const navigate = useNavigate()
+  const service = useRouterService()
   const location = useLocation()
   const context = useRouterContextAccessor()
   const destination = createMemo(() => Result.getOrThrow(resolveNavigationTarget(context().atomRouter.app, props)))
@@ -210,10 +208,10 @@ function NavigateComponent(props: {
       if (url === undefined) return
       const current = Option.getOrUndefined(untrack(location))
       if (current !== undefined && `${current.pathname}${current.search}${current.hash}` === url) return
-      void navigate(destination(), {
+      navigateDetached(service(), props as never, {
         ...(props.replace === undefined ? {} : { replace: props.replace }),
         ...(props.state === undefined ? {} : { state: props.state })
-      }).catch(() => {})
+      })
     })
   )
   return null as unknown as JSX.Element

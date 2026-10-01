@@ -57,7 +57,7 @@ remain available for independent service lifetimes or startup failures; differen
 not be assumed to share services. Resource retention and preload policy belong to Atom.
 
 The supported `@effect-stack/router/Adapter` bridge shares definition construction, application assembly, and target
-normalization. Native option types, Providers, hooks, rendering, and lifecycle stay in each adapter; core never calls
+normalization, plus the detached-command failure policy. Native option types, Providers, hooks, rendering, and lifecycle stay in each adapter; core never calls
 components. Native assembly returns the same canonical application, with opaque presentation stored privately and checked
 against the adapter's factory. Providers take that application and a runtime explicitly; applications own native render
 boundaries. Every native endpoint needs presentation or `empty: true`; layouts may be transparent.
@@ -80,5 +80,8 @@ submission validate schemas and membership before history writes. Identity desti
   keep their original decoded input until commitment; initial preparation uses one application-level pending view.
 - The coordinator owns acceptance, cancellation, and publication authority together. Obsolete attempts cannot publish
   or redirect, and transient scopes close before atomic branch publication.
+- Detached commands share that scope and record failure publication against the exact attempt, rather than inferring
+  it from a later snapshot. Unpublished command failures and terminal history observation failures use standard Effect
+  logging; recoverable browser reads are isolated at their adapter, where retry safety is known.
 
 See [navigation contracts](router-navigation.md), the [glossary](../GLOSSARY.md), and the [roadmap](roadmap.md).

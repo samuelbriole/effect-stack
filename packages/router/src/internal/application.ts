@@ -11,6 +11,7 @@
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Result from "effect/Result"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
@@ -24,6 +25,8 @@ import { RouteDefinitionError } from "./errors.ts"
 import * as History from "../History.ts"
 import type { CoreApplication, NavigationError, NavigationHandle, RouterService, RouterState } from "../Router.ts"
 import { encodeDestination } from "./href.ts"
+import { resolveNavigationTarget } from "./destinations.ts"
+import { registerDetachedCommands } from "./commands.ts"
 
 const captureContext = Effect.gen(function* () {
   const context = yield* Effect.context<never>()
@@ -157,8 +160,22 @@ export const makeApplication = <AppId extends string, Routes, E, R>(
         run: (value) => Effect.suspend(() => prepare(value)).pipe(Effect.provide(context))
       })
     }
-    const coordinator = yield* makeCoordinator(compiled, gates)
-    return makeService<Routes, E>(routes, coordinator, compiled, appId, token)
+    const coordinator = yield* makeCoordinator(compiled, gates, appId)
+    const router = makeService<Routes, E>(routes, coordinator, compiled, appId, token)
+    const runFork = Effect.runForkWith(context)
+    registerDetachedCommands(router, {
+      navigate: (target, options) => {
+        const destination = Effect.suspend(() => {
+          const resolved = resolveNavigationTarget(value, target)
+          return Result.isFailure(resolved) ? Effect.fail(resolved.failure) : Effect.succeed(resolved.success)
+        })
+        runFork(coordinator.navigateDetached(destination, options))
+      },
+      retry: () => {
+        runFork(coordinator.retryDetached)
+      }
+    })
+    return router
   })
   const layer = Layer.effect(serviceKey, build) as Layer.Layer<
     ApplicationServiceId<AppId, E, R>,

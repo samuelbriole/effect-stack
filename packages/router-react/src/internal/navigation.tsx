@@ -1,6 +1,6 @@
 import type { Destination, NavigationOutcome } from "@effect-stack/router/Router"
 import type * as Router from "@effect-stack/router/Router"
-import { resolveNavigationTarget } from "@effect-stack/router/Adapter"
+import { navigateDetached, resolveNavigationTarget, retryDetached } from "@effect-stack/router/Adapter"
 import { useAtomValue } from "@effect/atom-react"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -66,7 +66,7 @@ export function useNavigate(boundApp?: {
 export function useRetry(): () => void {
   const service = useRouterService()
   return React.useCallback(() => {
-    void Effect.runPromise(service().retry).catch(() => {})
+    retryDetached(service())
   }, [service])
 }
 
@@ -91,7 +91,7 @@ function LinkComponent(props: RuntimeTargetProps & Omit<React.ComponentPropsWith
     onNone: () => false,
     onSome: (value) => value.pathname === pathname
   })
-  const navigate = useNavigate()
+  const service = useRouterService()
   return (
     <a
       {...anchor}
@@ -113,10 +113,10 @@ function LinkComponent(props: RuntimeTargetProps & Omit<React.ComponentPropsWith
           return
         }
         event.preventDefault()
-        void navigate(destination, {
+        navigateDetached(service(), destination, {
           ...(replace === undefined ? {} : { replace }),
           ...(state === undefined ? {} : { state })
-        }).catch(() => {})
+        })
       }}
     />
   )
@@ -130,19 +130,19 @@ function NavigateComponent(props: RuntimeTargetProps): null {
   if (Result.isFailure(href)) throw href.failure
   const url = href.success
   const location = useAtomValue(atomRouter.location)
-  const navigate = useNavigate()
+  const service = useRouterService()
   const submit = React.useEffectEvent(() => {
     const current = Option.getOrUndefined(location)
     if (current !== undefined && `${current.pathname}${current.search}${current.hash}` === url) return
-    void navigate(destination, {
+    navigateDetached(service(), destination, {
       ...(replace === undefined ? {} : { replace }),
       ...(state === undefined ? {} : { state })
-    }).catch(() => {})
+    })
   })
   React.useEffect(() => {
     // Location observations and fresh normalized records are not new navigation commands.
     submit()
-  }, [navigate, url, replace, state])
+  }, [service, url, replace, state])
   return null
 }
 

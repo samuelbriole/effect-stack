@@ -18,7 +18,7 @@ import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
 import type { Compiled, DecodedInput, Plan } from "./compiler.ts"
 import type { Destination, RuntimeNode } from "./definition.ts"
-import { RouteDefinitionError, RouteNotFound } from "./errors.ts"
+import { RouteDefinitionError, RouteNotFound, type RouteEncodeError } from "./errors.ts"
 import { encodeDestination, foreignDestinationError, ownsNode } from "./href.ts"
 import * as History from "../History.ts"
 import { isRedirect } from "./redirect.ts"
@@ -117,6 +117,11 @@ export interface Coordinator {
   readonly back: Effect.Effect<void, History.HistoryError>
   readonly forward: Effect.Effect<void, History.HistoryError>
   readonly go: (delta: number) => Effect.Effect<void, History.HistoryError>
+  readonly navigateDetached: (
+    destination: Effect.Effect<Destination, RouteEncodeError>,
+    options?: NavigateOptions
+  ) => Effect.Effect<void>
+  readonly retryDetached: Effect.Effect<void>
 }
 
 const MAX_REDIRECTS = 20
@@ -135,6 +140,8 @@ interface ActiveAttempt {
   readonly ready: Deferred.Deferred<void>
   readonly outcome: Deferred.Deferred<NavigationOutcome, unknown>
   readonly initial: History.Location
+  /** Monotonic provenance, set before completing the failed outcome. */
+  failurePublished: boolean
   fiber: Fiber.Fiber<void>
 }
 
@@ -215,7 +222,8 @@ const isPureGateFailure = (cause: Cause.Cause<unknown>): boolean => {
  */
 export const make = Effect.fn("Router.coordinator")(function* (
   compiled: Compiled,
-  gates: ReadonlyMap<string, RouteGate>
+  gates: ReadonlyMap<string, RouteGate>,
+  applicationId: string
 ): Effect.fn.Return<Coordinator, History.HistoryError, History.History | Scope.Scope> {
   const history = yield* History.History
   const self = yield* Effect.scope
@@ -224,6 +232,27 @@ export const make = Effect.fn("Router.coordinator")(function* (
   const active = yield* Ref.make<Option.Option<ActiveAttempt>>(Option.none())
   const acceptance = yield* Semaphore.make(1)
   const allocateId = Ref.updateAndGet(nextId, (value) => value + 1)
+
+  const reportFailure = (
+    operation: "navigate" | "retry" | "observe",
+    phase: "pre-acceptance" | "accepted" | "stopped",
+    cause: Cause.Cause<unknown>
+  ): Effect.Effect<void> =>
+    // Only the owning Scope's shutdown makes observation interruption expected.
+    // A custom source may self-interrupt while that Scope is still open.
+    (operation !== "observe" && Cause.hasInterruptsOnly(cause))
+    || (operation === "observe"
+      && self.state._tag === "Closed"
+      && Cause.hasInterrupts(cause)
+      // Queue-backed streams may also finish with Done during shutdown.
+      && cause.reasons.every(
+        (reason) => Cause.isInterruptReason(reason) || (Cause.isFailReason(reason) && Cause.isDone(reason.error))
+      ))
+      ? Effect.void
+      : Effect.logError(
+          operation === "observe" ? "Router.historyObservationStopped" : "Router.commandFailed",
+          cause
+        ).pipe(Effect.annotateLogs({ applicationId, operation, phase }))
 
   const isAuthorized = (id: number): Effect.Effect<boolean> =>
     Ref.get(active).pipe(Effect.map((current) => Option.isSome(current) && current.value.id === id))
@@ -275,25 +304,28 @@ export const make = Effect.fn("Router.coordinator")(function* (
     owner: string,
     cause: Cause.Cause<unknown>,
     entries: ReadonlyArray<EntryState>
-  ): Effect.Effect<void> =>
-    SubscriptionRef.update(snapshot, (current): Snapshot => {
+  ): Effect.Effect<boolean> =>
+    SubscriptionRef.modify(snapshot, (current): readonly [boolean, Snapshot] => {
       const location = Option.getOrUndefined(current.location)
-      if (location === undefined) return current
-      return {
-        ...current,
-        status:
-          current.status._tag === "Pending" && current.status.attempt === attempt
-            ? { _tag: "Failed", attempt, owner, cause }
-            : current.status,
-        presentation: Option.some({
-          _tag: "Failed",
-          attempt,
-          location,
-          owner,
-          cause,
-          entries
-        })
-      }
+      if (location === undefined) return [false, current]
+      return [
+        true,
+        {
+          ...current,
+          status:
+            current.status._tag === "Pending" && current.status.attempt === attempt
+              ? { _tag: "Failed", attempt, owner, cause }
+              : current.status,
+          presentation: Option.some({
+            _tag: "Failed",
+            attempt,
+            location,
+            owner,
+            cause,
+            entries
+          })
+        }
+      ]
     })
 
   const publishCancelled = (attempt: number): Effect.Effect<void> =>
@@ -452,15 +484,23 @@ export const make = Effect.fn("Router.coordinator")(function* (
               }
             }
             if (owns) {
-              yield* publishFailure(record.id, result.owner, result.cause, result.entries)
+              record.failurePublished = yield* publishFailure(record.id, result.owner, result.cause, result.entries)
             }
             yield* Deferred.failCause(record.outcome, result.cause)
           })
         )
         return
       }
-      if (Cause.hasInterruptsOnly(exit.cause)) {
-        const status = yield* Ref.get(record.status)
+      const status = yield* Ref.get(record.status)
+      const obsoleteRedirect =
+        status !== "running"
+        && exit.cause.reasons.every(
+          (reason) => Cause.isInterruptReason(reason) || (Cause.isFailReason(reason) && isRedirect(reason.error))
+        )
+      if (Cause.hasInterruptsOnly(exit.cause) || obsoleteRedirect) {
+        // An uninterruptible stale Gate may still return its redirect while
+        // interruption lands. That control signal has lost publication authority;
+        // actual defects or finalizer failures must remain in the full Cause.
         yield* Deferred.succeed(record.outcome, status === "cancelled" ? "Cancelled" : "Superseded")
         return
       }
@@ -468,7 +508,7 @@ export const make = Effect.fn("Router.coordinator")(function* (
         Effect.gen(function* () {
           if (yield* isAuthorized(record.id)) {
             const current = yield* SubscriptionRef.get(snapshot)
-            yield* publishFailure(
+            record.failurePublished = yield* publishFailure(
               record.id,
               RouterFailureOwner,
               exit.cause,
@@ -496,12 +536,17 @@ export const make = Effect.fn("Router.coordinator")(function* (
         ready,
         outcome,
         initial: location,
+        failurePublished: false,
         fiber: undefined as unknown as Fiber.Fiber<void>
       }
       const body = Effect.gen(function* () {
         yield* Deferred.await(ready)
-        const exit = yield* Effect.exit(runAttempt(record))
-        yield* Effect.uninterruptible(settle(record, exit))
+        // Settlement is an exit finalizer so external interruption cannot skip
+        // the full cleanup Cause and prematurely label it merely Superseded.
+        yield* runAttempt(record).pipe(
+          Effect.onExit((exit) => settle(record, exit)),
+          Effect.exit
+        )
       })
       yield* withAcceptance(
         Effect.gen(function* () {
@@ -565,7 +610,11 @@ export const make = Effect.fn("Router.coordinator")(function* (
         yield* start(yield* allocateId, location)
       })
     ),
-    Effect.catch(() => Effect.void),
+    // A custom History stream is not necessarily restartable. Report its full
+    // terminal Cause; adapters isolate recoverable reads at the source.
+    Effect.onExit((exit) => (Exit.isFailure(exit) ? reportFailure("observe", "stopped", exit.cause) : Effect.void)),
+    Effect.exit,
+    Effect.asVoid,
     Effect.forkIn(self)
   )
 
@@ -606,7 +655,10 @@ export const make = Effect.fn("Router.coordinator")(function* (
       )
     })
 
-  const submit = Effect.fn("Router.submit")(function* (destination: Destination, options?: NavigateOptions) {
+  const submitAttempt = Effect.fn("Router.submitAttempt")(function* (
+    destination: Destination,
+    options?: NavigateOptions
+  ) {
     const id = yield* allocateId
     const href = encodeDestination(destination, compiled.byId)
     if (Result.isFailure(href)) {
@@ -623,7 +675,11 @@ export const make = Effect.fn("Router.coordinator")(function* (
     if (Exit.isFailure(written)) {
       return yield* Effect.failCause(written.cause)
     }
-    const record = yield* start(id, written.value)
+    return yield* start(id, written.value)
+  })
+
+  const submit = Effect.fn("Router.submit")(function* (destination: Destination, options?: NavigateOptions) {
+    const record = yield* submitAttempt(destination, options)
     return {
       id: record.id,
       await: Deferred.await(record.outcome),
@@ -636,12 +692,44 @@ export const make = Effect.fn("Router.coordinator")(function* (
     return yield* handle.await
   })
 
-  const refresh: Effect.Effect<NavigationOutcome, unknown> = Effect.gen(function* () {
+  const refreshAttempt = Effect.gen(function* () {
     const id = yield* allocateId
     const location = yield* history.current
-    const record = yield* start(id, location)
-    return yield* Deferred.await(record.outcome)
+    return yield* start(id, location)
   })
+
+  const refresh = refreshAttempt.pipe(Effect.flatMap((record) => Deferred.await(record.outcome)))
+
+  const runDetached = (
+    operation: "navigate" | "retry",
+    attempt: Effect.Effect<ActiveAttempt, unknown>
+  ): Effect.Effect<void> =>
+    attempt.pipe(
+      Effect.onExit((exit) =>
+        Exit.isFailure(exit) ? reportFailure(operation, "pre-acceptance", exit.cause) : Effect.void
+      ),
+      Effect.flatMap((record) =>
+        Deferred.await(record.outcome).pipe(
+          Effect.onExit((exit) =>
+            Exit.isFailure(exit) && !record.failurePublished
+              ? reportFailure(operation, "accepted", exit.cause)
+              : Effect.void
+          )
+        )
+      ),
+      // Diagnostics above own otherwise-unobserved failures. Completing with an
+      // Exit prevents a second unhandled-fiber report; Scope owns cancellation.
+      Effect.exit,
+      Effect.asVoid,
+      Effect.forkIn(self),
+      Effect.asVoid
+    )
+
+  const navigateDetached = (
+    destination: Effect.Effect<Destination, RouteEncodeError>,
+    options?: NavigateOptions
+  ): Effect.Effect<void> =>
+    runDetached("navigate", destination.pipe(Effect.flatMap((value) => submitAttempt(value, options))))
 
   const go = Effect.fn("Router.go")(function* (delta: number) {
     yield* history.go(delta)
@@ -656,6 +744,8 @@ export const make = Effect.fn("Router.coordinator")(function* (
     retry: refresh,
     back: go(-1),
     forward: go(1),
-    go
+    go,
+    navigateDetached,
+    retryDetached: runDetached("retry", refreshAttempt)
   }
 })
