@@ -5,6 +5,13 @@ packages:
 verifyDepsBeforeRun: error
 enableGlobalVirtualStore: false
 
+# Exercise Foldkit's current public interfaces on stable Effect v4 while upstream
+# still declares RC peers. This exception is workspace-only, not published support.
+peerDependencyRules:
+  allowedVersions:
+    "foldkit>effect": "4.0.0"
+    "foldkit>@effect/platform-browser": "4.0.0"
+
 allowBuilds:
   esbuild: false
   msgpackr-extract: false
@@ -51,6 +58,8 @@ minimumReleaseAgeExclude:
   - "@effect/tsgo-win32-x64@0.47.2"
   - "@effect/vitest@4.0.0"
   - effect@4.0.0
+  - "@effect/platform-browser@4.0.0"
+  - foldkit@0.164.0
   - "@vitest/expect@5.0.3"
   - "@vitest/mocker@5.0.3"
   - "@vitest/pretty-format@5.0.3"

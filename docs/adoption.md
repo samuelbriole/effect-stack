@@ -1,10 +1,10 @@
 # Adopt Router
 
 Router targets Effect v4. Choose [React](../packages/router-react), [Solid](../packages/router-solid),
-[Vue](../packages/router-vue), or the [headless core](../packages/router).
+[Vue](../packages/router-vue), [Foldkit](../packages/router-foldkit), or the [headless core](../packages/router).
 
 Routes own URL schemas, an optional direct transition gate, and native presentation. Application data belongs to
-official Effect Atom resources, not routing. Each renderer's `examples/basic` is a standalone application demonstrating
+application resources, not routing: official Effect Atom resources in React/Solid/Vue, or Foldkit's Model/Command/Subscription flow. Each renderer's `examples/basic` is a standalone application demonstrating
 branded decoded IDs, one composed runtime for navigation and domain resources, reachable resource failure, and refresh
 recovery.
 
@@ -117,3 +117,9 @@ cycles. The erased application type cannot be verified at runtime: unbound helpe
 Use `makeNavigation(Application)` or `useRouter(Application)` when exact provider-token checks matter.
 
 See [navigation contracts](router-navigation.md) and [architecture](architecture.md).
+
+## Foldkit
+
+The [Foldkit adapter](../packages/router-foldkit) supplies a Schema-defined Model field and router Messages, pure route/layout views, and a persistent connection Subscription. Applications compose these with their existing Model, Message union, update function, and native Foldkit runtime. EffectStack owns history; omit Foldkit's built-in `routing` configuration and history Commands. No Atom registry or React-style Provider is required.
+
+The connection owns fallible router acquisition and teardown, so startup failures remain distinct from route-gate failures. It reconnects and resynchronizes preserved Models without relying on init Commands. See the package README for the stable-v4 release prerequisite and browser-only scope.

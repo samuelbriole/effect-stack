@@ -1,0 +1,21 @@
+{
+  "name": "@effect-stack-example/router-foldkit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "@effect-stack/router": "workspace:*",
+    "@effect-stack/router-foldkit": "workspace:*",
+    "@effect/platform-browser": "4.0.0",
+    "effect": "4.0.0",
+    "foldkit": "0.164.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.1"
+  }
+}
