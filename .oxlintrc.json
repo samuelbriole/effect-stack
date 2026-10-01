@@ -66,7 +66,20 @@
       "files": ["packages/*/examples/**/*", "packages/*/test/**/*", "packages/*/typetest/**/*"],
       "rules": {
         "eslint/no-console": "off",
-        "import/no-unassigned-import": "off"
+        "import/no-unassigned-import": "off",
+        "effecttsgo/unstable-api-usage": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/router/src/AtomRouter.ts",
+        "packages/router/src/internal/url.ts",
+        "packages/router-react/src/internal/{context.ts,rendering.tsx}",
+        "packages/router-solid/src/internal/{context,hooks,rendering}.ts",
+        "packages/router-vue/src/internal/{context,hooks,rendering}.ts"
+      ],
+      "rules": {
+        "effecttsgo/unstable-api-usage": "off"
       }
     },
     {

@@ -37,8 +37,25 @@ minimumReleaseAgeExclude:
   - "@oxfmt/binding-win32-ia32-msvc@0.70.0 || 0.71.0"
   - "@oxfmt/binding-win32-x64-msvc@0.70.0 || 0.71.0"
   - oxfmt@0.70.0 || 0.71.0
-  - "@effect/atom-react@4.0.0-rc.118"
-  - "@effect/atom-solid@4.0.0-rc.118"
-  - "@effect/atom-vue@4.0.0-rc.118"
-  - "@effect/vitest@4.0.0-rc.118"
-  - effect@4.0.0-rc.118
+  # Exact-version exceptions for the coordinated stable Effect/tooling upgrade.
+  - "@effect/atom-react@4.0.0"
+  - "@effect/atom-solid@4.0.0"
+  - "@effect/atom-vue@4.0.0"
+  - "@effect/tsgo@0.47.2"
+  - "@effect/tsgo-darwin-arm64@0.47.2"
+  - "@effect/tsgo-darwin-x64@0.47.2"
+  - "@effect/tsgo-linux-arm@0.47.2"
+  - "@effect/tsgo-linux-arm64@0.47.2"
+  - "@effect/tsgo-linux-x64@0.47.2"
+  - "@effect/tsgo-win32-arm64@0.47.2"
+  - "@effect/tsgo-win32-x64@0.47.2"
+  - "@effect/vitest@4.0.0"
+  - effect@4.0.0
+  - "@vitest/expect@5.0.3"
+  - "@vitest/mocker@5.0.3"
+  - "@vitest/pretty-format@5.0.3"
+  - "@vitest/runner@5.0.3"
+  - "@vitest/snapshot@5.0.3"
+  - "@vitest/spy@5.0.3"
+  - "@vitest/utils@5.0.3"
+  - vitest@5.0.3

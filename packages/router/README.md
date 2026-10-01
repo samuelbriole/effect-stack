@@ -4,7 +4,7 @@ Effect-native, renderer-independent URLs, history, navigation, and transition ga
 official Effect Atom resources; the router owns no resource cache or success-data channel.
 
 ```sh
-pnpm add @effect-stack/router effect@rc
+pnpm add @effect-stack/router effect@4
 ```
 
 ## Headless setup

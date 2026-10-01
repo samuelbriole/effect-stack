@@ -9,8 +9,8 @@
   "dependencies": {
     "@effect-stack/router": "workspace:*",
     "@effect-stack/router-solid": "workspace:*",
-    "@effect/atom-solid": "4.0.0-rc.118",
-    "effect": "4.0.0-rc.118",
+    "@effect/atom-solid": "4.0.0",
+    "effect": "4.0.0",
     "solid-js": "1.9.15"
   },
   "devDependencies": {
