@@ -4,7 +4,7 @@ Native React routing with typed URL schemas and optional direct Effect transitio
 resources independently of the router.
 
 ```sh
-pnpm add @effect-stack/router-react @effect-stack/router @effect/atom-react effect@rc react
+pnpm add @effect-stack/router-react @effect-stack/router @effect/atom-react effect@4 react
 ```
 
 ## Setup

@@ -3,7 +3,7 @@
 Native Solid routing with typed URL schemas and optional direct transition gates. Data belongs to official Effect Atom.
 
 ```sh
-pnpm add @effect-stack/router-solid @effect-stack/router @effect/atom-solid effect@rc solid-js
+pnpm add @effect-stack/router-solid @effect-stack/router @effect/atom-solid effect@4 solid-js
 ```
 
 ## Setup

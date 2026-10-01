@@ -3,7 +3,7 @@
 Native Vue routing with typed URL schemas and optional direct Effect gates. Data belongs to official Effect Atom resources.
 
 ```sh
-pnpm add @effect-stack/router-vue @effect-stack/router @effect/atom-vue effect@rc vue
+pnpm add @effect-stack/router-vue @effect-stack/router @effect/atom-vue effect@4 vue
 ```
 
 ## Setup

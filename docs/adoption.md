@@ -1,6 +1,6 @@
 # Adopt Router
 
-Router targets Effect v4 RC. Choose [React](../packages/router-react), [Solid](../packages/router-solid),
+Router targets Effect v4. Choose [React](../packages/router-react), [Solid](../packages/router-solid),
 [Vue](../packages/router-vue), or the [headless core](../packages/router).
 
 Routes own URL schemas, an optional direct transition gate, and native presentation. Application data belongs to

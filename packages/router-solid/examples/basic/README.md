@@ -3,7 +3,7 @@
 From the workspace root:
 
 ```sh
-corepack pnpm@12.6.0 --filter @effect-stack-example/router-solid dev
+corepack pnpm@12.8.1 --filter @effect-stack-example/router-solid exec vite
 ```
 
 `routes.tsx` defines the routes, shared runtime, and project resource family. Pages use `useRouteInput` with official
