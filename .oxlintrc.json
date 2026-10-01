@@ -95,6 +95,8 @@
               "solid-js/*",
               "vue",
               "vue/*",
+              "foldkit",
+              "foldkit/*",
               "@effect/atom-react",
               "@effect/atom-solid",
               "@effect/atom-vue"

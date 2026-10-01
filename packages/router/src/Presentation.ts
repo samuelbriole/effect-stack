@@ -5,8 +5,11 @@
  */
 export type {
   DisplayEntry,
+  DisplayItem,
+  DisplaySnapshot,
   OutletDecision,
   PresentationState,
+  SnapshotOutletDecision,
   ViewFailure,
   ViewLookup,
   ViewShape
@@ -16,5 +19,7 @@ export {
   entryFailure,
   NotFoundFailureOwner,
   outletDecision,
+  projectPresentation,
+  selectOutlet,
   toDisplayEntry
 } from "./internal/presentation.ts"

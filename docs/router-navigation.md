@@ -1,6 +1,6 @@
 # Navigation contracts
 
-Shared behavior for the headless Router and its React, Solid, and Vue adapters.
+Shared behavior for the headless Router and its React, Solid, Vue, and Foldkit adapters.
 See [adoption](adoption.md) for setup.
 
 ## Commands and completion
@@ -92,12 +92,12 @@ therefore remain coherent with the displayed component. The router publishes no 
 
 ## Rendering and recovery
 
-Native `make(...)` returns one canonical application; `Provider` takes `app` and `runtime`. Adapters share construction
+Native `make(...)` returns one canonical application; React/Solid/Vue `Provider` takes `app` and `runtime`. Adapters share construction
 through `@effect-stack/router/Adapter` while preserving native rendering and lifecycle. Every endpoint requires
 presentation (`component` or Vue `render`) or `empty: true`; layouts may be transparent. `index(options)` is shorthand for
 `route("index", "/", options)` at the parent's path, with ordinary endpoint semantics.
 
-Components receive no mandatory injected props; `useRouteInput(def)` reads displayed input (React value, Solid accessor,
+React/Solid/Vue components receive no mandatory injected props; `useRouteInput(def)` reads displayed input (React value, Solid accessor,
 Vue computed ref). Layouts render an `Outlet` to continue the branch. Initial preparation uses the Provider's optional
 `pending` component; later preparation retains the committed branch. Routing error views replace the failing node and
 descendants while preserving layouts above it. Bound navigation helpers reject a different provider token.
@@ -108,6 +108,8 @@ so infrastructure failures are never cast to the gate's domain error. Startup fa
 acquisition failed. Route retry reruns gates without rebuilding the runtime or refreshing resource atoms.
 Application-owned resource errors and refresh use official Effect Atom APIs independently of routing. Native render
 exceptions propagate to application-owned error boundaries; their reset does not implicitly retry navigation.
+
+Foldkit follows the same navigation/gate/retained-branch contracts with explicit pure views and a Model snapshot, rather than hooks/Providers. Its error views receive `Domain` values only after an `errorSchema` round trip; other failures are `Diagnostic` values retaining failure/defect/interruption categories, not restored raw Causes. History state in navigation Messages must be JSON or undefined and is excluded from the presentation snapshot. Subscription restart always reacquires live routing authority; a preserved Model is only cached presentation. See the [Foldkit adapter](../packages/router-foldkit) for its native interface.
 
 `Link` renders a real anchor with a typed destination and preserves native modifier keys, alternate targets, and
 downloads. Hooks return native values: React values, Solid accessors, and Vue computed refs. React `Link` also accepts

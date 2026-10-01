@@ -22,11 +22,12 @@ import {
   collectSelection,
   defineLayout,
   defineRoute,
+  trustedDefinition,
   type AnyDefinitionShape,
   type DefinitionFactory
 } from "./internal/definition.ts"
 import { applicationRuntime, makeApplication } from "./internal/application.ts"
-import type { ApplicationOf } from "./Router.ts"
+import type { AnyNode, ApplicationOf } from "./Router.ts"
 import type { SelectionError, SelectionRequirements } from "./internal/gates.ts"
 import { RouteDefinitionError } from "./internal/errors.ts"
 export { resolveNavigationTarget } from "./internal/destinations.ts"
@@ -125,4 +126,30 @@ export const getApplicationViews = <Presentation>(
   }
   // Assembly stores only presentations normalized by this exact factory.
   return runtime.views as ReadonlyMap<string, Presentation>
+}
+
+/** Resolves an exact constructor-owned definition within this native application. @since 0.4.0 */
+export const getApplicationNode = <Presentation>(
+  engine: DefinitionEngine<Presentation>,
+  app: unknown,
+  definition: unknown
+) => {
+  const nodes = getApplicationNodes(engine, app)
+  const trusted = trustedDefinition(definition)
+  if (trusted === undefined || trusted.owner !== engine.factory || !nodes.includes(trusted.node)) {
+    throw new RouteDefinitionError({ message: "Definition does not belong to this application" })
+  }
+  return trusted.node
+}
+
+/** Reads canonical selected nodes, including ancestors, owned by this exact engine. @since 0.4.0 */
+export const getApplicationNodes = <Presentation>(
+  engine: DefinitionEngine<Presentation>,
+  app: unknown
+): ReadonlyArray<AnyNode> => {
+  const runtime = applicationRuntime(app)
+  if (runtime?.views === undefined || runtime.presentationFactory !== engine.factory) {
+    throw new RouteDefinitionError({ message: "Application does not belong to this presentation engine" })
+  }
+  return runtime.nodes
 }

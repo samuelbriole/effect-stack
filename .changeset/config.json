@@ -11,6 +11,7 @@
   "ignore": [
     "@effect-stack-example/router-react",
     "@effect-stack-example/router-solid",
-    "@effect-stack-example/router-vue"
+    "@effect-stack-example/router-vue",
+    "@effect-stack-example/router-foldkit"
   ]
 }

@@ -1,0 +1,54 @@
+{
+  "name": "@effect-stack/router-foldkit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Native Foldkit adapter for EffectStack Router",
+  "homepage": "https://github.com/samuelbriole/effect-stack#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samuelbriole/effect-stack.git",
+    "directory": "packages/router-foldkit"
+  },
+  "bugs": {
+    "url": "https://github.com/samuelbriole/effect-stack/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": "./dist/index.js",
+      "./package.json": "./package.json"
+    }
+  },
+  "peerDependencies": {
+    "@effect-stack/router": "^0.3.0",
+    "effect": "^4.0.0",
+    "foldkit": "^0.164.0"
+  },
+  "devDependencies": {
+    "@effect-stack/router": "workspace:*",
+    "@effect/platform-browser": "4.0.0",
+    "effect": "4.0.0",
+    "foldkit": "0.164.0"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "check": "tsc -b tsconfig.json"
+  }
+}

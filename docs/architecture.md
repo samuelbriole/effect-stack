@@ -2,23 +2,24 @@
 
 EffectStack packages are independently adoptable. Each domain has one owner:
 
-| Domain                                                   | Owner                                |
-| -------------------------------------------------------- | ------------------------------------ |
-| URLs, matching, history, navigation, transition gates    | Router                               |
-| Remote-resource state and mutations                      | Effect Atom and application services |
-| Editing, validation, submission                          | Form (planned)                       |
-| Normalized entities, indexes, transactions, live queries | DB (exploring)                       |
+| Domain                                                   | Owner                                                           |
+| -------------------------------------------------------- | --------------------------------------------------------------- |
+| URLs, matching, history, navigation, transition gates    | Router                                                          |
+| Remote-resource state and mutations                      | Application services with Effect Atom or Foldkit Model/Commands |
+| Editing, validation, submission                          | Form (planned)                                                  |
+| Normalized entities, indexes, transactions, live queries | DB (exploring)                                                  |
 
 ## Dependency direction
 
 ```text
 Renderer adapter -> headless core -> Effect
-                 -> official Effect Atom adapter + renderer
+                 -> native renderer (and official Effect Atom adapter where applicable)
 Platform adapter -> core service interface
 ```
 
 Cores must remain platform- and renderer-independent. Browser and memory history implement the core `History.History`.
 React, Solid, and Vue adapters depend on `@effect-stack/router` and their official Effect Atom adapters.
+The Foldkit adapter depends on the core and Foldkit's Commands, Subscriptions, and HTML builder, not an Atom registry.
 
 ## Unified route definitions
 
@@ -61,6 +62,10 @@ normalization. Native option types, Providers, hooks, rendering, and lifecycle s
 components. Native assembly returns the same canonical application, with opaque presentation stored privately and checked
 against the adapter's factory. Providers take that application and a runtime explicitly; applications own native render
 boundaries. Every native endpoint needs presentation or `empty: true`; layouts may be transparent.
+
+Foldkit keeps application data and a serializable presentation snapshot in its Model, with runtime definitions/services outside it. Its pure views receive the application Model, native HTML builder, decoded displayed input, and a lazy outlet. A persistent Subscription acquires the router in a fresh scope, shares it with navigation Commands, and resynchronizes after Model preservation. Commands fold operational failures into Messages; startup failures do not expose gate retry.
+
+`Adapter.getApplicationNodes` and `getApplicationNode` expose validated canonical schema facts, not gate records or private definition metadata. `Presentation.projectPresentation` and `selectOutlet` share retained-branch and failure selection with data-only adapters.
 
 ## Navigation identity and typed paths
 
