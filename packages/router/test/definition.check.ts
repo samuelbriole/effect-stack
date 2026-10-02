@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
 import * as Scope from "effect/Scope"
 import * as Router from "@effect-stack/router/Router"
+import type { History } from "@effect-stack/router"
 import { finishApplication, makeDefinitionEngine } from "@effect-stack/router/Adapter"
 
 const ProjectId = Schema.FiniteFromString.pipe(Schema.brand("ProjectId"))
@@ -31,7 +32,7 @@ const Child = Middle.route("project", "/:projectId", {
 })
 const actualParent: typeof Middle = Child["~parent"]
 void actualParent
-const App = Router.make("App", [Child])
+const App = Effect.runSync(Router.make("App", [Child]))
 declare const dep: Dep
 const requirement: Router.ApplicationRequirementsOf<typeof App> = dep
 const error: Router.ApplicationErrorOf<typeof App> = new Boom()
@@ -65,10 +66,10 @@ Router.route("factory", "/factory", { prepare: Effect.succeed(() => Effect.void)
 // @ts-expect-error old load options are removed
 Router.route("load", "/load", { load: () => Effect.void })
 const Scoped = Router.route("scoped", "/scoped", { prepare: () => Effect.asVoid(Scope.Scope) })
-const ScopedApp = Router.make("Scoped", [Scoped])
+const ScopedApp = Effect.runSync(Router.make("Scoped", [Scoped]))
 const scopeExcluded: Router.ApplicationRequirementsOf<typeof ScopedApp> extends never ? true : false = true
 void scopeExcluded
-const Different = Router.make("App", [Router.route("workspace", "/workspace")])
+const Different = Effect.runSync(Router.make("App", [Router.route("workspace", "/workspace")]))
 // @ts-expect-error service identifiers are invariant in the complete gate specification
 const wrongLayer: Layer.Layer<
   Router.ApplicationServiceId<
@@ -76,22 +77,22 @@ const wrongLayer: Layer.Layer<
     Router.ApplicationErrorOf<typeof App>,
     Router.ApplicationRequirementsOf<typeof App>
   >,
-  Router.History.HistoryError,
+  History.HistoryError,
   unknown
 > = Different.layer
 void wrongLayer
 declare const broad: Router.AnyDefinitionShape
-const BroadApp = Router.make("Broad", [broad])
+const BroadApp = Effect.runSync(Router.make("Broad", [broad]))
 const conservative: unknown extends Router.ApplicationRequirementsOf<typeof BroadApp> ? true : false = true
 const conservativeError: unknown extends Router.ApplicationErrorOf<typeof BroadApp> ? true : false = true
 void conservative
 void conservativeError
 const erased: Pick<typeof Child, "_tag" | "id" | "path" | "~node"> = Child
-const ErasedApp = Router.make("Erased", [erased])
+const ErasedApp = Effect.runSync(Router.make("Erased", [erased]))
 const erasedReq: unknown extends Router.ApplicationRequirementsOf<typeof ErasedApp> ? true : false = true
 void erasedReq
 const erasedParent: Omit<typeof Child, "~parent"> = Child
-const ErasedParentApp = Router.make("ErasedParent", [erasedParent])
+const ErasedParentApp = Effect.runSync(Router.make("ErasedParent", [erasedParent]))
 const erasedParentReq: unknown extends Router.ApplicationRequirementsOf<typeof ErasedParentApp> ? true : false = true
 const erasedParentError: unknown extends Router.ApplicationErrorOf<typeof ErasedParentApp> ? true : false = true
 void erasedParentReq
@@ -116,9 +117,9 @@ HashChild.to({ hash: "1" })
 const HashOverride = HashMiddle.route("override", "/override", { hash: Schema.String })
 HashOverride.to({ hash: "section" })
 // @ts-expect-error a widened selection is not a non-empty tuple
-Router.make("Wide", [] as ReadonlyArray<Router.AnyDefinitionShape>)
+void Router.make("Wide", [] as ReadonlyArray<Router.AnyDefinitionShape>)
 const engine = makeDefinitionEngine<unknown>({ renderer: "check", normalize: () => undefined, isEmpty: () => true })
-const finished = finishApplication(engine, "Finish", [Child])
+const finished = Effect.runSync(finishApplication(engine, "Finish", [Child]))
 const adapterRequirement: Router.ApplicationRequirementsOf<typeof finished> = dep
 void adapterRequirement
 const ServicefulCodec = Schema.String.pipe(

@@ -1,4 +1,5 @@
 import { make, route } from "@effect-stack/router-react"
+import * as Effect from "effect/Effect"
 import { Link } from "./navigation.tsx"
 
 /**
@@ -21,4 +22,4 @@ export const ForeignProjects = route("projects", "/projects", {
   component: () => <p>Foreign projects</p>
 })
 
-export const ForeignApp = make("ForeignNavBoundary", [ForeignHome, ForeignProjects])
+export const ForeignApp = await Effect.runPromise(make("ForeignNavBoundary", [ForeignHome, ForeignProjects]))

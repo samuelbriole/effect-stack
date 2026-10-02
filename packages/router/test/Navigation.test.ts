@@ -72,17 +72,9 @@ const Loopb = Router.route("loopb", "/loopb", {
 loopTargets.loopy = Loopa.to()
 loopTargets.loopb = Loopb.to()
 
-const App = Router.make("Nav", [
-  Home,
-  AccountDetail,
-  TeamMember,
-  Project,
-  Redirecting,
-  RedirectBadRelease,
-  Boom,
-  Loopa,
-  Loopb
-])
+const App = await Effect.runPromise(
+  Router.make("Nav", [Home, AccountDetail, TeamMember, Project, Redirecting, RedirectBadRelease, Boom, Loopa, Loopb])
+)
 
 const makeApp = (initial: string) => App.layer.pipe(Layer.provide(MemoryHistory.layer(initial)))
 
@@ -195,7 +187,7 @@ describe("Router navigation", () => {
             preparations++
           })
       })
-      const LocalApp = Router.make("ExactEndpoints", [Endpoint])
+      const LocalApp = yield* Router.make("ExactEndpoints", [Endpoint])
       yield* Effect.gen(function* () {
         const router = yield* LocalApp.service
         expect(yield* Effect.flip(router.awaitInitial)).toBeInstanceOf(Router.RouteNotFound)
@@ -296,7 +288,7 @@ describe("Router navigation", () => {
     Effect.gen(function* () {
       const OptionsHome = Router.route("home", "/")
       const OptionsTarget = Router.route("target", "/target")
-      const OptionsApp = Router.make("Options", [OptionsHome, OptionsTarget])
+      const OptionsApp = yield* Router.make("Options", [OptionsHome, OptionsTarget])
       const app = OptionsApp.layer.pipe(Layer.provide(MemoryHistory.layer("/")))
       yield* Effect.gen(function* () {
         const router = yield* OptionsApp.service

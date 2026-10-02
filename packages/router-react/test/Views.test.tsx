@@ -12,8 +12,9 @@ import * as Router from "@effect-stack/router/Router"
 import {
   Link,
   make,
+  layer as routerLayer,
   Outlet,
-  Provider,
+  RouterProvider,
   layout,
   route,
   useRouteInput,
@@ -72,11 +73,13 @@ describe("transparent layouts and explicit empty endpoints", { concurrent: false
     const Middle = Outer.layout("middle", "/middle", { prepare: () => Effect.void })
     const Leaf = Middle.route("leaf", "/leaf", { component: LeafPage })
     const Hidden = Outer.route("hidden", "/hidden", { empty: true })
-    const App = make("Views", [Leaf, Hidden])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/middle/leaf"))))
+    const App = await Effect.runPromise(make("Views", [Leaf, Hidden]))
+    const runtime = Atom.runtime(
+      routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/outer/middle/leaf")))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Leaf")).toBe(true)
@@ -94,11 +97,13 @@ describe("transparent layouts and explicit empty endpoints", { concurrent: false
     const Outer = layout("outer", "/outer")
     const Inner = Outer.layout("inner", "/inner", { component: InnerLayout })
     const Leaf = Inner.route("leaf", "/leaf", { component: LeafPage })
-    const App = make("Views", [Leaf])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/inner/leaf"))))
+    const App = await Effect.runPromise(make("Views", [Leaf]))
+    const runtime = Atom.runtime(
+      routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/outer/inner/leaf")))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Inner")).toBe(true)
@@ -109,11 +114,13 @@ describe("transparent layouts and explicit empty endpoints", { concurrent: false
     const Outer = layout("outer", "/outer", { component: OuterLayout })
     const Hidden = Outer.route("hidden", "/hidden", { empty: true })
     const Leaf = Outer.route("leaf", "/leaf", { component: LeafPage })
-    const App = make("Views", [Hidden, Leaf])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/hidden"))))
+    const App = await Effect.runPromise(make("Views", [Hidden, Leaf]))
+    const runtime = Atom.runtime(
+      routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/outer/hidden")))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Outer")).toBe(true)
@@ -121,23 +128,26 @@ describe("transparent layouts and explicit empty endpoints", { concurrent: false
   })
 
   it("rejects an endpoint that declares no presentation", () => {
-    expect(() => make("Views", [route("a", "/a", { prepare: () => Effect.void })])).toThrow(RouteDefinitionError)
+    expect(Effect.runSyncExit(make("Views", [route("a", "/a", { prepare: () => Effect.void })]))).toMatchObject({
+      _tag: "Failure",
+      cause: { reasons: [{ _tag: "Die", defect: expect.any(RouteDefinitionError) as unknown }] }
+    })
   })
 
   it("allows a gate-only transparent layout", () => {
     const Group = layout("group", "/group", { prepare: () => Effect.void })
     const Leaf = Group.route("leaf", "/leaf", { component: LeafPage })
-    expect(() => make("Views", [Leaf])).not.toThrow()
+    expect(Effect.runSyncExit(make("Views", [Leaf]))._tag).toBe("Success")
   })
 
   it("allows an explicit empty endpoint that also loads", async () => {
     const Home = route("home", "/", { component: () => <h1>Home</h1> })
     const Empty = route("empty", "/empty", { prepare: () => Effect.void, empty: true })
-    const App = make("Views", [Home, Empty])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/empty"))))
+    const App = await Effect.runPromise(make("Views", [Home, Empty]))
+    const runtime = Atom.runtime(routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/empty"))))
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -150,11 +160,13 @@ describe("transparent layouts and explicit empty endpoints", { concurrent: false
       prepare: () => Deferred.await(gate)
     })
     const Leaf = Group.route("leaf", "/leaf", { component: LeafPage })
-    const App = make("Views", [Leaf])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/pending-group/leaf"))))
+    const App = await Effect.runPromise(make("Views", [Leaf]))
+    const runtime = Atom.runtime(
+      routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/pending-group/leaf")))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={() => <p role="status">Group pending…</p>} />
+        <RouterProvider runtime={runtime} pending={() => <p role="status">Group pending…</p>} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Group pending…")).toBe(true)
@@ -165,13 +177,18 @@ describe("transparent layouts and explicit empty endpoints", { concurrent: false
   })
 
   it("rejects duplicate ids, copied definitions, and headless definitions in a native app", () => {
-    expect(() =>
-      make("Views", [route("a", "/a", { component: LeafPage }), route("a", "/b", { component: LeafPage })])
-    ).toThrow(RouteDefinitionError)
     const leaf = route("leaf", "/leaf", { component: LeafPage })
-    expect(() => make("Views", [{ ...(leaf as object) } as never])).toThrow(RouteDefinitionError)
     const headless = Router.route("headless", "/headless", { prepare: () => Effect.void })
-    expect(() => make("Views", [headless as never])).toThrow(RouteDefinitionError)
+    for (const assembly of [
+      make("Views", [route("a", "/a", { component: LeafPage }), route("a", "/b", { component: LeafPage })]),
+      make("Views", [{ ...(leaf as object) } as never]),
+      make("Views", [headless as never])
+    ]) {
+      expect(Effect.runSyncExit<unknown, never>(assembly)).toMatchObject({
+        _tag: "Failure",
+        cause: { reasons: [{ _tag: "Die", defect: expect.any(RouteDefinitionError) as unknown }] }
+      })
+    }
   })
 })
 
@@ -224,13 +241,13 @@ describe("application-owned render error recovery", { concurrent: false }, () =>
           gates++
         })
     })
-    const App = make("ResourceRenderRetry", [Home])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const App = await Effect.runPromise(make("ResourceRenderRetry", [Home]))
+    const runtime = Atom.runtime(routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/"))))
     const registry = AtomRegistry.make()
     cleanups.push(() => registry.dispose())
     const { container } = mount(
       <RegistryContext.Provider value={registry}>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryContext.Provider>
     )
     expect(await waitForText(container, "Retry gate")).toBe(true)
@@ -269,11 +286,13 @@ describe("application-owned render error recovery", { concurrent: false }, () =>
       error: () => <p>Route gate failed</p>
     })
     const Home = route("home", "/", { component: () => <h1>Home</h1> })
-    const App = make("Recovery", [Home, Project])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/projects/1"))))
+    const App = await Effect.runPromise(make("Recovery", [Home, Project]))
+    const runtime = Atom.runtime(
+      routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/projects/1")))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Retry")).toBe(true)
@@ -312,11 +331,13 @@ describe("application-owned render error recovery", { concurrent: false }, () =>
       error: () => <p>Route gate failed</p>
     })
     const Home = route("home", "/", { component: () => <h1>Home</h1> })
-    const App = make("Recovery", [Home, Project])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/projects/1"))))
+    const App = await Effect.runPromise(make("Recovery", [Home, Project]))
+    const runtime = Atom.runtime(
+      routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/projects/1")))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Next")).toBe(true)

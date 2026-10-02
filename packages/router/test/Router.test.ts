@@ -13,7 +13,7 @@ const Project = Router.route("project", "/projects/:projectId", {
   prepare: () => Effect.void
 })
 
-const App = Router.make("App", [Home, Project])
+const App = await Effect.runPromise(Router.make("App", [Home, Project]))
 const AppLive = App.layer.pipe(Layer.provide(MemoryHistory.layer("/")))
 
 describe("Router", () => {

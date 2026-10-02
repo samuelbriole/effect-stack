@@ -480,11 +480,6 @@ export const make = Effect.fn("Router.coordinator")(function* (
       )
     })
 
-  const ensureSettled = (record: ActiveAttempt, outcome: NavigationOutcome): Effect.Effect<void> =>
-    Deferred.isDone(record.outcome).pipe(
-      Effect.flatMap((done) => (done ? Effect.void : Deferred.succeed(record.outcome, outcome).pipe(Effect.asVoid)))
-    )
-
   const start = (id: number, location: History.Location): Effect.Effect<ActiveAttempt> =>
     Effect.gen(function* () {
       const status = yield* Ref.make<"running" | "superseded" | "cancelled">("running")
@@ -536,7 +531,7 @@ export const make = Effect.fn("Router.coordinator")(function* (
                 yield* Effect.forkIn(self)(
                   Effect.gen(function* () {
                     yield* Fiber.interrupt(current.value.fiber)
-                    yield* ensureSettled(current.value, "Superseded")
+                    yield* Deferred.succeed(current.value.outcome, "Superseded")
                   })
                 )
               }
@@ -600,7 +595,7 @@ export const make = Effect.fn("Router.coordinator")(function* (
       yield* Effect.uninterruptible(
         Effect.gen(function* () {
           yield* Fiber.interrupt(record.fiber)
-          yield* ensureSettled(record, "Cancelled")
+          yield* Deferred.succeed(record.outcome, "Cancelled")
           yield* withAcceptance(publishCancelled(record.id))
         })
       )

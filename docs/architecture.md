@@ -24,8 +24,7 @@ React, Solid, and Vue adapters depend on `@effect-stack/router` and their offici
 
 A definition owns its identity, URL schemas, optional `prepare` gate, and native presentation together. `route` declares
 an endpoint; `layout` exposes parent-aware `route`, `layout`, and `index` constructors. `make(appId, definitions)` selects
-definitions and includes their ancestors, without separate implementation registration. `index` is shorthand for an
-endpoint at its parent's path, not a separate node kind.
+definitions and their ancestors in a lazy Effect. `index` is an endpoint at its parent's path, not a separate node kind.
 
 ```ts
 const Project = Router.layout("project", "/projects/:projectId", {
@@ -33,7 +32,7 @@ const Project = Router.layout("project", "/projects/:projectId", {
   prepare: ({ params }) => Access.use((access) => access.check(params.projectId))
 })
 const ProjectIndex = Project.index()
-const App = Router.make("Example", [Home, ProjectIndex])
+const assembly = Router.make("Example", [Home, ProjectIndex])
 ```
 
 - Names are specified once and qualified by parentage (`project`, `project.index`); array order does not define identity.
@@ -44,28 +43,29 @@ const App = Router.make("Example", [Home, ProjectIndex])
   definition engine backs both headless core and every native adapter.
 
 `prepare: (decodedInput) => Effect<void, E, R>` contributes inferred errors and requirements, excluding redirects and
-transient Scope. Assembly follows actual typed parents; erased evidence conservatively retains unknown E/R.
-`App.service` is invariant in aggregate E/R, and each application has its own service key and runtime token.
-Definitions may be shared across applications; runtime router instances remain independent.
+transient Scope. Assembly follows actual typed parents; erased evidence retains unknown E/R. `App.service` is invariant
+in aggregate E/R. Each execution creates a fresh canonical identity; invalid selections are defects. Assembly needs no
+services, while `App.layer` owns scoped acquisition.
 
 Application Layers supply gate dependencies. Gates capture that context without its Scope, run in fresh scopes, and close
 before branch publication. Long-lived resources belong to application Layers or Effect Atom, not gates.
 
-The default setup uses one composed `Atom.runtime` and registry for navigation and resource atoms. Sharing a runtime
-does not couple gate cancellation to resource subscriptions or make router retry refresh resources. Separate runtimes
-remain available for independent service lifetimes or startup failures; different registries or runtime factories must
-not be assumed to share services. Resource retention and preload policy belong to Atom.
+`Router.layer(assembly)` acquires the canonical application and scoped router under `Router.RuntimeApplication`.
+Compose one application Layer per runtime, sharing that runtime with resource atoms by default. Independent routers use
+independent runtimes; different registries or factories must not be assumed to share services. Resource retention and
+preload policy belong to Atom, not navigation cancellation or router retry.
 
 The supported `@effect-stack/router/Adapter` bridge shares definition construction, application assembly, and target
-normalization. Native option types, Providers, hooks, rendering, and lifecycle stay in each adapter; core never calls
-components. Native assembly returns the same canonical application, with opaque presentation stored privately and checked
-against the adapter's factory. Providers take that application and a runtime explicitly; applications own native render
-boundaries. Every native endpoint needs presentation or `empty: true`; layouts may be transparent.
+normalization. Native option types, providers, hooks, rendering, and lifecycle stay in each adapter; core never calls
+components. Presentation is stored privately and checked against the adapter's factory. `RouterProvider` reads the
+acquired application through the supplied runtime, displaying startup pending/failure before mounting router context.
+The standard service selects the application; private checks authenticate canonical and renderer ownership.
+Native render boundaries belong to the application. Endpoints need presentation or `empty: true`; layouts may be transparent.
 
 ## Navigation identity and typed paths
 
-`makeNavigation<typeof App>()` provides typed path helpers with a type-only application import, avoiding eager definition
-import cycles. Unbound helpers resolve against the nearest provider; erased types cannot authenticate it.
+Type-only `makeNavigation<Effect.Success<typeof assembly>>()` helpers avoid eager definition import cycles.
+Unbound helpers resolve against the nearest provider; erased types cannot authenticate it.
 `makeNavigation(App)` and application-taking hooks validate the exact provider token.
 
 Path templates retain correlated params/search/hash types. Resolution reads the canonical endpoint index synchronously,
@@ -76,6 +76,8 @@ submission validate schemas and membership before history writes. Identity desti
 
 - One scoped Router owns history observation, commands, attempts, and the authoritative snapshot. AtomRouter observes
   that service through the supplied runtime; it never creates another navigation engine.
+- React navigation and retry use fresh runtime result atoms per invocation. Independent result slots preserve per-call
+  outcomes during supersession; registry disposal interrupts outstanding waits. Component unmount does not cancel accepted work.
 - Status describes accepted navigation; pre-acceptance failures use only the command's error channel. Retained branches
   keep their original decoded input until commitment; initial preparation uses one application-level pending view.
 - The coordinator owns acceptance, cancellation, and publication authority together. Obsolete attempts cannot publish

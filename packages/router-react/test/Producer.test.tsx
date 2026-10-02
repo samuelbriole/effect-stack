@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import * as Layer from "effect/Layer"
+import * as Effect from "effect/Effect"
 import { RegistryProvider } from "@effect/atom-react"
 import { MemoryHistory } from "@effect-stack/router"
 import { RouteDefinitionError } from "@effect-stack/router/Router"
-import { make, Provider } from "@effect-stack/router-react"
+import { make, RouterProvider, layer } from "@effect-stack/router-react"
 import { Atom } from "effect/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
@@ -40,15 +41,14 @@ const waitForText = async (container: HTMLElement, text: string, attempts = 100)
   return waitForText(container, text, attempts - 1)
 }
 
-// Intentional erased selection for the runtime-only missing-presentation case.
-const makeErased = make as unknown as (appId: string, definitions: ReadonlyArray<unknown>) => unknown
-
 describe("generated assembly fixture", { concurrent: false }, () => {
   it("assembles individually exported parent/child modules", async () => {
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/workspaces/1/projects/7"))))
+    const runtime = Atom.runtime(
+      layer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/workspaces/1/projects/7")))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Workspace")).toBe(true)
@@ -56,6 +56,9 @@ describe("generated assembly fixture", { concurrent: false }, () => {
   })
 
   it("fails finalization when a selected endpoint has no presentation", () => {
-    expect(() => makeErased("Fixture", [Home, GateOnly])).toThrow(RouteDefinitionError)
+    expect(Effect.runSyncExit(make("Fixture", [Home, GateOnly]))).toMatchObject({
+      _tag: "Failure",
+      cause: { reasons: [{ _tag: "Die", defect: expect.any(RouteDefinitionError) as unknown }] }
+    })
   })
 })

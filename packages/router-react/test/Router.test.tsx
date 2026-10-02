@@ -6,14 +6,15 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import { RegistryContext, RegistryProvider } from "@effect/atom-react"
+import { RegistryContext, RegistryProvider, useAtomValue } from "@effect/atom-react"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import { History, MemoryHistory } from "@effect-stack/router"
 import type { DecodedRouteInput } from "@effect-stack/router/Router"
 import * as Router from "@effect-stack/router/Router"
+import { layer as routerLayer } from "@effect-stack/router/Router"
 import {
   Link,
-  Provider,
+  RouterProvider,
   useRouteInput,
   useRouter,
   useRouterState,
@@ -34,6 +35,9 @@ import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+
+const memoryRuntime = <R, E>(layer: Layer.Layer<R, E, History.History>, href = "/") =>
+  Atom.runtime(layer.pipe(Layer.provide(MemoryHistory.layer(href))))
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -122,23 +126,138 @@ const waitForText = async (container: HTMLElement, text: string, attempts = 100)
 }
 
 describe("React router adapter", { concurrent: false }, () => {
-  it("reuses native component identities for type-only navigation helpers", () => {
-    const App = make("ReactHelperIdentity", [route("home", "/", { empty: true })])
+  it("assembles lazily once per registry and shares scoped services with resource atoms", async () => {
+    const ready = Effect.runSync(Deferred.make<void>())
+    const released = Effect.runSync(Deferred.make<void>())
+    let assemblies = 0
+    let acquisitions = 0
+    let releases = 0
+    class Resource extends Context.Service<Resource, { readonly id: number }>()("test/ReactSelectedResource") {}
+    const resourceLayer = Layer.effect(
+      Resource,
+      Effect.acquireRelease(
+        Effect.sync(() => ({ id: ++acquisitions })),
+        () =>
+          Effect.sync(() => {
+            releases++
+          }).pipe(Effect.andThen(Deferred.succeed(released, undefined)))
+      )
+    )
+    function Page(): React.ReactNode {
+      const resource = useAtomValue(resourceAtom)
+      return <p>Resource {resource._tag === "Success" ? resource.value.id : "pending"}</p>
+    }
+    const assembly = make("Selected", [route("home", "/", { component: Page, prepare: () => Effect.asVoid(Resource) })])
+    const applicationLayer = routerLayer(
+      Effect.gen(function* () {
+        yield* Deferred.await(ready)
+        const app = yield* assembly
+        assemblies++
+        return app
+      })
+    )
+    const runtime = Atom.runtime(
+      applicationLayer.pipe(Layer.provideMerge(Layer.merge(resourceLayer, MemoryHistory.layer("/"))))
+    )
+    const resourceAtom = runtime.atom(Resource)
+    const applicationAtom = runtime.atom(Router.RuntimeApplication)
+    const firstRegistry = AtomRegistry.make()
+    const secondRegistry = AtomRegistry.make()
+    cleanups.push(
+      () => firstRegistry.dispose(),
+      () => secondRegistry.dispose()
+    )
+    expect(assemblies).toBe(0)
+    expect(acquisitions).toBe(0)
+    const element = (registry: AtomRegistry.AtomRegistry) => (
+      <React.StrictMode>
+        <RegistryContext.Provider value={registry}>
+          <RouterProvider runtime={runtime} pending={SlowPending} />
+        </RegistryContext.Provider>
+      </React.StrictMode>
+    )
+    const first = mount(element(firstRegistry))
+    await React.act(async () => {})
+    expect(first.container.textContent).toContain("Preparing…")
+    expect(assemblies).toBe(0)
+    await React.act(async () => {
+      Effect.runSync(Deferred.succeed(ready, undefined))
+    })
+    expect(await waitForText(first.container, "Resource 1")).toBe(true)
+    await React.act(async () => {
+      first.root.render(element(firstRegistry))
+    })
+    expect(assemblies).toBe(1)
+    expect(acquisitions).toBe(1)
+    const firstBundle = await Effect.runPromise(AtomRegistry.getResult(firstRegistry, applicationAtom))
+    const firstApp = firstBundle.app
+    const firstRouter = firstBundle.router
+    expect(firstRouter.token).toBe(firstApp.token)
+    const second = mount(element(secondRegistry))
+    expect(await waitForText(second.container, "Resource 2")).toBe(true)
+    const secondApp = (await Effect.runPromise(AtomRegistry.getResult(secondRegistry, applicationAtom))).app
+    expect(secondApp.token).not.toBe(firstApp.token)
+    expect(secondApp.service.key).not.toBe(firstApp.service.key)
+    expect(assemblies).toBe(2)
+    expect(acquisitions).toBe(2)
+    await React.act(async () => {
+      first.root.render(null)
+      firstRegistry.dispose()
+      await Effect.runPromise(Deferred.await(released))
+    })
+    expect(releases).toBe(1)
+    expect(second.container.textContent).toContain("Resource 2")
+  })
+
+  it("shows application assembly defects as startup failures without a route retry", async () => {
+    const assembly = make("", [route("home", "/", { component: SlowPage })])
+    const runtime = memoryRuntime(routerLayer(assembly))
+    const { container } = mount(
+      <RegistryProvider>
+        <RouterProvider runtime={runtime} pending={SlowPending} />
+      </RegistryProvider>
+    )
+    expect(await waitForText(container, "Unable to display")).toBe(true)
+    expect(container.querySelector('[role="alert"] button')).toBeNull()
+    expect(container.textContent).not.toContain("Ready")
+  })
+
+  it("rejects a runtime application assembled by another renderer factory", async () => {
+    const assembly = Router.make("ForeignFactory", [Router.route("home", "/")])
+    const runtime = memoryRuntime(routerLayer(assembly))
+    const { container } = mount(
+      <RegistryProvider>
+        <ErrorBoundary fallback={() => <p>Foreign renderer rejected</p>}>
+          <RouterProvider runtime={runtime} />
+        </ErrorBoundary>
+      </RegistryProvider>
+    )
+    expect(await waitForText(container, "Foreign renderer rejected")).toBe(true)
+    expect(container.textContent).not.toContain("Ready")
+  })
+
+  it("reuses native component identities for type-only navigation helpers", async () => {
+    const App = await Effect.runPromise(make("ReactHelperIdentity", [route("home", "/", { empty: true })]))
     const first = makeNavigation<typeof App>()
     const second = makeNavigation<typeof App>()
     expect(second.Link).toBe(first.Link)
     expect(second.Navigate).toBe(first.Navigate)
   })
 
-  it("switches canonical applications when the composed runtime stays the same", async () => {
-    const First = make("SwitchFirst", [route("first", "/", { component: () => <p>First application</p> })])
-    const Second = make("SwitchSecond", [route("second", "/", { component: () => <p>Second application</p> })])
-    const runtime = Atom.runtime(Layer.merge(First.layer, Second.layer).pipe(Layer.provide(MemoryHistory.layer("/"))))
+  it("switches between two application runtimes", async () => {
+    const First = await Effect.runPromise(
+      make("SwitchFirst", [route("first", "/", { component: () => <p>First application</p> })])
+    )
+    const Second = await Effect.runPromise(
+      make("SwitchSecond", [route("second", "/", { component: () => <p>Second application</p> })])
+    )
+    const firstRuntime = memoryRuntime(routerLayer(Effect.succeed(First)))
+    const secondRuntime = memoryRuntime(routerLayer(Effect.succeed(Second)))
     const registry = AtomRegistry.make()
     cleanups.push(() => registry.dispose())
     const { container, root } = mount(
       <RegistryContext.Provider value={registry}>
-        <Provider app={First} runtime={runtime} />
+        <RouterProvider runtime={firstRuntime} />
       </RegistryContext.Provider>
     )
     expect(await waitForText(container, "First application")).toBe(true)
@@ -147,7 +266,7 @@ describe("React router adapter", { concurrent: false }, () => {
     await React.act(async () => {
       root.render(
         <RegistryContext.Provider value={registry}>
-          <Provider app={Second} runtime={runtime} />
+          <RouterProvider runtime={secondRuntime} />
         </RegistryContext.Provider>
       )
     })
@@ -213,7 +332,7 @@ describe("React router adapter", { concurrent: false }, () => {
       prepare: () => Effect.fail(Router.redirect(Login.to())),
       empty: true
     })
-    const App = make("MountedRedirect", [Root.index({ empty: true }), Protected, Login])
+    const App = await Effect.runPromise(make("MountedRedirect", [Root.index({ empty: true }), Protected, Login]))
     const Navigation = makeNavigation<typeof App>()
     const historyLayer = Layer.effect(
       History.History,
@@ -238,12 +357,12 @@ describe("React router adapter", { concurrent: false }, () => {
         }
       })
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
+    const runtime = Atom.runtime(routerLayer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
     const registry = AtomRegistry.make()
     cleanups.push(() => registry.dispose())
     const { container, root } = mount(
       <RegistryContext.Provider value={registry}>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryContext.Provider>
     )
     try {
@@ -256,7 +375,7 @@ describe("React router adapter", { concurrent: false }, () => {
       await React.act(async () => {
         root.render(
           <RegistryContext.Provider value={registry}>
-            <Provider app={App} runtime={runtime} pending={SlowPending} />
+            <RouterProvider runtime={runtime} pending={SlowPending} />
           </RegistryContext.Provider>
         )
       })
@@ -313,7 +432,7 @@ describe("React router adapter", { concurrent: false }, () => {
       hash: Schema.String,
       empty: true
     })
-    const App = make("MountedTargetChanges", [Root.index({ empty: true }), Item])
+    const App = await Effect.runPromise(make("MountedTargetChanges", [Root.index({ empty: true }), Item]))
     const Navigation = makeNavigation<typeof App>()
     const ready = Effect.runSync(
       Deferred.make<
@@ -338,10 +457,10 @@ describe("React router adapter", { concurrent: false }, () => {
         }
       })
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
+    const runtime = Atom.runtime(routerLayer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
     mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -437,17 +556,19 @@ describe("React router adapter", { concurrent: false }, () => {
       )
     }
     const Root = layout("root", "/", { component: Controls })
-    const App = make("ReactTargets", [Root.index({ empty: true }), route("plain", "/plain", { empty: true }), Item])
+    const App = await Effect.runPromise(
+      make("ReactTargets", [Root.index({ empty: true }), route("plain", "/plain", { empty: true }), Item])
+    )
     const Navigation = makeNavigation<typeof App>()
     const ready = Effect.runSync(Deferred.make<ReturnType<typeof Navigation.useNavigateEffect>>())
     const historyLayer = Layer.effect(
       History.History,
       MemoryHistory.make().pipe(Effect.tap((history) => Deferred.succeed(historyReady, history)))
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
+    const runtime = Atom.runtime(routerLayer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     await React.act(async () => {
@@ -510,15 +631,15 @@ describe("React router adapter", { concurrent: false }, () => {
         return <p>Isolated inner</p>
       }
     })
-    const Inner = make("TokenInner", [InnerPage])
-    const innerRuntime = Atom.runtime(Inner.layer.pipe(Layer.provide(MemoryHistory.layer("/inner"))))
+    const Inner = await Effect.runPromise(make("TokenInner", [InnerPage]))
+    const innerRuntime = memoryRuntime(routerLayer(Effect.succeed(Inner)), "/inner")
     const Parent = layout("outer", "/outer", { component: () => <Outlet /> })
-    const Leaf = Parent.route("leaf", "/leaf", { component: () => <Provider app={Inner} runtime={innerRuntime} /> })
-    const Outer = make("TokenOuter", [Leaf])
-    const runtime = Atom.runtime(Outer.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/leaf"))))
+    const Leaf = Parent.route("leaf", "/leaf", { component: () => <RouterProvider runtime={innerRuntime} /> })
+    const Outer = await Effect.runPromise(make("TokenOuter", [Leaf]))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(Outer)), "/outer/leaf")
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={Outer} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -569,13 +690,13 @@ describe("React router adapter", { concurrent: false }, () => {
       if (shouldThrow) throw new Error("render failure")
       return <p>Retained recovery</p>
     }
-    const App = make("BlockedRenderRetry", [Page])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/page"))))
+    const App = await Effect.runPromise(make("BlockedRenderRetry", [Page]))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)), "/page")
     const registry = AtomRegistry.make()
     cleanups.push(() => registry.dispose())
     const { container } = mount(
       <RegistryContext.Provider value={registry}>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryContext.Provider>
     )
     await React.act(async () => {})
@@ -631,23 +752,24 @@ describe("React router adapter", { concurrent: false }, () => {
       const Endpoint = layouts
         ? InnerMiddle.route("endpoint", "/endpoint", { component: InnerPage })
         : route("endpoint", "/endpoint", { component: InnerPage })
-      const Inner = make("NestedInner", [Endpoint, Target])
+      const Inner = await Effect.runPromise(make("NestedInner", [Endpoint, Target]))
       const Navigation = makeNavigation<typeof Inner>()
-      const innerRuntime = Atom.runtime(
-        Inner.layer.pipe(Layer.provide(MemoryHistory.layer(layouts ? "/inner/middle/endpoint" : "/endpoint")))
+      const innerRuntime = memoryRuntime(
+        routerLayer(Effect.succeed(Inner)),
+        layouts ? "/inner/middle/endpoint" : "/endpoint"
       )
       const OuterRoot = layout("outer", "/outer", { component: () => <Outlet /> })
       const OuterLeaf = OuterRoot.route("leaf", "/leaf", {
         component: () => {
           outerService = useRouter(Outer)
-          return <Provider app={Inner} runtime={innerRuntime} />
+          return <RouterProvider runtime={innerRuntime} />
         }
       })
-      const Outer = make("NestedOuter", [OuterLeaf])
-      const outerRuntime = Atom.runtime(Outer.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/leaf"))))
+      const Outer = await Effect.runPromise(make("NestedOuter", [OuterLeaf]))
+      const outerRuntime = memoryRuntime(routerLayer(Effect.succeed(Outer)), "/outer/leaf")
       const { container } = mount(
         <RegistryProvider>
-          <Provider app={Outer} runtime={outerRuntime} />
+          <RouterProvider runtime={outerRuntime} />
         </RegistryProvider>
       )
       await React.act(async () => {})
@@ -687,15 +809,15 @@ describe("React router adapter", { concurrent: false }, () => {
         }),
       component: (): React.ReactNode => <p>Index hash: {useRouteInput(Index).hash}</p>
     })
-    const App = make("NativeInheritedHash", [Child, Index])
+    const App = await Effect.runPromise(make("NativeInheritedHash", [Child, Index]))
     for (const [url, text] of [
       ["/hash-parent/nested/child#7", "Child hash: 7"],
       ["/hash-parent/nested#8", "Index hash: 8"]
     ] as const) {
-      const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer(url))))
+      const runtime = memoryRuntime(routerLayer(Effect.succeed(App)), url)
       const { container } = mount(
         <RegistryProvider>
-          <Provider app={App} runtime={runtime} pending={SlowPending} />
+          <RouterProvider runtime={runtime} pending={SlowPending} />
         </RegistryProvider>
       )
       // oxlint-disable-next-line no-await-in-loop -- Mount each independent runtime sequentially to observe gate order.
@@ -706,11 +828,11 @@ describe("React router adapter", { concurrent: false }, () => {
 
   it("shows pending views, completes gates, and renders native components", async () => {
     const gate = Effect.runSync(Deferred.make<void>())
-    const App = buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" })))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/slow"))))
+    const App = await Effect.runPromise(buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" }))))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)), "/slow")
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Preparing…")).toBe(true)
@@ -721,11 +843,11 @@ describe("React router adapter", { concurrent: false }, () => {
   })
 
   it("renders home and follows a typed link", async () => {
-    const App = buildApp(() => Effect.succeed({ title: "Ready" }))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const App = await Effect.runPromise(buildApp(() => Effect.succeed({ title: "Ready" })))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)))
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -740,11 +862,11 @@ describe("React router adapter", { concurrent: false }, () => {
 
   it("keeps the retained branch while a different route is pending", async () => {
     const gate = Effect.runSync(Deferred.make<void>())
-    const App = buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" })))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const App = await Effect.runPromise(buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" }))))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)))
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -763,11 +885,11 @@ describe("React router adapter", { concurrent: false }, () => {
   })
 
   it("keeps ancestor layouts around a nested route failure", async () => {
-    const App = buildApp(() => Effect.succeed({ title: "Ready" }))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/areas/7"))))
+    const App = await Effect.runPromise(buildApp(() => Effect.succeed({ title: "Ready" })))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)), "/areas/7")
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -786,11 +908,11 @@ describe("React router adapter", { concurrent: false }, () => {
       component: BoundSlow
     })
     const Home = route("home", "/", { component: () => null })
-    const App = make("React", [Home, BoundSlowDef])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/slow"))))
+    const App = await Effect.runPromise(make("React", [Home, BoundSlowDef]))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)), "/slow")
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Bound")).toBe(true)
@@ -802,7 +924,7 @@ describe("React router adapter", { concurrent: false }, () => {
       prepare: () => Effect.void,
       component: SlowPage
     })
-    const ForeignApp = make("React", [ForeignHome, ForeignSlow])
+    const ForeignApp = await Effect.runPromise(make("React", [ForeignHome, ForeignSlow]))
     function ForeignHookHome() {
       useRouter(ForeignApp)
       useRouteInput(ForeignHome)
@@ -812,29 +934,33 @@ describe("React router adapter", { concurrent: false }, () => {
       const Navigation = makeNavigation(ForeignApp)
       return <Navigation.Link to={ForeignSlow.to()}>Foreign link</Navigation.Link>
     }
-    const HookApp = make("React", [
-      route("home", "/", { component: ForeignHookHome }),
-      route("slow", "/slow", { prepare: () => Effect.void, component: SlowPage })
-    ])
-    const LinkApp = make("React", [
-      route("home", "/", { component: ForeignLinkHome }),
-      route("slow", "/slow", { prepare: () => Effect.void, component: SlowPage })
-    ])
-    const hookRuntime = Atom.runtime(HookApp.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const HookApp = await Effect.runPromise(
+      make("React", [
+        route("home", "/", { component: ForeignHookHome }),
+        route("slow", "/slow", { prepare: () => Effect.void, component: SlowPage })
+      ])
+    )
+    const LinkApp = await Effect.runPromise(
+      make("React", [
+        route("home", "/", { component: ForeignLinkHome }),
+        route("slow", "/slow", { prepare: () => Effect.void, component: SlowPage })
+      ])
+    )
+    const hookRuntime = memoryRuntime(routerLayer(Effect.succeed(HookApp)))
     const hook = mount(
       <RegistryProvider>
         <ErrorBoundary fallback={() => <p>Unable to display</p>}>
-          <Provider app={HookApp} runtime={hookRuntime} />
+          <RouterProvider runtime={hookRuntime} />
         </ErrorBoundary>
       </RegistryProvider>
     )
     expect(await waitForText(hook.container, "Unable to display")).toBe(true)
     expect(hook.container.textContent).not.toContain("Leaked")
-    const linkRuntime = Atom.runtime(LinkApp.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const linkRuntime = memoryRuntime(routerLayer(Effect.succeed(LinkApp)))
     const link = mount(
       <RegistryProvider>
         <ErrorBoundary fallback={() => <p>Unable to display</p>}>
-          <Provider app={LinkApp} runtime={linkRuntime} />
+          <RouterProvider runtime={linkRuntime} />
         </ErrorBoundary>
       </RegistryProvider>
     )
@@ -856,11 +982,11 @@ describe("React router adapter", { concurrent: false }, () => {
       prepare: () => Effect.void,
       component: HashReader
     })
-    const App = make("HashIndex", [HashedIndex])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/hash-parent#deep"))))
+    const App = await Effect.runPromise(make("HashIndex", [HashedIndex]))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)), "/hash-parent#deep")
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "deep:deep")).toBe(true)
@@ -878,11 +1004,11 @@ describe("React router adapter", { concurrent: false }, () => {
       component: ClassHome
     })
     const Slow = route("slow", "/slow", { prepare: () => Effect.void, component: MemoPage })
-    const App = make("ClassMemo", [Home, Slow])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const App = await Effect.runPromise(make("ClassMemo", [Home, Slow]))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)))
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     expect(await waitForText(container, "Class home")).toBe(true)
@@ -896,13 +1022,15 @@ describe("React router adapter", { concurrent: false }, () => {
     })
     class StartupService extends Context.Service<StartupService, {}>()("test/ReactStartupPending") {}
     const startup = Layer.effect(StartupService, Deferred.await(gate).pipe(Effect.as({})))
-    const App = make("ReactFactoryPending", [Slow])
+    const App = await Effect.runPromise(make("ReactFactoryPending", [Slow]))
     // Service-independent encoding is available before any runtime exists.
     expect(Result.isSuccess(Router.href(Slow.to()))).toBe(true)
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/slow")), Layer.provide(startup)))
+    const runtime = Atom.runtime(
+      routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/slow")), Layer.provide(startup))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -923,11 +1051,13 @@ describe("React router adapter", { concurrent: false }, () => {
     })
     class StartupService extends Context.Service<StartupService, {}>()("test/ReactStartupFailure") {}
     const startup = Layer.effect(StartupService, Effect.fail(new StartupBoom()))
-    const App = make("ReactStartupFailure", [Broken])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/broken")), Layer.provide(startup)))
+    const App = await Effect.runPromise(make("ReactStartupFailure", [Broken]))
+    const runtime = Atom.runtime(
+      routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/broken")), Layer.provide(startup))
+    )
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -950,13 +1080,13 @@ describe("React router adapter", { concurrent: false }, () => {
     }
     const prepare = vi.fn(() => Effect.void)
     const component = vi.fn(() => <p>Gated page</p>)
-    const App = make("ReactInitialHistoryFailure", [route("home", "/", { prepare, component })])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(Layer.succeed(History.History, history))))
+    const assembly = make("ReactInitialHistoryFailure", [route("home", "/", { prepare, component })])
+    const runtime = Atom.runtime(routerLayer(assembly).pipe(Layer.provide(Layer.succeed(History.History, history))))
     const registry = AtomRegistry.make()
     cleanups.push(() => registry.dispose())
     const { container } = mount(
       <RegistryContext.Provider value={registry}>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryContext.Provider>
     )
     await React.act(async () => {
@@ -988,12 +1118,12 @@ describe("React router adapter", { concurrent: false }, () => {
         </main>
       )
     }
-    const App = make("ReactLinkRef", [route("home", "/", { component: RefHome }), Target])
+    const App = await Effect.runPromise(make("ReactLinkRef", [route("home", "/", { component: RefHome }), Target]))
     const Navigation = makeNavigation(App)
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const runtime = memoryRuntime(routerLayer(Effect.succeed(App)))
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={SlowPending} />
+        <RouterProvider runtime={runtime} pending={SlowPending} />
       </RegistryProvider>
     )
     await React.act(async () => {})

@@ -1,15 +1,12 @@
 /**
- * Read-only router observations over an existing Effect Atom runtime.
+ * Router observations and actions over an existing Effect Atom runtime.
  *
  * @since 0.4.0
  */
-import type { Key } from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
-import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import * as SubscriptionRef from "effect/SubscriptionRef"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as Atom from "effect/reactivity/Atom"
 import type { Location } from "./History.ts"
@@ -22,12 +19,12 @@ import type {
   ParamsOfDef,
   SearchOfDef
 } from "./internal/definition.ts"
-import { applicationRuntime } from "./internal/application.ts"
+import { applicationRuntime, RuntimeApplication, type ApplicationWitness } from "./internal/application.ts"
 import type { ApplicationErrorOf, RoutesOf } from "./internal/gates.ts"
 import { RouteDefinitionError, type RouteEncodeError } from "./internal/errors.ts"
 import { encodeDestination, ownsNode } from "./internal/href.ts"
 import { displayEntries } from "./internal/presentation.ts"
-import type { NavigationError, RouterService, RouterState } from "./Router.ts"
+import type { NavigateOptions, NavigationError, NavigationOutcome, RouterService, RouterState } from "./Router.ts"
 
 /**
  * A read-only projection of one definition in the active presentation.
@@ -48,10 +45,19 @@ export interface RouteView<Def> {
  * @since 0.4.0
  * @category models
  */
-export interface AtomRouter<App> {
+export interface AtomRouter<App, ER = unknown> {
   readonly app: App
   /** The router service, once the runtime has acquired it. @since 0.4.0 */
   readonly service: Atom.Atom<AsyncResult.AsyncResult<RouterService<RoutesOf<App>, ApplicationErrorOf<App>>, unknown>>
+  /** Creates a fresh, lazy navigation action backed by the validated runtime. @since 0.4.0 */
+  readonly navigate: (
+    destination: DestinationOf<RoutesOf<App>>,
+    options?: NavigateOptions
+  ) => Atom.Atom<AsyncResult.AsyncResult<NavigationOutcome, NavigationError<ApplicationErrorOf<App>> | ER>>
+  /** Creates a fresh, lazy retry of the observed location. @since 0.4.0 */
+  readonly retry: () => Atom.Atom<
+    AsyncResult.AsyncResult<NavigationOutcome, NavigationError<ApplicationErrorOf<App>> | ER>
+  >
   /** The authoritative read-only snapshot. @since 0.4.0 */
   readonly state: Atom.Atom<AsyncResult.AsyncResult<RouterState<RoutesOf<App>>, unknown>>
   /** The observed location. @since 0.4.0 */
@@ -71,119 +77,72 @@ const sameOption = <A>(left: Option.Option<A>, right: Option.Option<A>): boolean
   return Option.isNone(left) && Option.isNone(right)
 }
 
-const resolveView = <Def>(entry: {
-  readonly input: Result.Result<{ readonly params: unknown; readonly search: unknown; readonly hash: unknown }, unknown>
-}): Option.Option<RouteView<Def>> => {
-  if (Result.isSuccess(entry.input)) {
-    const input = entry.input.success
-    return Option.some({
-      params: input.params,
-      search: input.search,
-      hash: input.hash,
-      input
-    } as RouteView<Def>)
-  }
-  return Option.none()
-}
+/** A runtime containing the single acquired application selected by `Router.layer`. @since 0.4.0 */
+export type RouterRuntimeRequirement<R, ER> = Atom.AtomRuntime<R, ER>
+  & ([RuntimeApplication] extends [R]
+    ? unknown
+    : {
+        readonly __effectStackRouterMissingService: "@effect-stack/router/RuntimeApplication"
+      })
 
 /**
- * A required marker used to reject a runtime that does not provide an
- * application's router service. Applications never construct it.
- *
- * @since 0.4.0
- * @category models
- */
-export interface AtomRouterMissingService<Id extends string = string> {
-  readonly __effectStackRouterMissingService: Id
-}
-
-/** The application service identifier required from a runtime. @since 0.4.0 */
-export type ApplicationServiceIdOf<App> = App extends { readonly service: Key<infer Id, unknown> } ? Id : never
-
-/**
- * The runtime shape required by `AtomRouter.make` and renderer providers: the
- * runtime's context must supply the application's service identifier.
- *
- * @since 0.4.0
- * @category models
- */
-export type AtomRuntimeRequirement<App extends { readonly service: Key<string, unknown> }, R, ER> = Atom.AtomRuntime<
-  R,
-  ER
->
-  & ([ApplicationServiceIdOf<App>] extends [R] ? unknown : AtomRouterMissingService<ApplicationServiceIdOf<App>>)
-
-/**
- * Builds read-only router atoms from an existing application runtime. Both the
- * service atom and the snapshot observation validate the finalized application
+ * Builds router atoms from an existing application runtime. Observations and
+ * actions validate the finalized application
  * identity carried by the acquired runtime, so a runtime assembled from a
  * different application specification fails at startup.
  *
  * @since 0.4.0
  * @category constructors
  */
-export const make = <
-  App extends {
-    readonly service: Key<string, unknown>
-    readonly routes: unknown
-    readonly appId: string
-    readonly token: object
-  },
-  R,
-  ER
->(
-  runtime: AtomRuntimeRequirement<App, R, ER>,
+export const make = <App extends ApplicationWitness, R, ER>(
+  runtime: RouterRuntimeRequirement<R, ER>,
   app: App
-): AtomRouter<App> => {
-  const atomRuntime = runtime as Atom.AtomRuntime<R, ER>
+): AtomRouter<App, ER> => {
   const appRuntime = applicationRuntime(app)
   if (appRuntime === undefined) {
     throw new RouteDefinitionError({ message: "AtomRouter.make requires an assembled application witness" })
   }
   const byId = appRuntime.byId
 
-  const serviceEffect = app.service as unknown as Effect.Effect<
-    RouterService<RoutesOf<App>, ApplicationErrorOf<App>>,
-    never,
-    R
-  >
-  const validatedService = Effect.gen(function* () {
-    const router = yield* serviceEffect
+  // The public requirement proves the standard key is present, not an arbitrary dynamic key.
+  const selected = RuntimeApplication as unknown as Effect.Effect<RuntimeApplication["Service"], never, R>
+  const validatedService = Effect.map(selected, (value) => {
+    const router = value.router
     if (
-      (router as unknown as { readonly routes: unknown }).routes !== app.routes
-      || (router as unknown as { readonly token: unknown }).token !== app.token
-      || (router as unknown as { readonly applicationId: unknown }).applicationId !== app.appId
+      value.app !== app
+      || router.routes !== app.routes
+      || router.token !== app.token
+      || router.applicationId !== app.appId
     ) {
-      return yield* Effect.die(
-        new RouteDefinitionError({
-          message:
-            "The router runtime was assembled from a different application specification than the supplied witness"
-        })
-      )
+      throw new RouteDefinitionError({
+        message: "The runtime selected a different application than the mounted witness"
+      })
     }
-    return router
+    return router as RouterService<RoutesOf<App>, ApplicationErrorOf<App>>
   })
-  const snapshotRef = atomRuntime.subscriptionRef<RouterState<RoutesOf<App>>, NavigationError<ApplicationErrorOf<App>>>(
-    Effect.gen(function* () {
-      const router = yield* validatedService
-      const initial = yield* router.state
-      const ref = yield* SubscriptionRef.make(initial)
-      yield* router.changes.pipe(
-        Stream.runForEach((value) => SubscriptionRef.set(ref, value)),
-        Effect.forkScoped
-      )
-      return ref
-    }) as Effect.Effect<
-      SubscriptionRef.SubscriptionRef<RouterState<RoutesOf<App>>>,
-      NavigationError<ApplicationErrorOf<App>>,
-      R | Scope.Scope
-    >
+  const serviceAtom = Atom.make((get) =>
+    Effect.flatMap(get.result(runtime, { suspendOnWaiting: true }), (context) =>
+      validatedService.pipe(Effect.provide(context))
+    )
   )
-  const serviceAtom = atomRuntime.atom(validatedService) as Atom.Atom<
-    AsyncResult.AsyncResult<RouterService<RoutesOf<App>, ApplicationErrorOf<App>>, unknown>
-  >
+  const state = runtime.atom(Stream.unwrap(Effect.map(validatedService, (router) => router.changes)))
+  const action = (
+    run: (
+      router: RouterService<RoutesOf<App>, ApplicationErrorOf<App>>
+    ) => Effect.Effect<NavigationOutcome, NavigationError<ApplicationErrorOf<App>>>
+  ) =>
+    Atom.make((get) => {
+      // Hold one runtime acquisition without tracking it: a refresh is not a new command.
+      get.mount(runtime)
+      return Effect.flatMap(get.resultOnce(runtime, { suspendOnWaiting: true }), (context) =>
+        Effect.flatMap(validatedService, run).pipe(Effect.provide(context))
+      )
+    }).pipe(Atom.setIdleTTL(0))
 
-  const state = snapshotRef as Atom.Atom<AsyncResult.AsyncResult<RouterState<RoutesOf<App>>, unknown>>
+  // Each command owns its result slot and acquires its validated service only once.
+  const navigate = (destination: DestinationOf<RoutesOf<App>>, options?: NavigateOptions) =>
+    action((router) => router.navigate(destination, options))
+  const retry = () => action((router) => router.retry)
 
   const location = Atom.make((get) => Option.flatMap(AsyncResult.value(get(state)), (value) => value.location)).pipe(
     Atom.withEquality<Option.Option<Location>>((left, right) => sameOption(left, right))
@@ -213,14 +172,17 @@ export const make = <
       const result = get(state)
       if (!AsyncResult.isSuccess(result)) return Option.none()
       const entry = displayEntries(result.value).find((candidate) => candidate.node === (node as unknown as AnyNode))
-      if (entry === undefined) return Option.none()
-      return resolveView<Def>(entry)
+      if (entry === undefined || Result.isFailure(entry.input)) return Option.none()
+      const input = entry.input.success
+      return Option.some({ params: input.params, search: input.search, hash: input.hash, input } as RouteView<Def>)
     }).pipe(Atom.withEquality<Option.Option<RouteView<Def>>>(sameOption))
   }
 
   return {
     app,
     service: serviceAtom,
+    navigate,
+    retry,
     state,
     location,
     status,
