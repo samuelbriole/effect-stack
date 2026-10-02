@@ -4,7 +4,16 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { RegistryProvider } from "@effect/atom-react"
 import { MemoryHistory } from "@effect-stack/router"
-import { Link, make, Outlet, Provider, layout, route, type ViewFailureProps } from "@effect-stack/router-react"
+import {
+  Link,
+  make,
+  Outlet,
+  RouterProvider,
+  layer as routerLayer,
+  layout,
+  route,
+  type ViewFailureProps
+} from "@effect-stack/router-react"
 import { Atom } from "effect/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
@@ -73,14 +82,14 @@ const AreaDetail = Areas.route("detail", "/:areaId", {
   )
 })
 
-const App = make("React", [Home, Slow, Areas, AreaDetail])
+const App = await Effect.runPromise(make("React", [Home, Slow, Areas, AreaDetail]))
 
 describe("react unified smoke", { concurrent: false }, () => {
   it("renders the native branch and follows a typed link", async () => {
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const runtime = Atom.runtime(routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/"))))
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={() => <p role="status">Preparing…</p>} />
+        <RouterProvider runtime={runtime} pending={() => <p role="status">Preparing…</p>} />
       </RegistryProvider>
     )
     await React.act(async () => {})
@@ -94,10 +103,10 @@ describe("react unified smoke", { concurrent: false }, () => {
   })
 
   it("keeps an ancestor layout around a nested route failure", async () => {
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/areas/7"))))
+    const runtime = Atom.runtime(routerLayer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/areas/7"))))
     const { container } = mount(
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={() => <p role="status">Preparing…</p>} />
+        <RouterProvider runtime={runtime} pending={() => <p role="status">Preparing…</p>} />
       </RegistryProvider>
     )
     await React.act(async () => {})

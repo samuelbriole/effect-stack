@@ -9,16 +9,17 @@ import { MemoryHistory, Router } from "@effect-stack/router"
 import * as Adapter from "@effect-stack/router/Adapter"
 
 const ProjectId = Schema.FiniteFromString
+const expectInvalid = (assembly: Effect.Effect<unknown>) =>
+  expect(Effect.runSyncExit(assembly)).toMatchObject({
+    _tag: "Failure",
+    cause: { reasons: [{ _tag: "Die", defect: expect.any(Router.RouteDefinitionError) as unknown }] }
+  })
 
 describe("route and layout validation", () => {
   it("rejects malformed local paths", () => {
-    expect(() => Router.route("x", "no-slash" as `/${string}`)).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("x", "/a/")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("x", "/a//b")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("x", "/a/../b")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("x", "/a/./b")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("x", "/a?b")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("x", "/a#b")).toThrow(Router.RouteDefinitionError)
+    for (const path of ["no-slash", "/a/", "/a//b", "/a/../b", "/a/./b", "/a?b", "/a#b"]) {
+      expect(() => Router.route("x", path as `/${string}`)).toThrow(Router.RouteDefinitionError)
+    }
     expect(() => Router.route("x", "/:id/:id", { params: { id: Schema.String } })).toThrow(Router.RouteDefinitionError)
   })
 
@@ -28,20 +29,15 @@ describe("route and layout validation", () => {
   })
 
   it("rejects invalid names", () => {
-    expect(() => Router.route("", "/x")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("a.b", "/x")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("__proto__", "/x")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("constructor", "/x")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("toString", "/x")).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.route("service", "/x")).toThrow(Router.RouteDefinitionError)
+    for (const name of ["", "a.b", "__proto__", "constructor", "toString", "service"]) {
+      expect(() => Router.route(name, "/x")).toThrow(Router.RouteDefinitionError)
+    }
   })
 
   it("rejects duplicate qualified ids and repeated selections", () => {
-    expect(() => Router.make("A", [Router.route("a", "/a"), Router.route("a", "/b")])).toThrow(
-      Router.RouteDefinitionError
-    )
+    expectInvalid(Router.make("A", [Router.route("a", "/a"), Router.route("a", "/b")]))
     const shared = Router.route("shared", "/shared")
-    expect(() => Router.make("A", [shared, shared])).toThrow(Router.RouteDefinitionError)
+    expectInvalid(Router.make("A", [shared, shared]))
   })
 
   it("rejects inherited params and search redeclarations", () => {
@@ -75,102 +71,136 @@ describe("route and layout validation", () => {
     expect(() => looseIndex({ params: { id: Schema.String } })).toThrow(Router.RouteDefinitionError)
   })
 
-  it("treats index as a same-path route with canonical selection identity", () => {
-    const Parent = Router.layout("parent", "/parents/:id", { params: { id: Schema.String } })
-    const Index = Parent.index()
-    const Overview = Parent.route("overview", "/")
-    expect((Index as unknown as Router.AnyNode).kind).toBe("route")
-    expect((Overview as unknown as Router.AnyNode).kind).toBe("route")
-    expect(Index.path).toBe(Overview.path)
-    expect(Index["~parent"]).toBe(Parent)
-    expect(Overview["~parent"]).toBe(Parent)
-    for (const node of [Index, Overview]) {
-      const App = Router.make("SamePath", [node])
-      expect(Result.getOrThrow(Router.resolvePathDestination(App, node.path, { params: { id: "one" } })).node).toBe(
-        node
+  it.effect("treats index as a same-path route with canonical selection identity", () =>
+    Effect.gen(function* () {
+      const Parent = Router.layout("parent", "/parents/:id", { params: { id: Schema.String } })
+      const Index = Parent.index()
+      const Overview = Parent.route("overview", "/")
+      expect((Index as unknown as Router.AnyNode).kind).toBe("route")
+      expect((Overview as unknown as Router.AnyNode).kind).toBe("route")
+      expect(Index.path).toBe(Overview.path)
+      expect(Index["~parent"]).toBe(Parent)
+      expect(Overview["~parent"]).toBe(Parent)
+      for (const node of [Index, Overview]) {
+        const App = yield* Router.make("SamePath", [node])
+        expect(Result.getOrThrow(Router.resolvePathDestination(App, node.path, { params: { id: "one" } })).node).toBe(
+          node
+        )
+        expectInvalid(Router.make("Copied", [{ ...node }]))
+      }
+      // oxlint-disable-next-line typescript/unbound-method -- Negative fixture for the erased constructor boundary.
+      const looseRoute = Parent.route as unknown as (name: string, path: string, options: unknown) => unknown
+      expect(() => looseRoute("invalid", "/", { params: { extra: Schema.String } })).toThrow(
+        Router.RouteDefinitionError
       )
-      expect(() => Router.make("Copied", [{ ...node }])).toThrow(Router.RouteDefinitionError)
-    }
-    // oxlint-disable-next-line typescript/unbound-method -- Negative fixture for the erased constructor boundary.
-    const looseRoute = Parent.route as unknown as (name: string, path: string, options: unknown) => unknown
-    expect(() => looseRoute("invalid", "/", { params: { extra: Schema.String } })).toThrow(Router.RouteDefinitionError)
-  })
+    })
+  )
 
-  it("registers native views on the single canonical application with exact factory ownership", () => {
-    const spec = { renderer: "test", normalize: () => ({ title: "view" }), isEmpty: () => false }
-    const engine = Adapter.makeDefinitionEngine(spec)
-    const foreign = Adapter.makeDefinitionEngine(spec)
-    const Leaf = engine.route(undefined, "leaf", "/leaf", {}) as Router.AnyDefinitionShape
-    const App = Adapter.finishApplication(engine, "Native", [Leaf])
-    const views = Adapter.getApplicationViews(engine, App)
-    expect(views.get("leaf")).toEqual({ title: "view" })
-    expect(Result.getOrThrow(Router.resolvePathDestination(App, "/leaf", {})).node).toBe(Leaf)
-    expect(Adapter.getApplicationViews(engine, App)).toBe(views)
-    expect(() => Adapter.getApplicationViews(foreign, App)).toThrow(Router.RouteDefinitionError)
-    expect(() => Adapter.getApplicationViews(engine, { ...App })).toThrow(Router.RouteDefinitionError)
-    const Headless = Router.make("Headless", [Router.route("headless", "/headless")])
-    expect(() => Adapter.getApplicationViews(engine, Headless)).toThrow(Router.RouteDefinitionError)
-    expect(() => Adapter.getApplicationViews(engine, undefined)).toThrow(Router.RouteDefinitionError)
-  })
+  it.effect("defers native validation, registers canonical views, and acquires no runtime resources", () =>
+    Effect.gen(function* () {
+      let checks = 0
+      let prepares = 0
+      const spec = {
+        renderer: "test",
+        normalize: () => ({ title: "view" }),
+        isEmpty: () => {
+          checks++
+          return false
+        }
+      }
+      const engine = Adapter.makeDefinitionEngine(spec)
+      const foreign = Adapter.makeDefinitionEngine(spec)
+      const Leaf = engine.route(undefined, "leaf", "/leaf", {
+        prepare: () =>
+          Effect.sync(() => {
+            prepares++
+          })
+      }) as Router.AnyDefinitionShape
+      const assembly = Adapter.finishApplication(engine, "Native", [Leaf])
+      expect(checks).toBe(0)
+      const App = yield* assembly
+      expect(checks).toBe(1)
+      expect(prepares).toBe(0)
+      const views = Adapter.getApplicationViews(engine, App)
+      expect(views.get("leaf")).toEqual({ title: "view" })
+      expect(Result.getOrThrow(Router.resolvePathDestination(App, "/leaf", {})).node).toBe(Leaf)
+      expect(Adapter.getApplicationViews(engine, App)).toBe(views)
+      expect(() => Adapter.getApplicationViews(foreign, App)).toThrow(Router.RouteDefinitionError)
+      expect(() => Adapter.getApplicationViews(engine, { ...App })).toThrow(Router.RouteDefinitionError)
+      const Headless = yield* Router.make("Headless", [Router.route("headless", "/headless")])
+      expect(() => Adapter.getApplicationViews(engine, Headless)).toThrow(Router.RouteDefinitionError)
+      expect(() => Adapter.getApplicationViews(engine, undefined)).toThrow(Router.RouteDefinitionError)
+    })
+  )
 
   it("rejects indistinguishable effective leaf templates", () => {
     const One = Router.route("one", "/x/:id", { params: { id: Schema.String } })
     const Two = Router.route("two", "/x/:name", { params: { name: Schema.String } })
-    expect(() => Router.make("A", [One, Two])).toThrow(Router.RouteDefinitionError)
+    expectInvalid(Router.make("A", [One, Two]))
   })
 
-  it("rejects application ids that would collide in encoded keys", () => {
-    expect(() => Router.make("A/impl/b", [Router.route("a", "/a")])).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.make("A.B", [Router.route("a", "/a")])).toThrow(Router.RouteDefinitionError)
-    expect(() => Router.make("", [Router.route("a", "/a")])).toThrow(Router.RouteDefinitionError)
+  it.each(["", "A.B", "A/impl/b"])("rejects application id %j through either assembly path", (appId) => {
+    const engine = Adapter.makeDefinitionEngine({ renderer: "test", normalize: () => null, isEmpty: () => true })
+    const native = engine.route(undefined, "a", "/a", { empty: true }) as Router.AnyDefinitionShape
+    expectInvalid(Router.make(appId, [Router.route("a", "/a")]))
+    expectInvalid(Adapter.finishApplication(engine, appId, [native]))
   })
 
-  it("keeps application service keys distinct across assemblies", () => {
-    const Shared = Router.route("b", "/b")
-    const oneApp = Router.make("A", [Shared])
-    const oneAgain = Router.make("A", [Shared])
-    const twoApp = Router.make("AB", [Shared])
-    expect(oneApp.service.key).toContain("@effect-stack/router/A/service")
-    expect(twoApp.service.key).toContain("@effect-stack/router/AB/service")
-    expect(oneApp.service.key).not.toBe(twoApp.service.key)
-    expect(oneApp.service.key).not.toBe(oneAgain.service.key)
+  it("rejects an empty selection through either assembly path", () => {
+    const engine = Adapter.makeDefinitionEngine({ renderer: "test", normalize: () => null, isEmpty: () => true })
+    expectInvalid(Router.make("Empty", [] as never))
+    expectInvalid(Adapter.finishApplication(engine, "Empty", [] as never))
   })
+
+  it.effect("preserves unrelated defects from native assembly callbacks", () =>
+    Effect.gen(function* () {
+      const defect = new Error("Native validation defect")
+      const engine = Adapter.makeDefinitionEngine({
+        renderer: "defect",
+        normalize: () => null,
+        isEmpty: () => {
+          throw defect
+        }
+      })
+      const Leaf = engine.route(undefined, "leaf", "/", {}) as Router.AnyDefinitionShape
+      expect(yield* Effect.exit(Adapter.finishApplication(engine, "Defect", [Leaf]))).toMatchObject({
+        _tag: "Failure",
+        cause: { reasons: [{ _tag: "Die", defect }] }
+      })
+    })
+  )
 
   it("does not materialize phantom schema or child props on definitions", () => {
     const Layout = Router.layout("group", "/group")
     const Leaf = Layout.route("leaf", "/leaf/:id", { params: { id: Schema.String } })
-    expect(Leaf.id).toBe("group.leaf")
-    expect(Leaf.path).toBe("/group/leaf/:id")
-    expect(Leaf._tag).toBe("RouteDescriptor")
-    expect("params" in Leaf).toBe(false)
-    expect("search" in Leaf).toBe(false)
-    expect("hash" in Leaf).toBe(false)
-    expect("~node" in Leaf).toBe(false)
+    expect(Leaf).toMatchObject({ id: "group.leaf", path: "/group/leaf/:id", _tag: "RouteDescriptor" })
+    for (const key of ["params", "search", "hash", "~node"]) expect(key in Leaf).toBe(false)
     expect("children" in Layout).toBe(false)
     expect(Layout._tag).toBe("GroupDescriptor")
   })
 
-  it("does not execute codec transformations at construction time", () => {
-    const calls: Array<string> = []
-    const tracked = Schema.String.pipe(
-      Schema.decodeTo(Schema.String, {
-        decode: SchemaGetter.transform((value: string) => {
-          calls.push("decode")
-          return value
-        }),
-        encode: SchemaGetter.transform((value: string) => {
-          calls.push("encode")
-          return value
+  it.effect("does not execute codec transformations at construction time", () =>
+    Effect.gen(function* () {
+      const calls: Array<string> = []
+      const tracked = Schema.String.pipe(
+        Schema.decodeTo(Schema.String, {
+          decode: SchemaGetter.transform((value: string) => {
+            calls.push("decode")
+            return value
+          }),
+          encode: SchemaGetter.transform((value: string) => {
+            calls.push("encode")
+            return value
+          })
         })
-      })
-    )
-    const Tracked = Router.route("tracked", "/tracked/:id", { params: { id: tracked } })
-    const App = Router.make("Tracked", [Tracked])
-    expect(calls).toEqual([])
-    expect(Result.isSuccess(Router.href(Tracked.to({ params: { id: "x" } })))).toBe(true)
-    expect(calls).toEqual(["encode"])
-    void App
-  })
+      )
+      const Tracked = Router.route("tracked", "/tracked/:id", { params: { id: tracked } })
+      yield* Router.make("Tracked", [Tracked])
+      expect(calls).toEqual([])
+      expect(Result.isSuccess(Router.href(Tracked.to({ params: { id: "x" } })))).toBe(true)
+      expect(calls).toEqual(["encode"])
+    })
+  )
 
   it.effect(
     "accepts a codec that is synchronous on one input and async on another, then fails typed at the boundary",
@@ -187,7 +217,7 @@ describe("route and layout validation", () => {
           })
         )
         const Mixed = Router.route("mixed", "/mixed/:id", { params: { id: mixedCodec } })
-        const App = Router.make("Mixed", [Mixed])
+        const App = yield* Router.make("Mixed", [Mixed])
 
         const syncDestination = Mixed.to({ params: { id: "sync" } })
         expect(Result.isSuccess(Router.href(syncDestination))).toBe(true)
@@ -209,7 +239,7 @@ describe("route and layout validation", () => {
     Effect.gen(function* () {
       const G = Router.layout("g", "/g", { hash: Schema.Literals(["ok"]) })
       const Child = G.route("child", "/child", { prepare: () => Effect.void })
-      const App = Router.make("Hash", [Child])
+      const App = yield* Router.make("Hash", [Child])
       const makeApp = (initial: string) => App.layer.pipe(Layer.provide(MemoryHistory.layer(initial)))
 
       yield* Effect.gen(function* () {
@@ -246,7 +276,7 @@ describe("route and layout validation", () => {
             order.push("child")
           })
       })
-      const App = Router.make("Order", [Child])
+      const App = yield* Router.make("Order", [Child])
       const app = App.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/child")))
       yield* Effect.gen(function* () {
         const router = yield* App.service
@@ -277,6 +307,18 @@ describe("route and layout validation", () => {
     expect(Child["~parent"]).toBe(Parent)
     expect(Object.isFrozen(Parent)).toBe(true)
     expect(Object.isFrozen(Child)).toBe(true)
+    for (const [definition, keys] of [
+      [Parent, ["route", "layout", "index"]],
+      [Child, ["to", "~parent"]]
+    ] as const) {
+      for (const key of keys) {
+        expect(Object.getOwnPropertyDescriptor(definition, key)).toMatchObject({
+          enumerable: false,
+          writable: false,
+          configurable: false
+        })
+      }
+    }
     expect(() => Object.assign(Child, { path: "/mutated" })).toThrow()
     // Creating a child does not attach anything to the parent's public surface.
     expect("child" in Parent).toBe(false)
@@ -297,7 +339,7 @@ describe("route and layout validation", () => {
         hash: Schema.String,
         prepare: () => Effect.void
       })
-      const App = Router.make("IndexHash", [Index])
+      const App = yield* Router.make("IndexHash", [Index])
       expect(Result.getOrThrow(Router.href(Index.to({ hash: "section" })))).toBe("/hashed#section")
       const app = App.layer.pipe(Layer.provide(MemoryHistory.layer("/hashed#section")))
       yield* Effect.gen(function* () {
@@ -312,15 +354,17 @@ describe("route and layout validation", () => {
     })
   )
 
-  it("resolves path destinations synchronously and rejects unknown paths", () => {
-    const Home = Router.route("home", "/")
-    const Item = Router.route("item", "/items/:id", { params: { id: Schema.FiniteFromString } })
-    const App = Router.make("Nav", [Home, Item])
-    const resolved = Router.resolvePathDestination(App, "/items/:id", { params: { id: 1 } })
-    expect(Result.isSuccess(resolved)).toBe(true)
-    if (Result.isSuccess(resolved)) {
-      expect(Result.getOrThrow(Router.href(resolved.success))).toBe("/items/1")
-    }
-    expect(Result.isFailure(Router.resolvePathDestination(App, "/missing", {}))).toBe(true)
-  })
+  it.effect("resolves path destinations synchronously and rejects unknown paths", () =>
+    Effect.gen(function* () {
+      const Home = Router.route("home", "/")
+      const Item = Router.route("item", "/items/:id", { params: { id: Schema.FiniteFromString } })
+      const App = yield* Router.make("Nav", [Home, Item])
+      const resolved = Router.resolvePathDestination(App, "/items/:id", { params: { id: 1 } })
+      expect(Result.isSuccess(resolved)).toBe(true)
+      if (Result.isSuccess(resolved)) {
+        expect(Result.getOrThrow(Router.href(resolved.success))).toBe("/items/1")
+      }
+      expect(Result.isFailure(Router.resolvePathDestination(App, "/missing", {}))).toBe(true)
+    })
+  )
 })

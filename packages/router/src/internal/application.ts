@@ -15,53 +15,67 @@ import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
 import { compile } from "./compiler.ts"
-import type { AnyNode } from "./definition.ts"
-import type { Coordinator, NavigationOutcome, RouteGate, Snapshot } from "./coordinator.ts"
+import { collectSelection, type AnyNode, type AnyDefinitionShape, type DefinitionFactory } from "./definition.ts"
+import type { Coordinator, RouteGate, Snapshot } from "./coordinator.ts"
 import { make as makeCoordinator } from "./coordinator.ts"
-import type { ApplicationServiceId, GateDefinitionInput } from "./gates.ts"
+import type { ApplicationServiceId, SelectionError, SelectionRequirements } from "./gates.ts"
 import { CoreApplicationTypeId, applicationTypesBrand, ApplicationTypesTypeId } from "./gates.ts"
 import { RouteDefinitionError } from "./errors.ts"
-import * as History from "../History.ts"
-import type { CoreApplication, NavigationError, NavigationHandle, RouterService, RouterState } from "../Router.ts"
+import type * as History from "../History.ts"
+import type { ApplicationOf, CoreApplication, RouterService, RouterState } from "../Router.ts"
 import { encodeDestination } from "./href.ts"
-
-const captureContext = Effect.gen(function* () {
-  const context = yield* Effect.context<never>()
-  return Context.omit(Scope.Scope)(context)
-})
 
 const ApplicationCounter = Symbol.for("@effect-stack/router/ApplicationCounter")
 const globalRegistry = globalThis as unknown as Record<symbol, number | undefined>
-const nextApplicationNonce = (): number => {
-  const next = (globalRegistry[ApplicationCounter] ?? 0) + 1
-  globalRegistry[ApplicationCounter] = next
-  return next
-}
 
 /** Canonical runtime facts of an assembled application. @since 0.4.0 */
 export interface ApplicationRuntime {
-  readonly nodes: ReadonlyArray<AnyNode>
   readonly byId: ReadonlyMap<string, AnyNode>
   /** Selected endpoints indexed by their absolute path template. @since 0.4.0 */
   readonly byPath: ReadonlyMap<string, AnyNode>
-  readonly presentationFactory?: object
-  readonly views?: ReadonlyMap<string, unknown>
+  readonly factory: object
+  readonly views: ReadonlyMap<string, unknown>
 }
 
 const runtimes = new WeakMap<object, ApplicationRuntime>()
 
+/** Structural application identity without widening its invariant gate evidence. @since 0.4.0 */
+export interface ApplicationWitness {
+  readonly appId: string
+  readonly routes: unknown
+  readonly token: object
+  readonly service: Context.Key<string, unknown>
+}
+
+/** One acquired application selected by a runtime's Layer composition. @since 0.4.0 */
+export class RuntimeApplication extends Context.Service<
+  RuntimeApplication,
+  {
+    readonly app: ApplicationWitness
+    readonly router: RouterService
+  }
+>()("@effect-stack/router/RuntimeApplication") {}
+
+/** Acquires one canonical application and publishes it with its scoped router. @since 0.4.0 */
+export const applicationLayer = <Id extends string, Routes, GateE, GateR, E, R>(
+  assembly: Effect.Effect<CoreApplication<Id, Routes, GateE, GateR>, E, R>
+) =>
+  Layer.unwrap(
+    Effect.map(assembly, (app) => {
+      if (applicationRuntime(app) === undefined) {
+        throw new RouteDefinitionError({ message: "Router.layer requires an assembled application witness" })
+      }
+      // The canonical application's own Layer acquires this service; erase only its route/gate types.
+      return Layer.effect(
+        RuntimeApplication,
+        Effect.map(app.service, (router) => ({ app, router: router as RouterService }))
+      ).pipe(Layer.provide(app.layer))
+    })
+  )
+
 /** Reads the canonical runtime facts of an assembled application. @since 0.4.0 */
 export const applicationRuntime = (value: unknown): ApplicationRuntime | undefined =>
   typeof value === "object" && value !== null ? runtimes.get(value) : undefined
-
-const endpointPathIndex = (nodes: ReadonlyArray<AnyNode>): ReadonlyMap<string, AnyNode> => {
-  const byPath = new Map<string, AnyNode>()
-  for (const node of nodes) {
-    if (node._tag !== "RouteDescriptor") continue
-    if (!byPath.has(node.path)) byPath.set(node.path, node)
-  }
-  return byPath
-}
 
 const toPublicState =
   <Routes>(routes: Routes) =>
@@ -73,39 +87,23 @@ const toPublicState =
     routes
   })
 
-const makeService = <Routes, E>(
+const makeService = <Routes>(
   routes: Routes,
   coordinator: Coordinator,
   compiled: ReturnType<typeof compile>,
   applicationId: string,
   token: object
-): RouterService<Routes, E> => ({
+): RouterService<Routes> => ({
   applicationId,
   routes,
   token,
-  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-  awaitInitial: coordinator.awaitInitial as Effect.Effect<void, NavigationError<E>>,
+  awaitInitial: coordinator.awaitInitial,
   state: SubscriptionRef.get(coordinator.snapshot).pipe(Effect.map(toPublicState(routes))),
   changes: SubscriptionRef.changes(coordinator.snapshot).pipe(Stream.map(toPublicState(routes))),
-  navigate: (destination, options) =>
-    // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-    coordinator.navigate(destination, options) as Effect.Effect<NavigationOutcome, NavigationError<E>>,
-  submit: (destination, options) => {
-    const handleEffect = coordinator.submit(destination, options).pipe(
-      Effect.map((handle): NavigationHandle<E> => ({
-        id: handle.id,
-        // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-        await: handle.await as Effect.Effect<NavigationOutcome, NavigationError<E>>,
-        cancel: handle.cancel
-      }))
-    )
-    // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-    return handleEffect as Effect.Effect<NavigationHandle<E>, NavigationError<E>>
-  },
-  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-  refresh: coordinator.refresh as Effect.Effect<NavigationOutcome, NavigationError<E>>,
-  // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Internal errors are erased; the public contract declares the union.
-  retry: coordinator.retry as Effect.Effect<NavigationOutcome, NavigationError<E>>,
+  navigate: coordinator.navigate,
+  submit: coordinator.submit,
+  refresh: coordinator.refresh,
+  retry: coordinator.retry,
   back: coordinator.back,
   forward: coordinator.forward,
   go: coordinator.go,
@@ -113,42 +111,38 @@ const makeService = <Routes, E>(
 })
 
 /**
- * Builds one executable application from canonical nodes and validated gate
- * inputs.
+ * Lazily selects definitions and assembles a fresh application. Invalid
+ * definitions fail execution with a defect; runtime resources belong to its Layer.
  *
  * @since 0.4.0
  */
-export const makeApplication = <AppId extends string, Routes, E, R>(
-  appId: AppId,
-  routes: Routes,
-  nodes: ReadonlyArray<AnyNode>,
-  inputs: ReadonlyArray<GateDefinitionInput>,
-  presentation?: { readonly factory: object; readonly views: ReadonlyMap<string, unknown> }
-): CoreApplication<AppId, Routes, E, R> => {
-  const compiled = compile(nodes)
-  const byId = compiled.byId
-  const nonce = nextApplicationNonce()
-  const seen = new Set<string>()
-  for (const input of inputs) {
-    const node = byId.get(input.node.id)
-    if (node === undefined || node !== input.node) {
-      throw new RouteDefinitionError({
-        message: `Gate "${input.node.id}" does not target a canonical node of this selection`
-      })
-    }
-    if (seen.has(input.node.id)) {
-      throw new RouteDefinitionError({ message: `Duplicate gate for route "${input.node.id}"` })
-    }
-    seen.add(input.node.id)
+export const makeApplication = Effect.fn("Router.make")(function* <
+  const AppId extends string,
+  const Defs extends readonly [AnyDefinitionShape, ...Array<AnyDefinitionShape>],
+  Presentation
+>(appId: AppId, routes: Defs, factory: DefinitionFactory<Presentation>): Effect.fn.Return<ApplicationOf<AppId, Defs>> {
+  type E = SelectionError<Defs>
+  type R = SelectionRequirements<Defs>
+  if (appId.length === 0)
+    return yield* Effect.die(new RouteDefinitionError({ message: "Application id must not be empty" }))
+  if (appId.includes(".") || appId.includes("/")) {
+    return yield* Effect.die(
+      new RouteDefinitionError({ message: `Application id "${appId}" must not contain "." or "/"` })
+    )
   }
+  if (routes.length === 0)
+    return yield* Effect.die(new RouteDefinitionError({ message: "Router.make requires at least one definition" }))
+  const { nodes, inputs, presentations } = collectSelection(routes, factory)
+  const compiled = compile(nodes)
+  const nonce = (globalRegistry[ApplicationCounter] ?? 0) + 1
+  globalRegistry[ApplicationCounter] = nonce
 
   const token = {}
-  const serviceKey = Context.Service<ApplicationServiceId<AppId, E, R>, RouterService<Routes, E>>(
+  const serviceKey = Context.Service<ApplicationServiceId<AppId, E, R>, RouterService<Defs, E>>(
     `@effect-stack/router/${appId}/service#${nonce}`
   )
   const build = Effect.gen(function* () {
-    yield* History.History
-    const context = yield* captureContext
+    const context = Context.omit(Scope.Scope)(yield* Effect.context<never>())
     const gates = new Map<string, RouteGate>()
     for (const input of inputs) {
       const prepare = input.prepare as (input: unknown) => Effect.Effect<void, unknown, Scope.Scope>
@@ -158,7 +152,8 @@ export const makeApplication = <AppId extends string, Routes, E, R>(
       })
     }
     const coordinator = yield* makeCoordinator(compiled, gates)
-    return makeService<Routes, E>(routes, coordinator, compiled, appId, token)
+    // Restore the selection's gate evidence at the public application seam.
+    return makeService(routes, coordinator, compiled, appId, token) as RouterService<Defs, E>
   })
   const layer = Layer.effect(serviceKey, build) as Layer.Layer<
     ApplicationServiceId<AppId, E, R>,
@@ -176,10 +171,10 @@ export const makeApplication = <AppId extends string, Routes, E, R>(
     layer
   }
   runtimes.set(value, {
-    nodes,
-    byId: byId as ReadonlyMap<string, AnyNode>,
-    byPath: endpointPathIndex(nodes),
-    ...(presentation === undefined ? {} : { presentationFactory: presentation.factory, views: presentation.views })
+    byId: compiled.byId,
+    byPath: new Map(nodes.filter((node) => node._tag === "RouteDescriptor").map((node) => [node.path, node])),
+    factory,
+    views: presentations
   })
   return value
-}
+})

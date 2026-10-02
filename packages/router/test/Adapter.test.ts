@@ -2,6 +2,8 @@ import { describe, expect, it } from "@effect/vitest"
 import { makeDefinitionEngine, finishApplication, resolveNavigationTarget } from "@effect-stack/router/Adapter"
 import { RouteDefinitionError } from "@effect-stack/router/Router"
 import * as Router from "@effect-stack/router/Router"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 
@@ -22,15 +24,15 @@ const makeEngine = (renderer: string) =>
 
 const component = (): null => null
 
-describe("shared navigation target policy", () => {
-  const Home = Router.route("home", "/")
-  const Item = Router.route("item", "/items/:id", {
-    params: { id: Schema.FiniteFromString },
-    search: { page: Schema.FiniteFromString },
-    hash: Schema.String
-  })
-  const App = Router.make("Targets", [Home, Item])
+const Home = Router.route("home", "/")
+const Item = Router.route("item", "/items/:id", {
+  params: { id: Schema.FiniteFromString },
+  search: { page: Schema.FiniteFromString },
+  hash: Schema.String
+})
+const App = await Effect.runPromise(Router.make("Targets", [Home, Item]))
 
+describe("shared navigation target policy", () => {
   it("resolves path strings and path input records without acquiring a service", () => {
     expect(Result.getOrThrow(Router.href(Result.getOrThrow(resolveNavigationTarget(App, "/"))))).toBe("/")
     const resolved = Result.getOrThrow(
@@ -99,13 +101,19 @@ describe("definition engine ownership", () => {
     const a = makeEngine("a")
     const b = makeEngine("b")
     const home = a.route(undefined, "home", "/", { component })
-    expect(() => finishApplication(b, "App", [home] as never)).toThrow(RouteDefinitionError)
-    expect(() => finishApplication(a, "App", [home] as never)).not.toThrow()
+    expect(Effect.runSyncExit(finishApplication(b, "App", [home] as never))).toMatchObject({
+      _tag: "Failure",
+      cause: { reasons: [{ _tag: "Die", defect: expect.any(RouteDefinitionError) as unknown }] }
+    })
+    expect(Exit.isSuccess(Effect.runSyncExit(finishApplication(a, "App", [home] as never)))).toBe(true)
   })
 
   it("rejects a copied selection definition", () => {
     const a = makeEngine("a")
     const home = a.route(undefined, "home", "/", { component })
-    expect(() => finishApplication(a, "App", [{ ...(home as object) }] as never)).toThrow(RouteDefinitionError)
+    expect(Effect.runSyncExit(finishApplication(a, "App", [{ ...(home as object) }] as never))).toMatchObject({
+      _tag: "Failure",
+      cause: { reasons: [{ _tag: "Die", defect: expect.any(RouteDefinitionError) as unknown }] }
+    })
   })
 })

@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema"
 import * as Atom from "effect/reactivity/Atom"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import type * as Router from "@effect-stack/router/Router"
-import { layout, make, makeNavigation, Provider, route, useRouteInput } from "@effect-stack/router-solid"
+import { layout, layer, make, makeNavigation, RouterProvider, route, useRouteInput } from "@effect-stack/router-solid"
 
 const Home = route("home", "/", { component: () => null })
 const Project = route("project", "/projects/:projectId", {
@@ -16,15 +16,16 @@ const Project = route("project", "/projects/:projectId", {
   component: () => null
 })
 
-const App = make("Solid", [Home, Project])
-const AppLive = App.layer.pipe(Layer.provide(MemoryHistory.layer()))
+const App = Effect.runSync(make("Solid", [Home, Project]))
+const AppLive = layer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer()))
 
-Provider({ app: App, runtime: Atom.runtime(AppLive) })
-// @ts-expect-error The provider runtime must supply the application's service.
-Provider({ app: App, runtime: Atom.runtime(Layer.empty) })
-const OtherApp = make("OtherSolid", [Home, Project])
-// @ts-expect-error A runtime for another application must not widen the app witness.
-Provider({ app: App, runtime: Atom.runtime(OtherApp.layer.pipe(Layer.provide(MemoryHistory.layer()))) })
+RouterProvider({ runtime: Atom.runtime(AppLive) })
+// @ts-expect-error The provider runtime must supply the standard selection service.
+RouterProvider({ runtime: Atom.runtime(Layer.empty) })
+// @ts-expect-error The application's own layer lacks the standard selection service.
+RouterProvider({ runtime: Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer()))) })
+// @ts-expect-error The runtime alone selects the application.
+RouterProvider({ app: App, runtime: Atom.runtime(AppLive) })
 
 // An index endpoint carries its own hash through destinations and accessors.
 const HashParent = layout("hashParent", "/hash-parent", {})
@@ -33,7 +34,7 @@ const HashedIndex = HashParent.index({
   prepare: () => Effect.void,
   empty: true
 })
-const HashApp = make("SolidHash", [HashedIndex])
+const HashApp = Effect.runSync(make("SolidHash", [HashedIndex]))
 const hashInput = useRouteInput(HashedIndex)
 void HashApp
 const hashValue: string = hashInput().hash

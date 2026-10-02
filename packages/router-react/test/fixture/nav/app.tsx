@@ -1,4 +1,5 @@
 import { make } from "@effect-stack/router-react"
+import * as Effect from "effect/Effect"
 import { Home, Lazy, ProjectDetails, ProjectsIndex } from "./routes.tsx"
 
 /**
@@ -7,4 +8,4 @@ import { Home, Lazy, ProjectDetails, ProjectsIndex } from "./routes.tsx"
  *
  * @since 0.4.0
  */
-export const App = make("NavBoundary", [Home, ProjectsIndex, ProjectDetails, Lazy])
+export const App = await Effect.runPromise(make("NavBoundary", [Home, ProjectsIndex, ProjectDetails, Lazy]))

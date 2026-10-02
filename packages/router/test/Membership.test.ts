@@ -8,6 +8,7 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
+import type * as AsyncResult from "effect/reactivity/AsyncResult"
 import { MemoryHistory, Router } from "@effect-stack/router"
 import * as AtomRouter from "@effect-stack/router/AtomRouter"
 
@@ -19,95 +20,91 @@ const makeProject = () =>
 
 describe("application membership", () => {
   it.live("uses the same href codecs before and after service acquisition", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const Home = Router.route("home", "/")
-        const Project = Router.route("project", "/projects/:projectId", {
-          params: { projectId: Schema.FiniteFromString },
-          search: { query: Schema.String },
-          hash: Schema.FiniteFromString
-        })
-        const App = Router.make("HrefCodecs", [Home, Project])
-        const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-        const atoms = AtomRouter.make(runtime, App)
-        const valid = Project.to({ params: { projectId: 7 }, search: { query: "a b&c" }, hash: 9 })
-        const destinations = [
-          valid,
-          Project.to({ params: { projectId: "invalid" }, search: { query: "ok" }, hash: 9 } as never),
-          Project.to({ params: { projectId: 7 }, search: { query: 1 }, hash: 9 } as never),
-          Project.to({ params: { projectId: 7 }, search: { query: "ok" }, hash: "invalid" } as never)
-        ]
-        const encoded = destinations.map((destination) => atoms.href(destination))
-        expect(Result.getOrThrow(atoms.href(valid))).toBe("/projects/7?query=a+b%26c#9")
-        for (const result of encoded.slice(1)) expect(Result.isFailure(result)).toBe(true)
-
-        const registry = AtomRegistry.make()
-        yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
-        const router = yield* AtomRegistry.getResult(registry, atoms.service)
-        yield* router.awaitInitial
-        for (const [index, destination] of destinations.entries()) {
-          expect(Router.href(destination)).toEqual(encoded[index])
-          expect(router.href(destination)).toEqual(encoded[index])
-          expect(atoms.href(destination)).toEqual(encoded[index])
-        }
+    Effect.gen(function* () {
+      const Home = Router.route("home", "/")
+      const Project = Router.route("project", "/projects/:projectId", {
+        params: { projectId: Schema.FiniteFromString },
+        search: { query: Schema.String },
+        hash: Schema.FiniteFromString
       })
-    )
+      const App = yield* Router.make("HrefCodecs", [Home, Project])
+      const runtime = Atom.runtime(Router.layer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/"))))
+      const atoms = AtomRouter.make(runtime, App)
+      const valid = Project.to({ params: { projectId: 7 }, search: { query: "a b&c" }, hash: 9 })
+      const destinations = [
+        valid,
+        Project.to({ params: { projectId: "invalid" }, search: { query: "ok" }, hash: 9 } as never),
+        Project.to({ params: { projectId: 7 }, search: { query: 1 }, hash: 9 } as never),
+        Project.to({ params: { projectId: 7 }, search: { query: "ok" }, hash: "invalid" } as never)
+      ]
+      const encoded = destinations.map((destination) => atoms.href(destination))
+      expect(Result.getOrThrow(atoms.href(valid))).toBe("/projects/7?query=a+b%26c#9")
+      for (const result of encoded.slice(1)) expect(Result.isFailure(result)).toBe(true)
+
+      const registry = AtomRegistry.make()
+      yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
+      const router = yield* AtomRegistry.getResult(registry, atoms.service)
+      yield* router.awaitInitial
+      for (const [index, destination] of destinations.entries()) {
+        expect(Router.href(destination)).toEqual(encoded[index])
+        expect(router.href(destination)).toEqual(encoded[index])
+        expect(atoms.href(destination)).toEqual(encoded[index])
+      }
+    })
   )
 
   it.live("checks exact destination membership before accessing codecs", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const Home = Router.route("home", "/")
-        const Project = makeProject()
-        const Foreign = makeProject()
-        const App = Router.make("HrefMembership", [Home, Project])
-        const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-        const atoms = AtomRouter.make(runtime, App)
-        const destination = Project.to({ params: { projectId: 1 } })
-        const copied = {
-          ...destination,
-          node: {
-            ...destination.node,
-            get paramsSchema(): Router.RuntimeNode["paramsSchema"] {
-              throw new Error("A foreign node's codec must not be read")
-            }
+    Effect.gen(function* () {
+      const Home = Router.route("home", "/")
+      const Project = makeProject()
+      const Foreign = makeProject()
+      const App = yield* Router.make("HrefMembership", [Home, Project])
+      const runtime = Atom.runtime(Router.layer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/"))))
+      const atoms = AtomRouter.make(runtime, App)
+      const destination = Project.to({ params: { projectId: 1 } })
+      const copied = {
+        ...destination,
+        node: {
+          ...destination.node,
+          get paramsSchema(): Router.RuntimeNode["paramsSchema"] {
+            throw new Error("A foreign node's codec must not be read")
           }
         }
-        const foreign = Foreign.to({ params: { projectId: "invalid" } } as never)
-        const failures = [foreign, copied].map((target) => atoms.href(target))
-        for (const result of failures) {
-          expect(Result.isFailure(result)).toBe(true)
-          if (Result.isFailure(result)) {
-            expect(result.failure).toMatchObject({
-              _tag: "@effect-stack/router/RouteEncodeError",
-              routeId: Project.id,
-              part: "path",
-              message: "Destination does not belong to this router selection"
-            })
-          }
+      }
+      const foreign = Foreign.to({ params: { projectId: "invalid" } } as never)
+      const failures = [foreign, copied].map((target) => atoms.href(target))
+      for (const result of failures) {
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(result.failure).toMatchObject({
+            _tag: "@effect-stack/router/RouteEncodeError",
+            routeId: Project.id,
+            part: "path",
+            message: "Destination does not belong to this router selection"
+          })
         }
-        expect(Result.isSuccess(Router.href(Foreign.to({ params: { projectId: 1 } })))).toBe(true)
+      }
+      expect(Result.isSuccess(Router.href(Foreign.to({ params: { projectId: 1 } })))).toBe(true)
 
-        const registry = AtomRegistry.make()
-        yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
-        const router = yield* AtomRegistry.getResult(registry, atoms.service)
-        yield* router.awaitInitial
-        const before = yield* router.state
-        for (const [index, target] of [foreign, copied].entries()) {
-          expect(router.href(target)).toEqual(failures[index])
-          const error = yield* Effect.flip(router.submit(target))
-          expect(Result.fail(error)).toEqual(failures[index])
-          expect(yield* router.state).toStrictEqual(before)
-        }
-      })
-    )
+      const registry = AtomRegistry.make()
+      yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
+      const router = yield* AtomRegistry.getResult(registry, atoms.service)
+      yield* router.awaitInitial
+      const before = yield* router.state
+      for (const [index, target] of [foreign, copied].entries()) {
+        expect(router.href(target)).toEqual(failures[index])
+        const error = yield* Effect.flip(router.submit(target))
+        expect(Result.fail(error)).toEqual(failures[index])
+        expect(yield* router.state).toStrictEqual(before)
+      }
+    })
   )
 
   it.effect("rejects foreign destinations before writing history", () =>
     Effect.gen(function* () {
       const AProject = makeProject()
       const BProject = makeProject()
-      const App = Router.make("A", [AProject])
+      const App = yield* Router.make("A", [AProject])
       const app = App.layer.pipe(Layer.provide(MemoryHistory.layer("/")))
 
       yield* Effect.gen(function* () {
@@ -134,8 +131,8 @@ describe("application membership", () => {
     Effect.gen(function* () {
       const Project = makeProject()
       const Home = Router.route("home", "/")
-      const Extended = Router.make("App", [Project, Home])
-      const Base = Router.make("App", [Project])
+      const Extended = yield* Router.make("App", [Project, Home])
+      const Base = yield* Router.make("App", [Project])
       const extendedApp = Extended.layer.pipe(Layer.provide(MemoryHistory.layer("/")))
       const baseApp = Base.layer.pipe(Layer.provide(MemoryHistory.layer("/")))
 
@@ -161,7 +158,7 @@ describe("application membership", () => {
     Effect.gen(function* () {
       const Left = makeProject()
       const Right = Router.route("right", "/right")
-      const LeftApp = Router.make("App", [Left])
+      const LeftApp = yield* Router.make("App", [Left])
       const leftApp = LeftApp.layer.pipe(Layer.provide(MemoryHistory.layer("/")))
 
       yield* Effect.gen(function* () {
@@ -176,7 +173,10 @@ describe("application membership", () => {
   it("rejects an untrusted spread definition", () => {
     const Project = makeProject()
     const forged = { ...Project } as typeof Project
-    expect(() => Router.make("App", [forged])).toThrow(Router.RouteDefinitionError)
+    expect(Effect.runSyncExit(Router.make("App", [forged]))).toMatchObject({
+      _tag: "Failure",
+      cause: { reasons: [{ _tag: "Die", defect: expect.any(Router.RouteDefinitionError) as unknown }] }
+    })
   })
 
   it.effect("rejects foreign redirects before replacing history", () =>
@@ -186,7 +186,7 @@ describe("application membership", () => {
       const A = Router.route("redirecting", "/redirecting", {
         prepare: () => Effect.fail(Router.redirect(Foreign.to({ params: { projectId: 1 } })) as never)
       })
-      const App = Router.make("A", [Go, A])
+      const App = yield* Router.make("A", [Go, A])
       const app = App.layer.pipe(Layer.provide(MemoryHistory.layer("/")))
 
       yield* Effect.gen(function* () {
@@ -206,8 +206,8 @@ describe("application membership", () => {
     Effect.gen(function* () {
       const AProject = makeProject()
       const BProject = makeProject()
-      const App = Router.make("A", [AProject])
-      const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+      const App = yield* Router.make("A", [AProject])
+      const runtime = Atom.runtime(Router.layer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer("/"))))
       const atomRouter = AtomRouter.make(runtime, App)
       expect(Result.isFailure(atomRouter.href(BProject.to({ params: { projectId: 1 } }) as never))).toBe(true)
       expect(Result.isSuccess(atomRouter.href(AProject.to({ params: { projectId: 1 } })))).toBe(true)
@@ -215,17 +215,27 @@ describe("application membership", () => {
     })
   )
 
-  it.effect("fails Atom startup when the runtime application identity differs", () =>
-    Effect.gen(function* () {
-      const Project = makeProject()
-      const First = Router.make("App", [Project])
-      const Second = Router.make("App", [Project])
-      const runtime = Atom.runtime(First.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-      const atomRouter = AtomRouter.make(runtime, Second)
-      const registry = AtomRegistry.make()
-      const exit = yield* Effect.exit(AtomRegistry.getResult(registry, atomRouter.service))
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit)) expect(exit.cause.reasons.some(Cause.isDieReason)).toBe(true)
-    })
+  it.effect.each(["service", "state"] as const)(
+    "fails Atom %s startup when the runtime application identity differs",
+    (projection) =>
+      Effect.gen(function* () {
+        const Project = makeProject()
+        const First = yield* Router.make("App", [Project])
+        const Second = yield* Router.make("App", [Project])
+        const runtime = Atom.runtime(Router.layer(Effect.succeed(First)).pipe(Layer.provide(MemoryHistory.layer("/"))))
+        const atomRouter = AtomRouter.make(runtime, Second)
+        const registry = AtomRegistry.make()
+        yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()))
+        const atom: Atom.Atom<AsyncResult.AsyncResult<unknown, unknown>> = atomRouter[projection]
+        const exit = yield* Effect.exit(AtomRegistry.getResult(registry, atom))
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(
+            exit.cause.reasons.some(
+              (reason) => Cause.isDieReason(reason) && reason.defect instanceof Router.RouteDefinitionError
+            )
+          ).toBe(true)
+        }
+      })
   )
 })

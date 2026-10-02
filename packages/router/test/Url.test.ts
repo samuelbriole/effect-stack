@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -14,14 +15,14 @@ const Item = Router.route("item", "/items/:id", {
   prepare: () => Effect.void
 })
 
-const App = Router.make("Url", [Item])
+const App = await Effect.runPromise(Router.make("Url", [Item]))
 const makeApp = (initial: string) => App.layer.pipe(Layer.provide(MemoryHistory.layer(initial)))
 
 const TwoSegments = Router.route("two", "/:first/:second", {
   params: { first: Schema.String, second: Schema.String }
 })
 const TwoHome = Router.route("twoHome", "/")
-const TwoApp = Router.make("Two", [TwoHome, TwoSegments])
+const TwoApp = await Effect.runPromise(Router.make("Two", [TwoHome, TwoSegments]))
 const RequiredHash = Router.route("hashReq", "/hash-req", { hash: Schema.String })
 const OptionalHash = Router.route("hashOpt", "/hash-opt", { hash: Schema.optional(Schema.String) })
 const EmptyingHash = Schema.String.pipe(
@@ -32,9 +33,87 @@ const EmptyingHash = Schema.String.pipe(
 )
 const TransformHash = Router.route("hashTransform", "/hash-transform", { hash: EmptyingHash })
 const HashHome = Router.route("hashHome", "/")
-const HashApp = Router.make("Hash", [HashHome, RequiredHash, OptionalHash])
+const HashApp = await Effect.runPromise(Router.make("Hash", [HashHome, RequiredHash, OptionalHash]))
 
 describe("URL definitions", () => {
+  it.effect("round-trips query arrays and rejects ambiguous or empty arrays", () =>
+    Effect.gen(function* () {
+      for (const codec of [Schema.Array(Schema.String), Schema.Union([Schema.String, Schema.Array(Schema.String)])]) {
+        const observed: Array<unknown> = []
+        const Query = Router.route("query", "/query", {
+          search: { q: codec },
+          prepare: ({ search }) =>
+            Effect.sync(() => {
+              observed.push(search.q)
+            })
+        })
+        const QueryApp = yield* Router.make("Query", [Query])
+        yield* Effect.gen(function* () {
+          const router = yield* QueryApp.service
+          yield* router.awaitInitial
+          expect(observed.at(-1)).toEqual(Schema.is(codec)("a") ? "a" : ["a"])
+          for (const q of [["a", "b"], ["a"], []]) {
+            const destination = Query.to({ search: { q } })
+            if (q.length === 0 || (q.length === 1 && Schema.is(codec)("a"))) {
+              expect(Result.getFailure(Router.href(destination))).toEqual(
+                Option.some(expect.any(Router.RouteEncodeError))
+              )
+            } else {
+              expect(Result.getOrThrow(Router.href(destination))).toBe(
+                `/query?${q.map((value) => `q=${value}`).join("&")}`
+              )
+              yield* router.navigate(destination)
+              expect(observed.at(-1)).toEqual(q)
+            }
+          }
+        }).pipe(Effect.provide(QueryApp.layer.pipe(Layer.provide(MemoryHistory.layer("/query?q=a")))))
+      }
+    })
+  )
+
+  it("reports invalid Unicode in every encoded URL section", () => {
+    for (const [part, destination] of [
+      ["path", Item.to({ params: { id: "\ud800" }, hash: "ok" })],
+      ["search", Item.to({ params: { id: "ok" }, search: { q: "\ud800" }, hash: "ok" })],
+      ["hash", Item.to({ params: { id: "ok" }, hash: "\ud800" })]
+    ] as const) {
+      expect(Result.getFailure(Router.href(destination))).toEqual(
+        Option.some(expect.objectContaining({ _tag: "@effect-stack/router/RouteEncodeError", part }))
+      )
+    }
+  })
+
+  it.effect("propagates unrelated codec defects on encode and query scalar probes", () =>
+    Effect.gen(function* () {
+      const defect = new Error("codec defect")
+      const broken = Schema.String.pipe(
+        Schema.decodeTo(Schema.String, {
+          decode: SchemaGetter.transformEffect(() => Effect.die(defect)),
+          encode: SchemaGetter.transformEffect(() => Effect.die(defect))
+        })
+      )
+      const Broken = Router.route("broken", "/broken", { search: { q: broken } })
+      const { error: thrown } = yield* Effect.flip(
+        Effect.try({
+          try: () => Router.href(Broken.to({ search: { q: "ok" } })),
+          catch: (error) => ({ error })
+        })
+      )
+      expect(
+        thrown instanceof Error
+          && Cause.isCause(thrown.cause)
+          && thrown.cause.reasons.some((reason) => Cause.isDieReason(reason) && reason.defect === defect)
+      ).toBe(true)
+      const BrokenApp = yield* Router.make("Broken", [Broken])
+      yield* Effect.gen(function* () {
+        const router = yield* BrokenApp.service
+        const cause = yield* Effect.flip(Effect.sandbox(router.awaitInitial))
+        expect(Cause.pretty(cause)).toContain("codec defect")
+        expect(cause.reasons.every(Cause.isDieReason)).toBe(true)
+      }).pipe(Effect.provide(BrokenApp.layer.pipe(Layer.provide(MemoryHistory.layer("/broken?q=ok")))))
+    })
+  )
+
   it.effect(
     "inherits transformed branded hashes through nested layouts and index, including gate and displayed inputs",
     () =>
@@ -68,7 +147,7 @@ describe("URL definitions", () => {
             })
         })
         const Home = Router.route("home", "/")
-        const InheritedApp = Router.make("InheritedHash", [Home, Child, Index])
+        const InheritedApp = yield* Router.make("InheritedHash", [Home, Child, Index])
         expect(Result.getOrThrow(Router.href(Child.to({ hash: value })))).toBe("/parent/nested/child#7")
         expect(Result.getOrThrow(Router.href(Index.to({ hash: value })))).toBe("/parent/nested#7")
         yield* Effect.gen(function* () {
@@ -117,7 +196,7 @@ describe("URL definitions", () => {
             observed.push(hash)
           })
       })
-      const OverrideApp = Router.make("OverrideHash", [Child, Index])
+      const OverrideApp = yield* Router.make("OverrideHash", [Child, Index])
       expect(Result.getOrThrow(Router.href(Child.to({ hash: "7" })))).toBe("/parent/child#7")
       yield* Effect.gen(function* () {
         const router = yield* OverrideApp.service
@@ -136,39 +215,40 @@ describe("URL definitions", () => {
   )
 
   it.effect("inherited required hash rejects a fragment-less initial URL", () => {
-    const Parent = Router.layout("parent", "/parent", { hash: Schema.String })
-    const Child = Parent.route("child", "/child")
-    const MissingApp = Router.make("MissingInheritedHash", [Child])
     return Effect.gen(function* () {
-      const router = yield* MissingApp.service
-      expect(yield* Effect.flip(router.awaitInitial)).toBeInstanceOf(Router.RouteDecodeError)
-    }).pipe(Effect.provide(MissingApp.layer.pipe(Layer.provide(MemoryHistory.layer("/parent/child")))))
+      const Parent = Router.layout("parent", "/parent", { hash: Schema.String })
+      const Child = Parent.route("child", "/child")
+      const MissingApp = yield* Router.make("MissingInheritedHash", [Child])
+      yield* Effect.gen(function* () {
+        const router = yield* MissingApp.service
+        expect(yield* Effect.flip(router.awaitInitial)).toBeInstanceOf(Router.RouteDecodeError)
+      }).pipe(Effect.provide(MissingApp.layer.pipe(Layer.provide(MemoryHistory.layer("/parent/child")))))
+    })
   })
 
-  it("round-trips unicode params, search, and hash", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const router = yield* App.service
-        const destination = Item.to({
-          params: { id: "héllo wörld/🎉" },
-          search: { q: "a+b c" },
-          hash: "section"
-        })
-        const href = Result.getOrThrow(Router.href(destination))
-        yield* router.navigate(destination)
-        const state = yield* router.state
-        const presentation = Option.getOrThrow(state.presentation)
-        if (presentation._tag !== "Resolved") throw new Error("Expected a resolved branch")
-        const entry = presentation.entries.find((candidate) => candidate.id === "item")
-        expect(entry).toBeDefined()
-        expect(entry === undefined ? undefined : Result.getOrThrow(entry.input)).toMatchObject({
-          params: { id: "héllo wörld/🎉" },
-          search: { q: "a+b c" },
-          hash: "section"
-        })
-        expect(href).toContain("/items/")
-      }).pipe(Effect.provide(makeApp("/")))
-    ))
+  it.effect("round-trips unicode params, search, and hash", () =>
+    Effect.gen(function* () {
+      const router = yield* App.service
+      const destination = Item.to({
+        params: { id: "héllo wörld/🎉" },
+        search: { q: "a+b c" },
+        hash: "section"
+      })
+      const href = Result.getOrThrow(Router.href(destination))
+      yield* router.navigate(destination)
+      const state = yield* router.state
+      const presentation = Option.getOrThrow(state.presentation)
+      if (presentation._tag !== "Resolved") throw new Error("Expected a resolved branch")
+      const entry = presentation.entries.find((candidate) => candidate.id === "item")
+      expect(entry).toBeDefined()
+      expect(entry === undefined ? undefined : Result.getOrThrow(entry.input)).toMatchObject({
+        params: { id: "héllo wörld/🎉" },
+        search: { q: "a+b c" },
+        hash: "section"
+      })
+      expect(href).toContain("/items/")
+    }).pipe(Effect.provide(makeApp("/")))
+  )
 
   it.effect("reports malformed percent-encoding without failing the Layer", () =>
     Effect.gen(function* () {
@@ -241,16 +321,14 @@ describe("URL definitions", () => {
   )
 
   it("rejects an empty encoded hash instead of silently dropping the fragment", () => {
-    // A required string that encodes to "" cannot be represented.
-    const requiredEmpty = Router.href(RequiredHash.to({ hash: "" }))
-    expect(Result.isFailure(requiredEmpty)).toBe(true)
-    if (Result.isFailure(requiredEmpty)) expect(requiredEmpty.failure).toBeInstanceOf(Router.RouteEncodeError)
-    // An optional string that produces "" would be indistinguishable from absence.
-    expect(Result.isFailure(Router.href(OptionalHash.to({ hash: "" })))).toBe(true)
-    // Optional absence stays representable as no fragment.
+    for (const destination of [
+      RequiredHash.to({ hash: "" }),
+      OptionalHash.to({ hash: "" }),
+      TransformHash.to({ hash: "value" })
+    ]) {
+      expect(Result.getFailure(Router.href(destination))).toEqual(Option.some(expect.any(Router.RouteEncodeError)))
+    }
     expect(Result.getOrThrow(Router.href(OptionalHash.to({ hash: undefined })))).toBe("/hash-opt")
-    // A transformation that produces "" is rejected too.
-    expect(Result.isFailure(Router.href(TransformHash.to({ hash: "value" })))).toBe(true)
   })
 
   it.effect("fails an empty required hash before writing history", () =>

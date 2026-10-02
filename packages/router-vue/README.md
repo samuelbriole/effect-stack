@@ -9,10 +9,10 @@ pnpm add @effect-stack/router-vue @effect-stack/router @effect/atom-vue effect@4
 ## Setup
 
 ```ts
-import { make, layout, Provider, Outlet, useRouteInput } from "@effect-stack/router-vue"
+import { make, layer, layout, RouterProvider, Outlet, useRouteInput } from "@effect-stack/router-vue"
 import * as BrowserHistory from "@effect-stack/router/BrowserHistory"
 import { Atom } from "effect/reactivity"
-import { Layer, Schema } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { defineComponent, h, type VNodeChild } from "vue"
 
 const Projects = layout("projects", "/projects/:projectId", {
@@ -26,35 +26,36 @@ const ProjectPage = defineComponent({
   }
 })
 const Index = Projects.index({ component: ProjectPage })
-const Application = make("Example", [Index])
-const runtime = Atom.runtime(Application.layer.pipe(Layer.provide(BrowserHistory.layer)))
+export const assembly = make("Example", [Index])
+export type Application = Effect.Success<typeof assembly>
+const runtime = Atom.runtime(layer(assembly).pipe(Layer.provide(BrowserHistory.layer)))
 export const App = defineComponent({
-  setup: () => () => h(Provider<typeof Application>, { app: Application, runtime })
+  setup: () => () => h(RouterProvider, { runtime })
 })
 ```
 
-Native components receive no mandatory injected router props. `useRouteInput` returns a computed ref to coherent displayed
-input; pending navigation retains the original branch/input. A `render: () => VNodeChild` callback is also supported.
-Endpoints require component/render or `empty: true`; layouts can be transparent. `Outlet` continues nested rendering.
+Native components receive no injected router props. `useRouteInput` returns a decoded-input computed ref.
+A `render: () => VNodeChild` callback is also supported. Endpoints need component/render or `empty: true`;
+layouts may be transparent. `Outlet` renders nested routes.
+
+`RouterProvider` accepts `runtime` and optional `pending`, a native component for initial loading. For `h` calls with extra
+services, use `RouterProvider<R>` with the runtime's service union if Vue cannot infer it.
 
 ## Resources and gates
 
 Official `useAtomValue(() => atom)` returns a readonly ref. Select a domain-owned family using computed decoded input,
 and refresh via `injectRegistry().refresh(atom)`. Use one composed runtime for the router and domain services by default:
-`Application.layer.pipe(Layer.provideMerge(services))` exposes the services for families built with `runtime.atom`.
-Resource subscriptions and cancellation remain independent of navigation. The [standalone example](examples/basic)
-demonstrates reachable loading/failure/success and refresh recovery.
+`layer(assembly).pipe(Layer.provideMerge(services))` exposes the services for families built with `runtime.atom`.
+See the [standalone example](examples/basic) for loading, failure, and refresh recovery.
 
-`prepare: (decodedInput) => Effect<void, E, R>` is optional and direct. Supply requirements through Layers. History is
-written first, then transient gate scopes close before atomic branch publication. The Provider's `pending` prop supplies a native
-component for initial loading, with no mandatory props. Route error views handle gate/decode failures only;
-`ViewFailureProps<E>` distinguishes typed pure gate failures from full Causes. Render exceptions propagate to application-owned
-Vue `onErrorCaptured` boundaries. Router retry reruns gates and does not refresh application resources.
+`prepare: (decodedInput) => Effect<void, E, R>` is an optional gate; supply its services through Layers. Route `error`
+receives `ViewFailureProps<E>` for gate/decode failures and retry. Render exceptions belong to Vue `onErrorCaptured`
+boundaries. Router retry reruns gates, not resource loading.
 
 ## Navigation
 
-`makeNavigation(Application)` and `useRouter(Application)`, `useRouterState(Application)`, `useNavigate(Application)`, and
-`useNavigateEffect(Application)` validate exact provider tokens. Links are real anchors and retain Vue
+`makeNavigation(app)` and `useRouter(app)`, `useRouterState(app)`, `useNavigate(app)`, and
+`useNavigateEffect(app)` validate exact provider tokens when supplied an acquired application witness. Links are real anchors and retain Vue
 `mergeProps` listener arrays, native cancellation, modifiers, targets, and downloads. `useRouteInput` is an input-only computed
 ref; `useRouterState` is computed and `useRouter` returns a service accessor.
 
@@ -62,15 +63,11 @@ ref; `useRouterState` is computed and `useRouter` returns a service accessor.
 // navigation.ts — no runtime application import
 import type { Application } from "./router.ts"
 import { makeNavigation } from "@effect-stack/router-vue"
-export const { Link, Navigate, useNavigate } = makeNavigation<typeof Application>()
+export const { Link, Navigate, useNavigate } = makeNavigation<Application>()
 ```
 
-Unbound helpers resolve against the nearest provider and cannot check erased application identity; use bound helpers for
-exact token checks. Child modules import their actual parent definition. Type-only helpers avoid eager destination imports
-and parent/child cycles without a mutable registration singleton.
+Type-only helpers use the nearest provider without runtime identity checks and avoid route definition import cycles.
+Child definitions import their actual parent; parents must not eagerly import children.
 
-The generic `Provider({ app, runtime })` checks the application's service requirement. Vue's `h` overload cannot infer
-generic application evidence: use `h(Provider<typeof Application>, { app: Application, runtime })`. This erases runtime
-construction errors, but retains exact service checks. Direct calls preserve the supplied runtime's error and requirement channels.
-
-See [adoption](../../docs/adoption.md) and [navigation contracts](../../docs/router-navigation.md).
+See [adoption](../../docs/adoption.md) for runtime composition, [navigation contracts](../../docs/router-navigation.md)
+for shared behavior, and [architecture](../../docs/architecture.md) for ownership.

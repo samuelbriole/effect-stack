@@ -17,8 +17,8 @@ export const foreignDestinationError = (node: { readonly id: string }): RouteEnc
   })
 
 /** Encode decoded input, checking membership first when a selection is supplied. @since 0.4.0 */
-export const encodeDestination = <Brand>(
-  destination: Destination<Brand>,
+export const encodeDestination = (
+  destination: Destination,
   byId?: ReadonlyMap<string, RuntimeNode>
 ): Result.Result<string, RouteEncodeError> => {
   if (byId !== undefined && !ownsNode(byId, destination.node)) {

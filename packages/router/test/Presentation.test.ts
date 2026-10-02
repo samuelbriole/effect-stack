@@ -28,7 +28,7 @@ const Loopb = Router.route("loopb", "/loopb", {
 loopTargets.loopy = Loopa.to()
 loopTargets.loopb = Loopb.to()
 
-const App = Router.make("Classify", [Boom, Defect, ForeignRedirect, Decode, Loopa, Loopb])
+const App = await Effect.runPromise(Router.make("Classify", [Boom, Defect, ForeignRedirect, Decode, Loopa, Loopb]))
 const makeApp = (initial: string) => App.layer.pipe(Layer.provide(MemoryHistory.layer(initial)))
 
 const failedPresentation = (state: Router.RouterState<unknown>) => {
@@ -118,7 +118,7 @@ describe("branch-level presentation", () => {
         params: { id: Schema.FiniteFromString },
         prepare: () => Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release)))
       })
-      const LocalApp = Router.make("InitialPending", [Item])
+      const LocalApp = yield* Router.make("InitialPending", [Item])
       yield* Effect.gen(function* () {
         const router = yield* LocalApp.service
         yield* Deferred.await(started)
@@ -159,7 +159,7 @@ describe("branch-level presentation", () => {
             ? Deferred.succeed(childStarted, undefined).pipe(Effect.andThen(Deferred.await(childRelease)))
             : Effect.void
       })
-      const LocalApp = Router.make("RetainedBranch", [Child])
+      const LocalApp = yield* Router.make("RetainedBranch", [Child])
       yield* Effect.gen(function* () {
         const router = yield* LocalApp.service
         yield* router.awaitInitial

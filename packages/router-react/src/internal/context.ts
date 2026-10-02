@@ -1,7 +1,7 @@
 import type { AtomRouter } from "@effect-stack/router/AtomRouter"
 import type { CoreApplication, RouterService } from "@effect-stack/router/Router"
 import { RouteDefinitionError } from "@effect-stack/router/Router"
-import { useAtomValue } from "@effect/atom-react"
+import { RegistryContext, useAtomMount } from "@effect/atom-react"
 import * as AsyncResult from "effect/reactivity/AsyncResult"
 import * as React from "react"
 import type { ResolvedViewOptions, ViewComponent } from "./route.ts"
@@ -32,19 +32,21 @@ export function useRouterContext(app?: { readonly token: object }): RouterContex
 
 /**
  * Returns a stable accessor for the runtime router service. Availability is
- * checked when the accessor is invoked, not during render, so a Provider can
- * render its pending or startup-failure fallback before (or without) the
- * service being ready.
+ * checked when the accessor is invoked, not during render. Captured callbacks
+ * therefore observe a refreshed runtime's pending or failed service instead of
+ * retaining a service from an earlier acquisition.
  *
  * @since 0.4.0
  */
 export function useRouterService(app?: { readonly token: object }): () => RouterService<unknown, unknown> {
   const { atomRouter } = useRouterContext(app)
-  const result = useAtomValue(atomRouter.service)
+  const registry = React.useContext(RegistryContext)
+  useAtomMount(atomRouter.service)
   return React.useCallback(() => {
-    if (!AsyncResult.isSuccess(result)) {
+    const result = registry.get(atomRouter.service)
+    if (!AsyncResult.isSuccess(result) || result.waiting) {
       throw new Error("Router service is not available yet")
     }
     return result.value as unknown as RouterService<unknown, unknown>
-  }, [result])
+  }, [registry, atomRouter])
 }

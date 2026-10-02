@@ -36,26 +36,26 @@ rather than silently dropped. A required path parameter cannot encode to an empt
 
 ## Membership and identity
 
-Native navigation helpers created with `makeNavigation<typeof App>()` accept an identity destination
-or a typed path target. A path target resolves synchronously to the canonical selected endpoint
-through `Router.resolvePathDestination`, which reads only the assembled node index and never awaits
-the router service. The helper imports the application type only; it cannot verify the erased type
-at runtime, so it resolves against the nearest active provider. `makeNavigation(App)` binds the same helpers to an exact
-provider token; application-taking hooks such as `useRouter(App)` make the same check.
+Both headless and native assembly require a nonempty selection and a nonempty application id containing neither `.` nor `/`.
+`make` returns a lazy Effect: each execution validates and allocates a fresh application identity. Invalid assembly is a
+defect in its `Cause`, not a typed navigation failure. Assembly acquires no history or gate dependencies; `App.layer` does.
+
+Type-only `makeNavigation<Application>()` helpers accept identity destinations or typed path targets and resolve against
+the nearest provider. Path resolution reads the canonical endpoint index synchronously without awaiting a service.
+`makeNavigation(App)` and application-taking hooks such as `useRouter(App)` instead check an exact provider token.
 
 Destinations are validated against the selected definitions before any history write. A foreign destination — including a
 definition from an independent selection that happens to share a qualified id — fails with `RouteEncodeError` and leaves
 accepted work untouched. Redirects perform the same check before replacing history. The service's `href` checks membership
 while the collection-independent `Router.href` does not. All hrefs use the same codecs; selection-aware encoding checks
-membership first. `AtomRouter.href` and renderer `Link`/`Navigate` validate synchronously against the supplied witness,
-so links render correctly even before the runtime starts.
+membership first. `AtomRouter.href` and renderer `Link`/`Navigate` validate synchronously against the canonical witness.
+Native links render once the runtime supplies that witness; standalone `Router.href` is available before startup.
 
 Definitions are constructor-owned and frozen; copied or spread values are rejected at assembly. Selecting a child includes
-its ancestor closure once, while selecting an ancestor never includes its children. The same definition can be selected by
-multiple applications, each owning independent services and resources. `AtomRouter.make(runtime, App)` validates the exact
-finalized application identity (application id, routes, and canonical token) on every acquisition path, failing startup
-when a runtime was assembled from a different application specification. Every finalized application also owns a fresh
-service key, so two applications over the same definitions cannot collide.
+its ancestors once, while selecting an ancestor never includes its children. Definitions can be shared across applications.
+`AtomRouter.make(runtime, App)` validates the exact canonical witness and router identity on acquisition; mismatches are
+defects. Compose one application Layer per Atom runtime, using independent runtimes for independent routers.
+Reusing the same Layer may share acquisition through Effect's memoization.
 
 ## Gates and publication
 
@@ -92,13 +92,17 @@ therefore remain coherent with the displayed component. The router publishes no 
 
 ## Rendering and recovery
 
-Native `make(...)` returns one canonical application; `Provider` takes `app` and `runtime`. Adapters share construction
-through `@effect-stack/router/Adapter` while preserving native rendering and lifecycle. Every endpoint requires
-presentation (`component` or Vue `render`) or `empty: true`; layouts may be transparent. `index(options)` is shorthand for
-`route("index", "/", options)` at the parent's path, with ordinary endpoint semantics.
+`layer(make(...))` acquires the canonical application and router inside the Atom runtime. Native `RouterProvider` takes
+only `runtime` and optional `pending`; startup pending/failure render outside router context. Changing the runtime selects
+its acquired application. Every endpoint needs presentation (`component` or Vue `render`) or `empty: true`; layouts may
+be transparent. `index(options)` is shorthand for `route("index", "/", options)` at the parent's path.
+
+React's Promise navigation and retry helpers execute through independent runtime result atoms, not host Effect runners.
+Overlapping calls retain their own completion outcomes. Component unmount does not cancel accepted work; registry disposal
+rejects outstanding waits and closes the runtime's scoped resources. `useNavigateEffect` remains available for Effect composition.
 
 Components receive no mandatory injected props; `useRouteInput(def)` reads displayed input (React value, Solid accessor,
-Vue computed ref). Layouts render an `Outlet` to continue the branch. Initial preparation uses the Provider's optional
+Vue computed ref). Layouts render an `Outlet` to continue the branch. Initial preparation uses `RouterProvider`'s optional
 `pending` component; later preparation retains the committed branch. Routing error views replace the failing node and
 descendants while preserving layouts above it. Bound navigation helpers reject a different provider token.
 
