@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Router from "@effect-stack/router/Router"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
+import type { History } from "@effect-stack/router"
 import * as Atom from "effect/reactivity/Atom"
 import type * as AtomRouter from "@effect-stack/router/AtomRouter"
 
@@ -20,7 +21,14 @@ describe("direct gates and actual parent metadata", () => {
   })
   const Middle = Parent.layout("middle", "/middle", { prepare: () => Effect.fail(new Missing()) })
   const Child = Middle.route("child", "/child", { prepare: () => Effect.void })
-  const App = Router.make("App", [Child])
+  const assembly = Router.make("App", [Child])
+  const App = Effect.runSync(assembly)
+  test("assembly is an Effect independent of gate requirements and failures", () => {
+    expect<Effect.Success<typeof assembly>>().type.toBe<Router.ApplicationOf<"App", readonly [typeof Child]>>()
+    expect<Effect.Error<typeof assembly>>().type.toBe<never>()
+    expect<Effect.Services<typeof assembly>>().type.toBe<never>()
+    expect(assembly).type.toBe<Effect.Effect<typeof App>>()
+  })
   test("traverses actual parents and preserves inferred gate E/R", () => {
     const TypedInput = Middle.route("typed", "/typed", {
       prepare: (input) => {
@@ -56,7 +64,7 @@ describe("direct gates and actual parent metadata", () => {
     const Other = Router.route("other", "/other", {
       prepare: () => OtherDep.pipe(Effect.flatMap(() => Effect.fail(new OtherError())))
     })
-    const Combined = Router.make("Combined", [Child, Other])
+    const Combined = Effect.runSync(Router.make("Combined", [Child, Other]))
     expect<Router.ApplicationErrorOf<typeof Combined>>().type.toBe<Missing | OtherError>()
     expect<Router.ApplicationRequirementsOf<typeof Combined>>().type.toBe<Dep | OtherDep>()
     expect<Router.ErrorOf<typeof Other>>().type.toBe<OtherError>()
@@ -66,7 +74,7 @@ describe("direct gates and actual parent metadata", () => {
     expect<Router.RoutesOf<typeof Combined>>().type.toBe<readonly [typeof Child, typeof Other]>()
     expect<Router.AppIdOf<typeof Combined>>().type.toBe<"Combined">()
     expect<Router.NavigationError<Missing>>().type.toBe<
-      | Router.History.HistoryError
+      | History.HistoryError
       | Router.RouteDecodeError
       | Router.RouteEncodeError
       | Router.RouteNotFound
@@ -78,21 +86,21 @@ describe("direct gates and actual parent metadata", () => {
   })
   test("startup errors retain history and supplied Layer failures, not gate failures", () => {
     class StartupError extends Schema.TaggedError<StartupError>()("StartupError", {}) {}
-    expect<Layer.Error<typeof App.layer>>().type.toBe<Router.History.HistoryError>()
+    expect<Layer.Error<typeof App.layer>>().type.toBe<History.HistoryError>()
     expect<Router.ApplicationErrorOf<typeof App>>().type.toBe<Missing>()
     expect<Router.ErrorOf<typeof Middle>>().type.toBe<Missing>()
     const provided = App.layer.pipe(
       Layer.provide(Layer.effect(Dep, Effect.fail(new StartupError()))),
       Layer.provide(MemoryHistory.layer())
     )
-    expect<Layer.Error<typeof provided>>().type.toBe<Router.History.HistoryError | StartupError>()
+    expect<Layer.Error<typeof provided>>().type.toBe<History.HistoryError | StartupError>()
     const runtime = Atom.runtime(provided)
     type StartupOf<T> = T extends Atom.AtomRuntime<infer _R, infer ER> ? ER : never
-    expect<StartupOf<typeof runtime>>().type.toBe<Router.History.HistoryError | StartupError>()
+    expect<StartupOf<typeof runtime>>().type.toBe<History.HistoryError | StartupError>()
   })
   test("broad and erased metadata remains conservative", () => {
     const erased: Omit<typeof Child, "~parent"> = Child
-    const ErasedApp = Router.make("Erased", [erased])
+    const ErasedApp = Effect.runSync(Router.make("Erased", [erased]))
     expect<Router.ApplicationRequirementsOf<typeof ErasedApp>>().type.toBe<unknown>()
     expect<Router.ApplicationErrorOf<typeof ErasedApp>>().type.toBe<unknown>()
     type OptionalParent = Omit<typeof Child, "~parent"> & { readonly "~parent"?: typeof Middle }
@@ -112,7 +120,7 @@ describe("direct gates and actual parent metadata", () => {
       // oxlint-disable-next-line typescript/no-explicit-any -- Deliberately erased gate channels must remain conservative.
       Router.RequirementsOf<{ readonly "~gate": { readonly error: any; readonly requirements: any } }>
     >().type.toBe<unknown>()
-    const Top = Router.make("Top", [Router.route("top", "/top")])
+    const Top = Effect.runSync(Router.make("Top", [Router.route("top", "/top")]))
     expect<Router.ApplicationRequirementsOf<typeof Top>>().type.toBe<never>()
     expect<Router.ApplicationErrorOf<typeof Top>>().type.toBe<never>()
     expect<Router.ApplicationRequirementsOf<unknown>>().type.toBe<unknown>()
@@ -161,7 +169,7 @@ describe("direct gates and actual parent metadata", () => {
       readonly "~parent": Erased | undefined
     }
     const erased: Erased = Child
-    const ErasedApp = Router.make("RecursiveErased", [erased])
+    const ErasedApp = Effect.runSync(Router.make("RecursiveErased", [erased]))
     expect<Router.ApplicationRequirementsOf<typeof ErasedApp>>().type.toBe<unknown>()
     expect<Router.ApplicationErrorOf<typeof ErasedApp>>().type.toBe<unknown>()
     interface Left extends Router.AnyDefinitionShape {
@@ -171,7 +179,7 @@ describe("direct gates and actual parent metadata", () => {
       readonly "~parent": Left | undefined
     }
     const mutual: Left = Child
-    const MutualApp = Router.make("MutualErased", [mutual])
+    const MutualApp = Effect.runSync(Router.make("MutualErased", [mutual]))
     expect<Router.ApplicationRequirementsOf<typeof MutualApp>>().type.toBe<unknown>()
     expect<Router.ApplicationErrorOf<typeof MutualApp>>().type.toBe<unknown>()
     const Deep = Child // finite constructor ancestry must retain exact evidence
@@ -180,7 +188,7 @@ describe("direct gates and actual parent metadata", () => {
     const L3 = L2.layout("l3", "/l3")
     const L4 = L3.layout("l4", "/l4")
     const Leaf = L4.route("leaf", "/leaf")
-    const Finite = Router.make("Finite", [Deep, Leaf])
+    const Finite = Effect.runSync(Router.make("Finite", [Deep, Leaf]))
     expect<Router.ApplicationRequirementsOf<typeof Finite>>().type.toBe<Dep>()
     expect<Router.ApplicationErrorOf<typeof Finite>>().type.toBe<Missing>()
   })
@@ -239,6 +247,9 @@ describe("direct gates and actual parent metadata", () => {
   test("path target unions do not cross decoded input shapes", () => {
     const A = Router.route("a", "/a/:a", { params: { a: Id } })
     const B = Router.route("b", "/b/:b", { params: { b: Id } })
+    const id = Id.make(1)
+    const destination = Math.random() < 0.5 ? A.to({ params: { a: id } }) : B.to({ params: { b: id } })
+    expect(Router.href).type.toBeCallableWith(destination)
     type Targets = Router.PathTargets<readonly [typeof A, typeof B]>
     expect<{ to: "/a/:a"; params: { a: typeof Id.Type } }>().type.toBeAssignableTo<Targets>()
     expect<{ to: "/b/:b"; params: { b: typeof Id.Type } }>().type.toBeAssignableTo<Targets>()
@@ -251,7 +262,7 @@ describe("direct gates and actual parent metadata", () => {
       Router.ApplicationErrorOf<typeof App>,
       Router.ApplicationRequirementsOf<typeof App>
     >
-    const Free = Router.make("App", [Router.route("free", "/free")])
+    const Free = Effect.runSync(Router.make("App", [Router.route("free", "/free")]))
     expect<Context.Service.Identifier<typeof Free.service>>().type.not.toBeAssignableTo<Id>()
     expect<Router.ApplicationServiceId<"App", Missing, Dep>>().type.not.toBeAssignableTo<
       Router.ApplicationServiceId<"App", never, Dep>

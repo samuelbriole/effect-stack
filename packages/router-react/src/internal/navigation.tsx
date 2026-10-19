@@ -1,16 +1,61 @@
 import type { Destination, NavigationOutcome } from "@effect-stack/router/Router"
 import type * as Router from "@effect-stack/router/Router"
 import { resolveNavigationTarget } from "@effect-stack/router/Adapter"
-import { useAtomValue } from "@effect/atom-react"
+import { RegistryContext, useAtomValue } from "@effect/atom-react"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as React from "react"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
+import * as Atom from "effect/reactivity/Atom"
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import { useRouterContext, useRouterService } from "./context.ts"
 import type { LinkProps, NavigateProps, NavigateTarget } from "./route.ts"
 
 /** @since 0.4.0 */
 export type NavigationError = Router.NavigationError<unknown>
+
+// The adapter intentionally bridges the project's pinned Effect Atom APIs.
+/* oxlint-disable effecttsgo/unstable-api-usage */
+const navigationPromise = (
+  registry: AtomRegistry.AtomRegistry,
+  action: Atom.Atom<AsyncResult.AsyncResult<NavigationOutcome, unknown>>
+): Promise<NavigationOutcome> =>
+  new Promise((resolve, reject) => {
+    let settled = false
+    let release: (() => void) | undefined
+    const finish = (exit: Exit.Exit<NavigationOutcome, unknown>) => {
+      if (settled) return
+      settled = true
+      if (Exit.isSuccess(exit)) resolve(exit.value)
+      else reject(Cause.squash(exit.cause))
+      release?.()
+    }
+    const lifetime = Atom.make((get) => {
+      get.addFinalizer(() => finish(Exit.failCause(Cause.interrupt())))
+      // A subscription, not a dependency: progress must not finalize this lifetime.
+      get.subscribe(
+        action,
+        (result) => {
+          // Reset removes all nodes before closing Layers. Let our lifetime finalizer
+          // report interruption rather than a command outcome produced during teardown.
+          if (!registry.getNodes().has(lifetime)) return
+          if (AsyncResult.isSuccess(result) && !result.waiting) finish(Exit.succeed(result.value))
+          else if (AsyncResult.isFailure(result) && !result.waiting) finish(Exit.failCause(result.cause))
+        },
+        { immediate: true }
+      )
+    }).pipe(Atom.setIdleTTL(0))
+    try {
+      release = registry.mount(lifetime)
+      if (settled) release()
+    } catch (error) {
+      finish(Exit.die(error))
+    }
+  })
+/* oxlint-enable effecttsgo/unstable-api-usage */
 
 /** An Effect-based navigation function bound to the provider's router. @since 0.4.0 */
 export function useNavigateEffect<App extends { readonly token: object }>(
@@ -57,17 +102,25 @@ export function useNavigate(boundApp?: {
   target: NavigateTarget<unknown>,
   options?: { readonly replace?: boolean; readonly state?: unknown }
 ) => Promise<NavigationOutcome> {
-  useRouterContext(boundApp)
-  const navigate = useNavigateEffect()
-  return React.useCallback((target, options) => Effect.runPromise(navigate(target, options)), [navigate])
+  const { atomRouter } = useRouterContext(boundApp)
+  const registry = React.useContext(RegistryContext)
+  return React.useCallback(
+    async (target, options) => {
+      const destination = resolveNavigationTarget(atomRouter.app, target)
+      if (Result.isFailure(destination)) throw destination.failure
+      return navigationPromise(registry, atomRouter.navigate(destination.success as never, options))
+    },
+    [registry, atomRouter]
+  )
 }
 
 /** Retries the observed URL through the router service. @since 0.4.0 */
 export function useRetry(): () => void {
-  const service = useRouterService()
+  const { atomRouter } = useRouterContext()
+  const registry = React.useContext(RegistryContext)
   return React.useCallback(() => {
-    void Effect.runPromise(service().retry).catch(() => {})
-  }, [service])
+    void navigationPromise(registry, atomRouter.retry()).catch(() => {})
+  }, [registry, atomRouter])
 }
 
 interface RuntimeTargetProps {

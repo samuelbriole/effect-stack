@@ -105,7 +105,9 @@ const Guarded = Router.route("guarded", "/guarded/:key", {
     ).pipe(Effect.andThen(Gate.use((gate) => gate.wait(`hold-${params.key}`))), Effect.asVoid)
 })
 
-const App = Router.make("Conc", [Home, Slow, Finalize, BadRelease, Stubborn, RedirectStubborn, Guarded])
+const App = await Effect.runPromise(
+  Router.make("Conc", [Home, Slow, Finalize, BadRelease, Stubborn, RedirectStubborn, Guarded])
+)
 
 const slow = (key: string) => Slow.to({ params: { key } })
 const guarded = (key: string) => Guarded.to({ params: { key } })
@@ -118,11 +120,10 @@ const runWithRouter = <A, E, R>(
   Effect.gen(function* () {
     const gate = yield* makeGate
     const layer = App.layer.pipe(Layer.provide(MemoryHistory.layer("/")), Layer.provide(Layer.succeed(Gate, gate)))
-    const programWithRouter = Effect.gen(function* () {
-      const router = yield* App.service
-      return yield* program(router, gate)
-    })
-    return yield* programWithRouter.pipe(Effect.provide(layer), Effect.provideService(Gate, gate))
+    return yield* Effect.flatMap(App.service, (router) => program(router, gate)).pipe(
+      Effect.provide(layer),
+      Effect.provideService(Gate, gate)
+    )
   })
 
 const resolvedKey = (state: Router.RouterState<unknown>): string | undefined => {
@@ -133,67 +134,66 @@ const resolvedKey = (state: Router.RouterState<unknown>): string | undefined => 
   return Result.isSuccess(entry.input) ? (entry.input.success.params as { readonly key: string }).key : undefined
 }
 
-const awaitResolvedKey = (router: AppRouter, key: string): Effect.Effect<string, Error> =>
-  Effect.gen(function* () {
-    for (let index = 0; index < 500; index++) {
-      const state = yield* router.state
-      const value = resolvedKey(state)
-      if (value === key) return value
-      yield* Effect.yieldNow
-    }
-    return yield* Effect.fail(new Error(`timed out waiting for ${key}`))
-  })
+const awaitResolvedKey = (router: AppRouter, key: string) =>
+  router.changes.pipe(
+    Stream.map(resolvedKey),
+    Stream.filter((value): value is string => value === key),
+    Stream.runHead,
+    Effect.map(Option.getOrThrow)
+  )
 
-const awaitEntrySuccess = (router: AppRouter, id: string): Effect.Effect<unknown, Error> =>
-  Effect.gen(function* () {
-    for (let index = 0; index < 500; index++) {
-      const state = yield* router.state
+const awaitEntrySuccess = (router: AppRouter, id: string) =>
+  router.changes.pipe(
+    Stream.filterMap((state) => {
       const presentation = Option.getOrUndefined(state.presentation)
-      if (presentation !== undefined && presentation._tag === "Resolved") {
-        const entry = presentation.entries.find((candidate) => candidate.id === id)
-        if (entry !== undefined && Result.isSuccess(entry.input)) return entry.input.success.params
-      }
-      yield* Effect.yieldNow
-    }
-    return yield* Effect.fail(new Error(`timed out waiting for ${id}`))
-  })
+      const entry =
+        presentation?._tag === "Resolved" ? presentation.entries.find((candidate) => candidate.id === id) : undefined
+      return entry !== undefined && Result.isSuccess(entry.input)
+        ? Result.succeed(entry.input.success.params)
+        : Result.fail(undefined)
+    }),
+    Stream.runHead,
+    Effect.map(Option.getOrThrow)
+  )
 
 describe("Router concurrency", () => {
   for (const initial of [true, false]) {
     it.effect(
       `a self-interrupted gate settles ${initial ? "initial" : "accepted"} navigation with a terminal snapshot`,
       () => {
-        const LocalHome = Router.route("home", "/")
-        const Interrupting = Router.route("interrupting", "/interrupting", {
-          prepare: () => Effect.interrupt
-        })
-        const LocalApp = Router.make("SelfInterrupt", [LocalHome, Interrupting])
-        const layer = LocalApp.layer.pipe(Layer.provide(MemoryHistory.layer(initial ? "/interrupting" : "/")))
         return Effect.gen(function* () {
-          const router = yield* LocalApp.service
-          if (!initial) yield* router.awaitInitial
-          const exit = yield* Effect.exit(initial ? router.awaitInitial : router.navigate(Interrupting.to()))
-          expect(Exit.isFailure(exit)).toBe(true)
-          if (Exit.isSuccess(exit)) throw new Error("expected the gate's interruption Cause")
-          expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
-          const settled = yield* router.state
-          const presentation = Option.getOrThrow(settled.presentation)
-          expect(settled.status._tag).toBe("Failed")
-          expect(presentation._tag).toBe("Failed")
-          if (presentation._tag !== "Failed" || settled.status._tag !== "Failed") {
-            throw new Error("expected terminal failure")
-          }
-          expect(settled.status.owner).toBe(Interrupting.id)
-          expect(presentation.owner).toBe(Interrupting.id)
-          expect(presentation.cause).toEqual(exit.cause)
-          expect(settled.status.cause).toBe(presentation.cause)
-          const entry = presentation.entries.find((candidate) => candidate.id === Interrupting.id)
-          if (entry === undefined) throw new Error("missing failure owner entry")
-          expect(Option.getOrThrow(entry.failure)).toBe(presentation.cause)
-          expect(Option.getOrThrow(entryFailure(entry))).toEqual({ _tag: "Cause", cause: presentation.cause })
-          expect(yield* router.navigate(LocalHome.to())).toBe("Committed")
-          expect((yield* router.state).status._tag).toBe("Committed")
-        }).pipe(Effect.provide(layer))
+          const LocalHome = Router.route("home", "/")
+          const Interrupting = Router.route("interrupting", "/interrupting", {
+            prepare: () => Effect.interrupt
+          })
+          const LocalApp = yield* Router.make("SelfInterrupt", [LocalHome, Interrupting])
+          const layer = LocalApp.layer.pipe(Layer.provide(MemoryHistory.layer(initial ? "/interrupting" : "/")))
+          yield* Effect.gen(function* () {
+            const router = yield* LocalApp.service
+            if (!initial) yield* router.awaitInitial
+            const exit = yield* Effect.exit(initial ? router.awaitInitial : router.navigate(Interrupting.to()))
+            expect(Exit.isFailure(exit)).toBe(true)
+            if (Exit.isSuccess(exit)) throw new Error("expected the gate's interruption Cause")
+            expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+            const settled = yield* router.state
+            const presentation = Option.getOrThrow(settled.presentation)
+            expect(settled.status._tag).toBe("Failed")
+            expect(presentation._tag).toBe("Failed")
+            if (presentation._tag !== "Failed" || settled.status._tag !== "Failed") {
+              throw new Error("expected terminal failure")
+            }
+            expect(settled.status.owner).toBe(Interrupting.id)
+            expect(presentation.owner).toBe(Interrupting.id)
+            expect(presentation.cause).toEqual(exit.cause)
+            expect(settled.status.cause).toBe(presentation.cause)
+            const entry = presentation.entries.find((candidate) => candidate.id === Interrupting.id)
+            if (entry === undefined) throw new Error("missing failure owner entry")
+            expect(Option.getOrThrow(entry.failure)).toBe(presentation.cause)
+            expect(Option.getOrThrow(entryFailure(entry))).toEqual({ _tag: "Cause", cause: presentation.cause })
+            expect(yield* router.navigate(LocalHome.to())).toBe("Committed")
+            expect((yield* router.state).status._tag).toBe("Committed")
+          }).pipe(Effect.provide(layer))
+        })
       }
     )
   }
@@ -283,9 +283,9 @@ describe("Router concurrency", () => {
     runWithRouter((router, gate) =>
       Effect.gen(function* () {
         const old = yield* router.submit(guarded("old"))
-        yield* Effect.yieldNow
+        yield* gate.wait("started-old")
         const superseder = yield* Effect.forkChild(router.navigate(guarded("new")))
-        yield* Effect.yieldNow
+        yield* gate.wait("releasing-old")
         yield* Fiber.interrupt(superseder)
         yield* gate.open("hold-new")
         expect(yield* awaitEntrySuccess(router, "guarded")).toEqual({ key: "new" })
@@ -415,7 +415,7 @@ describe("Router concurrency", () => {
             Deferred.succeed(released, undefined).pipe(Effect.asVoid)
           ).pipe(Effect.andThen(Deferred.await(hold)), Effect.as({ key: "x" }))
       })
-      const DisposalApp = Router.make("Disposal", [DisposalSlow, Finalize])
+      const DisposalApp = yield* Router.make("Disposal", [DisposalSlow, Finalize])
       const gate = yield* makeGate
       const layer = DisposalApp.layer.pipe(
         Layer.provide(MemoryHistory.layer("/disposal/x")),
@@ -442,7 +442,7 @@ describe("Router concurrency", () => {
             Deferred.succeed(closed, undefined).pipe(Effect.asVoid)
           ).pipe(Effect.andThen(Effect.never))
       })
-      const DisposalApp = Router.make("DisposalOutcome", [Router.route("root", "/"), Blocked])
+      const DisposalApp = yield* Router.make("DisposalOutcome", [Router.route("root", "/"), Blocked])
       const accepted = yield* Deferred.make<{
         readonly handle: Router.NavigationHandle
         readonly router: Context.Service.Shape<typeof DisposalApp.service>
@@ -467,18 +467,18 @@ describe("Router concurrency", () => {
   )
 
   it.effect("a newer invalid command does not stop an older accepted redirect from committing", () => {
-    const RedirectHome = Router.route("redirectHome", "/redirect-home", {
-      prepare: () =>
-        Effect.uninterruptible(
-          Effect.gen(function* () {
-            yield* Gate.use((gate) => gate.wait("hold-redir-home"))
-            return yield* Effect.fail(Router.redirect(Home.to()))
-          })
-        )
-    })
-    const LocalApp = Router.make("RejectAuthority", [Home, RedirectHome])
-    const Foreign = Router.route("foreignOnly", "/foreign-only")
     return Effect.gen(function* () {
+      const RedirectHome = Router.route("redirectHome", "/redirect-home", {
+        prepare: () =>
+          Effect.uninterruptible(
+            Effect.gen(function* () {
+              yield* Gate.use((gate) => gate.wait("hold-redir-home"))
+              return yield* Effect.fail(Router.redirect(Home.to()))
+            })
+          )
+      })
+      const LocalApp = yield* Router.make("RejectAuthority", [Home, RedirectHome])
+      const Foreign = Router.route("foreignOnly", "/foreign-only")
       const gate = yield* makeGate
       const layer = LocalApp.layer.pipe(
         Layer.provide(MemoryHistory.layer("/")),
@@ -502,22 +502,22 @@ describe("Router concurrency", () => {
   })
 
   it.effect("a failing initial history read fails Layer acquisition with the original error", () => {
-    const failure = new History.HistoryError({
-      operation: "current",
-      message: "no initial location",
-      cause: new Error("current failed")
-    })
-    const history: History.Interface = {
-      current: Effect.fail(failure),
-      push: () => Effect.die("push is not used"),
-      replace: () => Effect.die("replace is not used"),
-      go: () => Effect.die("go is not used"),
-      changes: Stream.empty
-    }
-    const FailRoot = Router.route("home", "/")
-    const FailApp = Router.make("FailCurrent", [FailRoot])
-    const layer = FailApp.layer.pipe(Layer.provide(Layer.succeed(History.History, history)))
     return Effect.gen(function* () {
+      const failure = new History.HistoryError({
+        operation: "current",
+        message: "no initial location",
+        cause: new Error("current failed")
+      })
+      const history: History.Interface = {
+        current: Effect.fail(failure),
+        push: () => Effect.die("push is not used"),
+        replace: () => Effect.die("replace is not used"),
+        go: () => Effect.die("go is not used"),
+        changes: Stream.empty
+      }
+      const FailRoot = Router.route("home", "/")
+      const FailApp = yield* Router.make("FailCurrent", [FailRoot])
+      const layer = FailApp.layer.pipe(Layer.provide(Layer.succeed(History.History, history)))
       expect(yield* Effect.flip(FailApp.service.pipe(Effect.provide(layer)))).toBe(failure)
     })
   })
@@ -548,7 +548,7 @@ describe("Router concurrency", () => {
   it.effect("closes the acquired history listener when a held initial read fails", () =>
     Effect.gen(function* () {
       const held = yield* heldInitialHistory()
-      const LocalApp = Router.make("ListenerStartupFailure", [Router.route("root", "/")])
+      const LocalApp = yield* Router.make("ListenerStartupFailure", [Router.route("root", "/")])
       const layer = LocalApp.layer.pipe(Layer.provide(Layer.succeed(History.History, held.history)))
       const build = yield* Effect.forkChild(Effect.exit(LocalApp.service.pipe(Effect.provide(layer))))
       yield* Deferred.await(held.currentStarted)
@@ -574,7 +574,7 @@ describe("Router concurrency", () => {
             Deferred.succeed(gateClosed, undefined).pipe(Effect.asVoid)
           ).pipe(Effect.andThen(Deferred.await(gateRelease)))
       })
-      const LocalApp = Router.make("EventStartupFailure", [Event])
+      const LocalApp = yield* Router.make("EventStartupFailure", [Event])
       const layer = LocalApp.layer.pipe(Layer.provide(Layer.succeed(History.History, held.history)))
       const build = yield* Effect.forkChild(Effect.exit(LocalApp.service.pipe(Effect.provide(layer))))
       yield* Deferred.await(held.currentStarted)
@@ -605,7 +605,7 @@ describe("Router concurrency", () => {
       const Event = Router.route("event", "/event", {
         prepare: () => Deferred.succeed(gateStarted, undefined).pipe(Effect.andThen(Deferred.await(gateRelease)))
       })
-      const LocalApp = Router.make("InitialReadOrdering", [Root, Event])
+      const LocalApp = yield* Router.make("InitialReadOrdering", [Root, Event])
       const layer = LocalApp.layer.pipe(Layer.provide(Layer.succeed(History.History, held.history)))
       const program = yield* Effect.forkChild(
         Effect.gen(function* () {
@@ -662,11 +662,11 @@ describe("Router concurrency", () => {
   }
 
   it.effect("an older held write failure cannot overwrite a newer committed status", () => {
-    const CommitRoot = Router.route("home", "/")
-    const CommitA = Router.route("a", "/a", { prepare: () => Effect.void })
-    const CommitB = Router.route("b", "/b", { prepare: () => Effect.void })
-    const CommitApp = Router.make("HeldWriteCommit", [CommitRoot, CommitA, CommitB])
     return Effect.gen(function* () {
+      const CommitRoot = Router.route("home", "/")
+      const CommitA = Router.route("a", "/a", { prepare: () => Effect.void })
+      const CommitB = Router.route("b", "/b", { prepare: () => Effect.void })
+      const CommitApp = yield* Router.make("HeldWriteCommit", [CommitRoot, CommitA, CommitB])
       const writes = yield* Queue.unbounded<Deferred.Deferred<History.Location, History.HistoryError>>()
       const layer = CommitApp.layer.pipe(Layer.provide(Layer.succeed(History.History, controlledHistory(writes))))
       yield* Effect.gen(function* () {
@@ -699,11 +699,11 @@ describe("Router concurrency", () => {
   })
 
   it.effect("held history and foreign command failures leave the committed snapshot untouched", () => {
-    const RejectRoot = Router.route("home", "/")
-    const RejectA = Router.route("a", "/a", { prepare: () => Effect.void })
-    const Foreign = Router.route("foreignOnly", "/foreign-only")
-    const RejectApp = Router.make("HeldWriteReject", [RejectRoot, RejectA])
     return Effect.gen(function* () {
+      const RejectRoot = Router.route("home", "/")
+      const RejectA = Router.route("a", "/a", { prepare: () => Effect.void })
+      const Foreign = Router.route("foreignOnly", "/foreign-only")
+      const RejectApp = yield* Router.make("HeldWriteReject", [RejectRoot, RejectA])
       const writes = yield* Queue.unbounded<Deferred.Deferred<History.Location, History.HistoryError>>()
       const layer = RejectApp.layer.pipe(Layer.provide(Layer.succeed(History.History, controlledHistory(writes))))
       yield* Effect.gen(function* () {
@@ -740,7 +740,7 @@ describe("Router concurrency", () => {
       const Fresh = Router.route("fresh", "/fresh", {
         prepare: () => Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release)))
       })
-      const LocalApp = Router.make("PendingWriteFailure", [Root, Old, Fresh])
+      const LocalApp = yield* Router.make("PendingWriteFailure", [Root, Old, Fresh])
       const layer = LocalApp.layer.pipe(Layer.provide(Layer.succeed(History.History, controlledHistory(writes))))
       yield* Effect.gen(function* () {
         const router = yield* LocalApp.service

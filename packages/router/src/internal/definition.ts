@@ -404,13 +404,11 @@ export interface DefinitionFactory<Presentation = unknown> {
 
 /** One trusted definition record. @since 0.4.0 */
 export interface TrustedDefinition<Presentation = unknown> {
-  readonly definition: object
   readonly node: AnyNode
   readonly parent: object | undefined
   readonly prepare: unknown
   readonly presentation: Presentation | undefined
   readonly empty: boolean
-  readonly kind: "route" | "layout"
   readonly owner: object
 }
 
@@ -577,19 +575,13 @@ interface BuildContext {
   readonly localPath: string
 }
 
-interface Built {
-  readonly node: AnyNode
-  readonly params: Fields
-  readonly search: Fields
-}
-
-const buildNode = (context: BuildContext, options: BuildOptions): Built => {
+const buildNode = (context: BuildContext, options: BuildOptions): AnyNode => {
   const { parent, parentNode, name, localPath, kind } = context
   validateIdentifier(name)
   if (parent === undefined && parentNode !== undefined) {
     throw definitionError(`Definition "${name}" has an inconsistent parent`)
   }
-  if (parent !== undefined && trustedDefinition(parent)?.kind !== "layout") {
+  if (parent !== undefined && trustedDefinition(parent)?.node.kind !== "layout") {
     throw definitionError(`Definition "${name}" requires a layout parent`)
   }
   if (kind === "route" && localPath.length === 0) {
@@ -613,7 +605,7 @@ const buildNode = (context: BuildContext, options: BuildOptions): Built => {
     searchSchema: structSchema(search),
     hashSchema: (options.hash as UrlCodec | undefined) ?? parentNode?.hashSchema
   }
-  return { node, params, search }
+  return node
 }
 
 const makeDefinition = <Presentation>(
@@ -626,79 +618,60 @@ const makeDefinition = <Presentation>(
   }
   if ("load" in options)
     throw definitionError("load is not supported; use a direct prepare gate and application-owned Atom resources")
-  const built = buildNode(context, options)
+  const node = buildNode(context, options)
   if (context.parent !== undefined && trustedDefinition(context.parent)?.owner !== factory) {
     throw definitionError(`Definition "${context.name}" belongs to a different renderer`)
   }
-  const node = built.node
   const presentation = factory.normalize(options)
   const empty = options.empty === true
-  const holder: { definition?: object } = {}
-  const definition = node as unknown as Record<PropertyKey, unknown>
-  Object.defineProperty(definition, "~parent", {
-    value: context.parent,
-    enumerable: false,
-    configurable: false,
-    writable: false
-  })
-  Object.defineProperty(definition, "to", {
-    value: (input: unknown, destinationOptions?: DestinationOptions) =>
-      makeDestination(node, input, destinationOptions),
-    enumerable: false,
-    configurable: false,
-    writable: false
+  Object.defineProperties(node, {
+    "~parent": { value: context.parent },
+    to: {
+      value: (input: unknown, destinationOptions?: DestinationOptions) =>
+        makeDestination(node, input, destinationOptions)
+    }
   })
   if (context.kind === "layout") {
-    Object.defineProperty(definition, "route", {
-      value: (name: string, path: string, childOptions?: BuildOptions) =>
-        makeDefinition(
-          factory,
-          { kind: "route", parent: holder.definition, parentNode: node, name, localPath: path },
-          childOptions ?? {}
-        ),
-      enumerable: false,
-      configurable: false,
-      writable: false
-    })
-    Object.defineProperty(definition, "layout", {
-      value: (name: string, path: string, childOptions?: BuildOptions) =>
-        makeDefinition(
-          factory,
-          { kind: "layout", parent: holder.definition, parentNode: node, name, localPath: path },
-          childOptions ?? {}
-        ),
-      enumerable: false,
-      configurable: false,
-      writable: false
-    })
-    Object.defineProperty(definition, "index", {
-      value: (childOptions?: BuildOptions) =>
-        makeDefinition(
-          factory,
-          { kind: "route", parent: holder.definition, parentNode: node, name: "index", localPath: "/" },
-          childOptions ?? {}
-        ),
-      enumerable: false,
-      configurable: false,
-      writable: false
+    Object.defineProperties(node, {
+      route: {
+        value: (name: string, path: string, childOptions?: BuildOptions) =>
+          makeDefinition(
+            factory,
+            { kind: "route", parent: node, parentNode: node, name, localPath: path },
+            childOptions ?? {}
+          )
+      },
+      layout: {
+        value: (name: string, path: string, childOptions?: BuildOptions) =>
+          makeDefinition(
+            factory,
+            { kind: "layout", parent: node, parentNode: node, name, localPath: path },
+            childOptions ?? {}
+          )
+      },
+      index: {
+        value: (childOptions?: BuildOptions) =>
+          makeDefinition(
+            factory,
+            { kind: "route", parent: node, parentNode: node, name: "index", localPath: "/" },
+            childOptions ?? {}
+          )
+      }
     })
   }
-  holder.definition = definition
   records.set(
-    definition,
+    node,
     Object.freeze({
-      definition,
       node,
       parent: context.parent,
       prepare: options.prepare,
       presentation:
         presentation !== null && typeof presentation === "object" ? Object.freeze(presentation) : presentation,
       empty,
-      kind: context.kind,
       owner: factory
     })
   )
-  return Object.freeze(definition)
+  return Object.freeze(node)
 }
 
 /**
@@ -772,11 +745,9 @@ export interface Selection {
  * @since 0.4.0
  * @category constructors
  */
-export const collectSelection = (
+export const collectSelection = <Presentation>(
   definitions: ReadonlyArray<unknown>,
-  requiresPresentation: boolean,
-  isEmpty: (presentation: unknown) => boolean,
-  owner?: object
+  factory: DefinitionFactory<Presentation>
 ): Selection => {
   const order: Array<TrustedDefinition> = []
   const byId = new Map<string, object>()
@@ -791,7 +762,7 @@ export const collectSelection = (
     if (trusted === undefined) {
       throw definitionError("Router.make requires constructor-owned route definitions")
     }
-    if (owner !== undefined && trusted.owner !== owner) {
+    if (trusted.owner !== factory) {
       throw definitionError(`Definition "${trusted.node.id}" belongs to a different renderer`)
     }
     visited.add(definition)
@@ -817,10 +788,10 @@ export const collectSelection = (
     collect(definition)
   }
 
-  if (requiresPresentation) {
+  if (factory.requiresPresentation) {
     for (const trusted of order) {
       if (trusted.node._tag !== "RouteDescriptor") continue
-      if (!trusted.empty && isEmpty(trusted.presentation)) {
+      if (!trusted.empty && factory.isEmpty(trusted.presentation as Presentation)) {
         throw definitionError(
           `Endpoint "${trusted.node.id}" has no presentation; provide a component/render or declare empty: true`
         )

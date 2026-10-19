@@ -8,8 +8,10 @@ import * as Schema from "effect/Schema"
 import * as Atom from "effect/reactivity/Atom"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import type * as Router from "@effect-stack/router/Router"
+import * as Context from "effect/Context"
 import {
-  Provider,
+  RouterProvider,
+  layer,
   useRouteInput,
   useNavigateEffect,
   makeNavigation,
@@ -25,21 +27,35 @@ const Project = route("project", "/projects/:projectId", {
   render: () => "project"
 })
 
-const App = make("Vue", [Home, Project])
-const AppLive = App.layer.pipe(Layer.provide(MemoryHistory.layer()))
+const App = Effect.runSync(make("Vue", [Home, Project]))
+const AppLive = layer(Effect.succeed(App)).pipe(Layer.provide(MemoryHistory.layer()))
 
-h(Provider<typeof App>, { app: App, runtime: Atom.runtime(AppLive) })
-Provider({ app: App, runtime: Atom.runtime(AppLive) })
-// @ts-expect-error The provider runtime must supply the application's service.
-h(Provider<typeof App>, { app: App, runtime: Atom.runtime(Layer.empty) })
-// @ts-expect-error Direct calls infer application authority from app, not runtime.
-Provider({ app: App, runtime: Atom.runtime(Layer.empty) })
-const AnotherApp = make("AnotherVue", [Home])
-const anotherRuntime = Atom.runtime(AnotherApp.layer.pipe(Layer.provide(MemoryHistory.layer())))
-// @ts-expect-error Same definitions cannot substitute a different application service.
-h(Provider<typeof App>, { app: App, runtime: anotherRuntime })
-// @ts-expect-error Direct provider calls reject a different application runtime.
-Provider({ app: App, runtime: anotherRuntime })
+h(RouterProvider, { runtime: Atom.runtime(AppLive) })
+RouterProvider({ runtime: Atom.runtime(AppLive) })
+// @ts-expect-error The provider runtime must supply the standard selected application tag.
+h(RouterProvider, { runtime: Atom.runtime(Layer.empty) })
+// @ts-expect-error Direct calls reject a missing standard tag.
+RouterProvider({ runtime: Atom.runtime(Layer.empty) })
+const appOnlyRuntime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer())))
+// @ts-expect-error A dynamic application service does not supply the standard tag.
+h(RouterProvider, { runtime: appOnlyRuntime })
+// @ts-expect-error Direct calls reject app.layer-only runtimes.
+RouterProvider({ runtime: appOnlyRuntime })
+// @ts-expect-error The old application prop is not part of the provider API.
+RouterProvider({ app: App, runtime: Atom.runtime(AppLive) })
+
+class Domain extends Context.Service<Domain, {}>()("check/VueDomain") {}
+const services = Layer.merge(MemoryHistory.layer(), Layer.succeed(Domain, {}))
+const extendedLayer = layer(Domain.pipe(Effect.as(App))).pipe(Layer.provideMerge(services))
+const extendedRuntime = Atom.runtime(extendedLayer)
+RouterProvider({ runtime: extendedRuntime })
+h(RouterProvider, { runtime: extendedRuntime })
+h(RouterProvider<Layer.Success<typeof extendedLayer>>, { runtime: extendedRuntime })
+const failingRuntime = Atom.runtime(
+  layer(Effect.fail("startup").pipe(Effect.andThen(Effect.succeed(App)))).pipe(Layer.provide(services))
+)
+RouterProvider({ runtime: failingRuntime })
+h(RouterProvider, { runtime: failingRuntime })
 
 h(makeNavigation(App).Link, { to: Home.to() })
 h(makeNavigation(App).Navigate, { to: Home.to(), replace: true })
@@ -59,7 +75,7 @@ const HashedIndex = HashParent.index({
   hash: Schema.String,
   prepare: () => Effect.void
 })
-const HashApp = make("VueHash", [HashedIndex])
+const HashApp = Effect.runSync(make("VueHash", [HashedIndex]))
 void HashApp
 const hashInput = useRouteInput(HashedIndex)
 const hashValue: string = hashInput.value.hash

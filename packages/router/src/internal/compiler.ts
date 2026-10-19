@@ -63,7 +63,6 @@ export interface Plan {
  * @category models
  */
 export interface Compiled {
-  readonly nodes: ReadonlyArray<RuntimeNode>
   readonly byId: ReadonlyMap<string, RuntimeNode>
   readonly plan: (location: DecodedInput["location"]) => Plan
 }
@@ -172,5 +171,5 @@ export const compile = (nodes: ReadonlyArray<RuntimeNode>): Compiled => {
       }))
     }
   }
-  return { nodes, byId, plan }
+  return { byId, plan }
 }

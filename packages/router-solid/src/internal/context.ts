@@ -39,7 +39,7 @@ export function useRouterService(app?: { readonly token: object }): Accessor<Rou
   return () => {
     context()
     const value = result()
-    if (!AsyncResult.isSuccess(value)) throw new Error("Router service is not available yet")
+    if (!AsyncResult.isSuccess(value) || value.waiting) throw new Error("Router service is not available yet")
     return value.value as unknown as RouterService<unknown, unknown>
   }
 }

@@ -5,10 +5,11 @@ import * as Schema from "effect/Schema"
 import * as Layer from "effect/Layer"
 import * as Atom from "effect/reactivity/Atom"
 import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
-import type * as Router from "@effect-stack/router/Router"
+import type { HistoryError } from "@effect-stack/router/History"
+import * as Router from "@effect-stack/router/Router"
 import * as VueRouter from "@effect-stack/router-vue"
 import {
-  Provider,
+  RouterProvider,
   useRouter,
   useRouterState,
   useNavigateEffect,
@@ -29,7 +30,9 @@ const Parent = layout("parent", "/:id", {
   prepare: () => Effect.asVoid(Dep)
 })
 const Child = Parent.route("child", "/child", { prepare: () => Effect.fail(new Missing()), render: () => null })
-const App = make("VueTypes", [Child])
+const assembly = make("VueTypes", [Child])
+type Application = Effect.Success<typeof assembly>
+const App = Effect.runSync(assembly)
 test("inherited hash stays exact in native gates, hooks, index, and overrides", () => {
   const HashParent = layout("inheritedHash", "/inherited-hash", { hash: Id })
   const Nested = HashParent.layout("nested", "/nested", {
@@ -70,27 +73,50 @@ test("inherited hash stays exact in native gates, hooks, index, and overrides", 
   expect(useRouteInput(Override)).type.toBe<ComputedRef<Router.DecodedRouteInputOfDef<typeof Override>>>()
 })
 test("actual parent, inherited input, and gate E/R remain exact", () => {
+  expect(assembly).type.toBe<Effect.Effect<Router.ApplicationOf<"VueTypes", readonly [typeof Child]>>>()
+  expect<Effect.Error<typeof assembly>>().type.toBe<never>()
+  expect<Effect.Services<typeof assembly>>().type.toBe<never>()
   expect<(typeof Child)["~parent"]>().type.toBe<typeof Parent>()
   expect<Router.ErrorOf<typeof Child>>().type.toBe<Missing>()
   expect<Router.RequirementsOf<typeof Child>>().type.toBe<never>()
-  expect<Router.ApplicationErrorOf<typeof App>>().type.toBe<Missing>()
-  expect<Router.ApplicationRequirementsOf<typeof App>>().type.toBe<Dep>()
+  expect<Router.ApplicationErrorOf<Application>>().type.toBe<Missing>()
+  expect<Router.ApplicationRequirementsOf<Application>>().type.toBe<Dep>()
   expect(useRouteInput(Child)).type.toBe<ComputedRef<Router.DecodedRouteInputOfDef<typeof Child>>>()
   expect(VueRouter).type.not.toHaveProperty("useRoute")
 })
 test("standalone provider retains exact service requirements in direct and explicitly instantiated h calls", () => {
   const Home = route("providerHome", "/", { empty: true })
-  const ProviderApp = make("VueProviderTypes", [Home])
-  const runtime = Atom.runtime(ProviderApp.layer.pipe(Layer.provide(MemoryHistory.layer())))
+  const ProviderApp = Effect.runSync(make("VueProviderTypes", [Home]))
+  const runtime = Atom.runtime(Router.layer(Effect.succeed(ProviderApp)).pipe(Layer.provide(MemoryHistory.layer())))
   const wrongRuntime = Atom.runtime(Layer.empty)
-  expect(Provider).type.toBeCallableWith({ app: ProviderApp, runtime })
-  expect(Provider).type.not.toBeCallableWith({ app: ProviderApp, runtime: wrongRuntime })
-  expect(Provider<typeof ProviderApp>).type.toBeCallableWith({ app: ProviderApp, runtime })
-  expect(Provider<typeof ProviderApp>).type.not.toBeCallableWith({ app: ProviderApp, runtime: wrongRuntime })
-  expect(h(Provider<typeof ProviderApp>, { app: ProviderApp, runtime })).type.toBe<ReturnType<typeof h>>()
+  const appOnlyRuntime = Atom.runtime(ProviderApp.layer.pipe(Layer.provide(MemoryHistory.layer())))
+  expect(RouterProvider).type.toBeCallableWith({ runtime })
+  expect(RouterProvider).type.not.toBeCallableWith({ runtime: wrongRuntime })
+  expect(RouterProvider).type.not.toBeCallableWith({ runtime: appOnlyRuntime })
+  expect(h(RouterProvider, { runtime })).type.toBe<ReturnType<typeof h>>()
+  expect(VueRouter).type.not.toHaveProperty("Provider")
+  expect(VueRouter.layer).type.toBe<typeof Router.layer>()
   expect(useRouter(ProviderApp)).type.toBe<() => Router.RouterService<typeof ProviderApp.routes, never>>()
   expect(useRouterState(ProviderApp)).type.toBe<ComputedRef<Router.RouterState<typeof ProviderApp.routes>>>()
   expect(useRouter()).type.toBe<() => Router.RouterService<unknown, unknown>>()
+})
+test("provider accepts domain services and typed assembly failures without erasing gate evidence", () => {
+  const services = Layer.merge(MemoryHistory.layer(), Layer.succeed(Dep, {}))
+  const live = VueRouter.layer(assembly).pipe(Layer.provideMerge(services))
+  const runtime = Atom.runtime(live)
+  expect(RouterProvider).type.toBeCallableWith({ runtime })
+  expect(h(RouterProvider, { runtime })).type.toBe<ReturnType<typeof h>>()
+  expect(h(RouterProvider<Layer.Success<typeof live>>, { runtime })).type.toBe<ReturnType<typeof h>>()
+  const failingAssembly = Effect.fail(new Missing()).pipe(Effect.andThen(assembly))
+  const failingLive = VueRouter.layer(failingAssembly).pipe(Layer.provideMerge(services))
+  const failingRuntime = Atom.runtime(failingLive)
+  expect(RouterProvider).type.toBeCallableWith({ runtime: failingRuntime })
+  expect(h(RouterProvider, { runtime: failingRuntime })).type.toBe<ReturnType<typeof h>>()
+  expect<Layer.Error<typeof failingLive>>().type.toBe<Missing | HistoryError>()
+  const helpers = makeNavigation<Effect.Success<typeof failingAssembly>>()
+  expect<Effect.Error<ReturnType<ReturnType<typeof helpers.useNavigateEffect>>>>().type.toBe<
+    Router.NavigationError<Missing>
+  >()
 })
 test("index URL types and non-navigable layouts are preserved", () => {
   const Index = Parent.index({ hash: Schema.String, render: () => null })
@@ -108,7 +134,7 @@ test("bound navigation preserves target and error channels", () => {
   expect(Other.to()).type.not.toBeAssignableTo<Router.DestinationOf<typeof App.routes>>()
 })
 test("type-only navigation and broad metadata remain honest", () => {
-  const helpers = makeNavigation<typeof App>()
+  const helpers = makeNavigation<Application>()
   expect<{ to: "/:id/child"; params: { id: typeof Id.Type }; search: { tab: string } }>().type.toBeAssignableTo<
     Parameters<typeof helpers.Link>[0]
   >()

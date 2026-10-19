@@ -13,7 +13,7 @@ import type {
   ResolvedBranch
 } from "./internal/coordinator.ts"
 import type { AnyDefinitionShape, Destination, DestinationOf } from "./internal/definition.ts"
-import { collectSelection, defineLayout, defineRoute } from "./internal/definition.ts"
+import { defineLayout, defineRoute } from "./internal/definition.ts"
 import type {
   ApplicationServiceId,
   CoreApplicationTypeId,
@@ -22,8 +22,7 @@ import type {
   SelectionRequirements
 } from "./internal/gates.ts"
 import type { RouteConstructor, LayoutConstructor } from "./internal/constructors.ts"
-import { RouteDefinitionError } from "./internal/errors.ts"
-import type { RouteDecodeError, RouteEncodeError, RouteNotFound } from "./internal/errors.ts"
+import type { RouteDecodeError, RouteDefinitionError, RouteEncodeError, RouteNotFound } from "./internal/errors.ts"
 import type { Redirect } from "./internal/redirect.ts"
 import { redirect as makeRedirect } from "./internal/redirect.ts"
 import { makeApplication } from "./internal/application.ts"
@@ -104,6 +103,7 @@ export { CoreApplicationTypeId } from "./internal/gates.ts"
 export { RouteDefinitionTypeId, LayoutDefinitionTypeId } from "./internal/definition.ts"
 export { RouteDecodeError, RouteDefinitionError, RouteEncodeError, RouteNotFound } from "./internal/errors.ts"
 export { resolvePathDestination } from "./internal/destinations.ts"
+export { applicationLayer as layer, RuntimeApplication, type ApplicationWitness } from "./internal/application.ts"
 
 /** Navigation failures, including declared gate failures. @since 0.4.0 */
 export type NavigationError<E = unknown> =
@@ -193,27 +193,16 @@ export const layout: LayoutConstructor = ((name: string, path: string, options?:
   defineLayout(headlessFactory, undefined, name, path, options)) as unknown as LayoutConstructor
 
 /** Collection-independent destination encoding. @since 0.4.0 */
-export const href = <Brand>(destination: Destination<Brand>): Result.Result<string, RouteEncodeError> =>
+export const href = (destination: Destination): Result.Result<string, RouteEncodeError> =>
   encodeDestination(destination)
 
 /** Typed redirect control failure. @since 0.4.0 */
 export const redirect = <Brand>(destination: Destination<Brand>): Redirect<Brand> => makeRedirect(destination)
 
-/** Selects canonical definitions and their ancestor closure. @since 0.4.0 */
+/** Lazily assembles a fresh application; invalid selections are defects. @since 0.4.0 */
 export function make<
   const AppId extends string,
   const Defs extends readonly [AnyDefinitionShape, ...Array<AnyDefinitionShape>]
->(appId: AppId, definitions: Defs): ApplicationOf<AppId, Defs> {
-  if (appId.length === 0) throw new RouteDefinitionError({ message: "Application id must not be empty" })
-  if (appId.includes(".")) throw new RouteDefinitionError({ message: `Application id "${appId}" must not contain "."` })
-  if (appId.includes("/")) throw new RouteDefinitionError({ message: `Application id "${appId}" must not contain "/"` })
-  if (definitions.length === 0)
-    throw new RouteDefinitionError({ message: "Router.make requires at least one definition" })
-  const selection = collectSelection(definitions, false, () => true, headlessFactory as unknown as object)
-  return makeApplication<AppId, Defs, SelectionError<Defs>, SelectionRequirements<Defs>>(
-    appId,
-    definitions,
-    selection.nodes,
-    selection.inputs
-  )
+>(appId: AppId, definitions: Defs): Effect.Effect<ApplicationOf<AppId, Defs>> {
+  return makeApplication(appId, definitions, headlessFactory)
 }

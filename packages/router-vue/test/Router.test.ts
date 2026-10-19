@@ -17,7 +17,7 @@ import {
   make,
   makeNavigation,
   Outlet,
-  Provider,
+  RouterProvider,
   layout,
   route,
   useRouteInput,
@@ -43,6 +43,9 @@ import {
   watchEffect,
   type Component
 } from "vue"
+
+const memoryRuntime = <R, E>(layer: Layer.Layer<R, E, History.History>, href = "/") =>
+  Atom.runtime(layer.pipe(Layer.provide(MemoryHistory.layer(href))))
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -129,6 +132,150 @@ const mountWithBoundary = (element: ReturnType<typeof h>): HTMLDivElement =>
   )
 
 describe("Vue router adapter", { concurrent: false }, () => {
+  it("rejects a captured router accessor while runtime refresh is blocked", async () => {
+    const ready = Effect.runSync(Deferred.make<() => Router.RouterService<unknown, unknown>>())
+    const started = Effect.runSync(Deferred.make<void>())
+    const Home = route("home", "/", {
+      component: defineComponent({
+        setup() {
+          const router = useRouter()
+          onMounted(() => {
+            Effect.runSync(Deferred.succeed(ready, router))
+          })
+          return () => h("p", "Ready")
+        }
+      })
+    })
+    let acquisitions = 0
+    const assembly = Effect.suspend(() =>
+      acquisitions++ === 0
+        ? make("VueRefreshFreshness", [Home])
+        : Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never))
+    )
+    const runtime = memoryRuntime(Layer.fresh(Router.layer(assembly)))
+    const registry = AtomRegistry.make()
+    cleanups.push(() => registry.dispose())
+    mount(
+      h(
+        defineComponent({
+          setup() {
+            provide(registryKey, registry)
+            return () => h(RouterProvider, { runtime })
+          }
+        })
+      )
+    )
+    const router = await Effect.runPromise(Deferred.await(ready))
+    expect(router().applicationId).toBe("VueRefreshFreshness")
+    registry.refresh(runtime)
+    await Effect.runPromise(Deferred.await(started))
+    await nextTick()
+    expect(router).toThrow("Router service is not available yet")
+  })
+
+  it("keeps bootstrap pending until assembly and the application service are acquired", async () => {
+    const entered = Effect.runSync(Deferred.make<void>())
+    const release = Effect.runSync(Deferred.make<void>())
+    let mounts = 0
+    const Home = route("home", "/", {
+      component: defineComponent({
+        setup() {
+          mounts++
+          void useRouter()
+          return () => h(Link, { to: "/" }, { default: () => "Acquired home" })
+        }
+      })
+    })
+    const assembly = Deferred.succeed(entered, undefined).pipe(
+      Effect.andThen(Deferred.await(release)),
+      Effect.andThen(make("VueBootstrap", [Home]))
+    )
+    const runtime = memoryRuntime(Router.layer(assembly))
+    const registry = AtomRegistry.make()
+    cleanups.push(() => registry.dispose())
+    const container = mount(
+      h(
+        defineComponent({
+          setup() {
+            provide(registryKey, registry)
+            return () => h(RouterProvider, { runtime, pending: SlowPending })
+          }
+        })
+      )
+    )
+    await Effect.runPromise(Deferred.await(entered))
+    await nextTick()
+    expect(container.textContent).toBe("Preparing…")
+    expect(container.querySelector("a")).toBeNull()
+    expect(mounts).toBe(0)
+    Effect.runSync(Deferred.succeed(release, undefined))
+    await vi.waitFor(() => expect(container.textContent).toContain("Acquired home"))
+    expect(mounts).toBe(1)
+  })
+
+  it("renders assembly failure without mounting route views or offering route retry", async () => {
+    let mounts = 0
+    const assembly = make("VueAssemblyFailure", [
+      route("home", "/", {
+        render: () => {
+          mounts++
+          return h("p", "Unreachable")
+        }
+      })
+    ]).pipe(Effect.andThen(() => Effect.fail("assembly failed")))
+    const runtime = memoryRuntime(Router.layer(assembly))
+    const container = mount(h(RouterProvider, { runtime }))
+    await vi.waitFor(() => expect(container.querySelector('[role="alert"]')).not.toBeNull())
+    expect(container.querySelector("button")).toBeNull()
+    expect(mounts).toBe(0)
+  })
+
+  it("uses the selected bundle when the dynamic application service is not exposed", async () => {
+    const assembly = make("VueStandardTagOnly", [route("home", "/", { render: () => h("p", "Standard selection") })])
+    const selected = Layer.effect(Router.RuntimeApplication, Router.RuntimeApplication).pipe(
+      Layer.provide(Router.layer(assembly))
+    )
+    const runtime = memoryRuntime(selected)
+    const container = mount(h(RouterProvider, { runtime }))
+    await vi.waitFor(() => expect(container.textContent).toContain("Standard selection"))
+  })
+
+  it("switches runtime subscriptions while keeping the mounted context selectors live", async () => {
+    const Home = route("home", "/", {
+      component: defineComponent({
+        setup() {
+          const router = useRouter()
+          return () => h("p", router().applicationId)
+        }
+      })
+    })
+    const first = memoryRuntime(Router.layer(make("VueSwitchFirst", [Home])))
+    const second = memoryRuntime(Router.layer(make("VueSwitchSecond", [Home])))
+    const runtime = shallowRef<Atom.AtomRuntime<Router.RuntimeApplication, History.HistoryError>>(first)
+    const container = mount(
+      h(
+        defineComponent({
+          setup: () => () => h(RouterProvider, { runtime: runtime.value })
+        })
+      )
+    )
+    await vi.waitFor(() => expect(container.textContent).toBe("VueSwitchFirst"))
+    runtime.value = second
+    await vi.waitFor(() => expect(container.textContent).toBe("VueSwitchSecond"))
+  })
+
+  it("authenticates the selected native witness rather than trusting a spread copy", async () => {
+    const assembly = make("VueCopiedSelection", [route("home", "/", { render: () => h("p", "Unreachable copy") })])
+    const copied = Layer.effect(
+      Router.RuntimeApplication,
+      Router.RuntimeApplication.pipe(Effect.map((selected) => ({ ...selected, app: { ...selected.app } })))
+    ).pipe(Layer.provide(Router.layer(assembly)))
+    const runtime = memoryRuntime(copied)
+    const container = mountWithBoundary(h(RouterProvider, { runtime }))
+    await vi.waitFor(() => expect(container.textContent).toContain("Application error"))
+    expect(container.textContent).not.toContain("Unreachable copy")
+  })
+
   it("renders startup history failure without an unavailable route retry", async () => {
     const failure = new History.HistoryError({ operation: "current", message: "unavailable", cause: "startup" })
     const history: History.Interface = {
@@ -138,8 +285,12 @@ describe("Vue router adapter", { concurrent: false }, () => {
       replace: () => Effect.die("unused"),
       go: () => Effect.die("unused")
     }
-    const App = make("VueHistoryStartupFailure", [route("home", "/", { render: () => h("p", "Home") })])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(Layer.succeed(History.History, history))))
+    const App = await Effect.runPromise(
+      make("VueHistoryStartupFailure", [route("home", "/", { render: () => h("p", "Home") })])
+    )
+    const runtime = Atom.runtime(
+      Router.layer(Effect.succeed(App)).pipe(Layer.provide(Layer.succeed(History.History, history)))
+    )
     const registry = AtomRegistry.make()
     cleanups.push(() => registry.dispose())
     const container = mount(
@@ -147,7 +298,7 @@ describe("Vue router adapter", { concurrent: false }, () => {
         defineComponent({
           setup() {
             provide(registryKey, registry)
-            return () => h(Provider<typeof App>, { app: App, runtime })
+            return () => h(RouterProvider, { runtime })
           }
         })
       )
@@ -188,10 +339,10 @@ describe("Vue router adapter", { concurrent: false }, () => {
       })
     })
     const Target = route("target", "/target", { render: () => h("p", "Target") })
-    const App = make("NativeBoundRef", [Home, Target])
+    const App = await Effect.runPromise(make("NativeBoundRef", [Home, Target]))
     const Navigation = makeNavigation(App)
-    const runtime = Atom.runtime(Layer.fresh(App.layer.pipe(Layer.provide(MemoryHistory.layer()))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(App))))
+    const container = mount(h(RouterProvider, { runtime }))
     await vi.waitFor(() => expect(container.textContent).toContain("Bound slot"))
     const element = container.querySelector("a")
     expect(anchor).toBe(element)
@@ -211,19 +362,18 @@ describe("Vue router adapter", { concurrent: false }, () => {
       })
     })
     const Target = route("target", "/target", { empty: true })
-    const First = make("ReactiveFirst", [Home, Target])
-    const Second = make("ReactiveSecond", [Home, Target])
+    const First = await Effect.runPromise(make("ReactiveFirst", [Home, Target]))
+    const Second = await Effect.runPromise(make("ReactiveSecond", [Home, Target]))
     const Navigation = makeNavigation(First)
-    const app = shallowRef<typeof First | typeof Second>(First)
-    const runtime = Atom.runtime(
-      Layer.fresh(Layer.merge(First.layer, Second.layer).pipe(Layer.provide(MemoryHistory.layer())))
-    )
+    const firstRuntime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(First))))
+    const secondRuntime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(Second))))
+    const runtime = shallowRef<Atom.AtomRuntime<Router.RuntimeApplication, History.HistoryError>>(firstRuntime)
     const Root = defineComponent({
-      setup: () => () => h(Provider<typeof First | typeof Second>, { app: app.value, runtime })
+      setup: () => () => h(RouterProvider, { runtime: runtime.value })
     })
     const container = mountWithBoundary(h(Root))
     await vi.waitFor(() => expect(container.textContent).toContain("First binding"))
-    app.value = Second
+    runtime.value = secondRuntime
     await vi.waitFor(() => expect(container.textContent).toContain("Application error"))
   })
 
@@ -231,28 +381,33 @@ describe("Vue router adapter", { concurrent: false }, () => {
     const Home = route("home", "/", {
       component: defineComponent({
         setup() {
-          const router = useRouter(selected.value)
-          const navigation = makeNavigation(selected.value)
+          const router = useRouter()
           return (): ReturnType<typeof h> => {
             void router()
-            return h(navigation.Link, { to: "/" }, { default: () => "Ordinary reactive application" })
+            const navigation = makeNavigation(selected.value)
+            return h(
+              navigation.Link,
+              { to: "/" },
+              { default: () => `Ordinary reactive application ${selected.value.appId}` }
+            )
           }
         }
       })
     })
-    const App = make("OrdinaryRef", [Home])
+    const App = await Effect.runPromise(make("OrdinaryRef", [Home]))
     const selected = ref(App)
-    const runtime = Atom.runtime(Layer.fresh(App.layer.pipe(Layer.provide(MemoryHistory.layer()))))
+    const runtime = ref(memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(App)))))
     const Root = defineComponent({
-      setup: () => () => h(Provider<typeof App>, { app: selected.value, runtime })
+      setup: () => () => h(RouterProvider, { runtime: runtime.value })
     })
     const container = mountWithBoundary(h(Root))
     await vi.waitFor(() => expect(container.textContent).toContain("Ordinary reactive application"))
     expect(container.textContent).not.toContain("Application error")
     // Unwrapping a framework proxy never grants a copied object the core's
     // private application registration.
-    selected.value = { ...App }
-    await vi.waitFor(() => expect(container.textContent).toContain("Application error"))
+    runtime.value = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed({ ...App }))))
+    await vi.waitFor(() => expect(container.textContent).toContain("Unable to display"))
+    expect(container.textContent).not.toContain("Ordinary reactive application")
   })
 
   it("does not resubmit a mounted path Navigate while its redirect gate is blocked", async () => {
@@ -323,7 +478,7 @@ describe("Vue router adapter", { concurrent: false }, () => {
       prepare: () => Effect.fail(Router.redirect(Login.to())),
       empty: true
     })
-    const App = make("MountedRedirect", [Root.index({ empty: true }), Protected, Login])
+    const App = await Effect.runPromise(make("MountedRedirect", [Root.index({ empty: true }), Protected, Login]))
     const Navigation = makeNavigation<typeof App>()
     const historyLayer = Layer.effect(
       History.History,
@@ -348,12 +503,12 @@ describe("Vue router adapter", { concurrent: false }, () => {
         }
       })
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
+    const runtime = Atom.runtime(Router.layer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
     const registry = AtomRegistry.make()
     const Parent = defineComponent({
       setup() {
         provide(registryKey, registry)
-        return () => h(Provider<typeof App>, { app: App, runtime, "data-revision": revision.value })
+        return () => h(RouterProvider, { runtime, "data-revision": revision.value })
       }
     })
     const container = mount(h(Parent))
@@ -429,7 +584,7 @@ describe("Vue router adapter", { concurrent: false }, () => {
       hash: Schema.String,
       empty: true
     })
-    const App = make("MountedTargetChanges", [Root.index({ empty: true }), Item])
+    const App = await Effect.runPromise(make("MountedTargetChanges", [Root.index({ empty: true }), Item]))
     const Navigation = makeNavigation<typeof App>()
     const historyLayer = Layer.effect(
       History.History,
@@ -449,12 +604,12 @@ describe("Vue router adapter", { concurrent: false }, () => {
         }
       })
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
+    const runtime = Atom.runtime(Router.layer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
     const registry = AtomRegistry.make()
     const Parent = defineComponent({
       setup() {
         provide(registryKey, registry)
-        return () => h(Provider<typeof App>, { app: App, runtime })
+        return () => h(RouterProvider, { runtime })
       }
     })
     const container = mount(h(Parent))
@@ -568,15 +723,17 @@ describe("Vue router adapter", { concurrent: false }, () => {
       }
     })
     const Root = layout("root", "/", { component: Controls })
-    const App = make("VueTargets", [Root.index({ empty: true }), route("plain", "/plain", { empty: true }), Item])
+    const App = await Effect.runPromise(
+      make("VueTargets", [Root.index({ empty: true }), route("plain", "/plain", { empty: true }), Item])
+    )
     const Navigation = makeNavigation<typeof App>()
     const ready = Effect.runSync(Deferred.make<ReturnType<typeof Navigation.useNavigateEffect>>())
     const historyLayer = Layer.effect(
       History.History,
       MemoryHistory.make().pipe(Effect.tap((history) => Deferred.succeed(historyReady, history)))
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = Atom.runtime(Router.layer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
+    const container = mount(h(RouterProvider, { runtime }))
     const navigate = await Effect.runPromise(Deferred.await(ready))
     const history = await Effect.runPromise(Deferred.await(historyReady))
     expect(container.querySelector('a[href="/plain"]')).not.toBeNull()
@@ -652,10 +809,10 @@ describe("Vue router adapter", { concurrent: false }, () => {
         }
       })
     })
-    const App = make("VueFreshLink", [Home, Target])
+    const App = await Effect.runPromise(make("VueFreshLink", [Home, Target]))
     const Navigation = makeNavigation<typeof App>()
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mount(h(RouterProvider, { runtime }))
     await Effect.runPromise(Deferred.await(ready))
     const link = container.querySelector('a[href="/items/1"]')
     expect(link?.getAttribute("class")).toBe("native-link")
@@ -684,15 +841,15 @@ describe("Vue router adapter", { concurrent: false }, () => {
         }
       })
     })
-    const Inner = make("TokenInner", [InnerPage])
-    const innerRuntime = Atom.runtime(Layer.fresh(Inner.layer.pipe(Layer.provide(MemoryHistory.layer("/inner")))))
+    const Inner = await Effect.runPromise(make("TokenInner", [InnerPage]))
+    const innerRuntime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(Inner))), "/inner")
     const Parent = layout("outer", "/outer", { component: () => h(Outlet) })
     const Leaf = Parent.route("leaf", "/leaf", {
-      component: () => h(Provider<typeof Inner>, { app: Inner, runtime: innerRuntime })
+      component: () => h(RouterProvider, { runtime: innerRuntime })
     })
-    const Outer = make("TokenOuter", [Leaf])
-    const runtime = Atom.runtime(Layer.fresh(Outer.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/leaf")))))
-    const container = mount(h(Provider<typeof Outer>, { app: Outer, runtime }))
+    const Outer = await Effect.runPromise(make("TokenOuter", [Leaf]))
+    const runtime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(Outer))), "/outer/leaf")
+    const container = mount(h(RouterProvider, { runtime }))
     await vi.waitFor(() => expect(container.textContent).toContain("Isolated inner"))
     expect(diagnosed).toBeInstanceOf(Router.RouteDefinitionError)
     if (!(diagnosed instanceof Router.RouteDefinitionError)) throw new Error("missing token diagnosis")
@@ -745,9 +902,9 @@ describe("Vue router adapter", { concurrent: false }, () => {
           return h("p", "Route error")
         }
       })
-      const App = make("NativeBoundary", [Page])
-      const runtime = Atom.runtime(Layer.fresh(App.layer.pipe(Layer.provide(MemoryHistory.layer("/page")))))
-      const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+      const App = await Effect.runPromise(make("NativeBoundary", [Page]))
+      const runtime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(App))), "/page")
+      const container = mount(h(RouterProvider, { runtime }))
       await vi.waitFor(() => expect(container.textContent).toContain("Reset application"))
       expect(routeErrors).toBe(0)
       expect(runs).toBe(1)
@@ -776,27 +933,24 @@ describe("Vue router adapter", { concurrent: false }, () => {
       const Endpoint = layouts
         ? InnerMiddle.route("endpoint", "/endpoint", { component: InnerPage })
         : route("endpoint", "/endpoint", { component: InnerPage })
-      const Inner = make("NestedInner", [Endpoint, Target])
+      const Inner = await Effect.runPromise(make("NestedInner", [Endpoint, Target]))
       const Navigation = makeNavigation<typeof Inner>()
-      const innerRuntime = Atom.runtime(
-        Layer.fresh(
-          Inner.layer.pipe(Layer.provide(MemoryHistory.layer(layouts ? "/inner/middle/endpoint" : "/endpoint")))
-        )
+      const innerRuntime = memoryRuntime(
+        Layer.fresh(Router.layer(Effect.succeed(Inner))),
+        layouts ? "/inner/middle/endpoint" : "/endpoint"
       )
       const OuterRoot = layout("outer", "/outer", { component: () => h(Outlet) })
       const OuterLeaf = OuterRoot.route("leaf", "/leaf", {
         component: defineComponent({
           setup() {
             outerService = useRouter(Outer)
-            return () => h(Provider<typeof Inner>, { app: Inner, runtime: innerRuntime })
+            return () => h(RouterProvider, { runtime: innerRuntime })
           }
         })
       })
-      const Outer = make("NestedOuter", [OuterLeaf])
-      const outerRuntime = Atom.runtime(
-        Layer.fresh(Outer.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/leaf"))))
-      )
-      const container = mount(h(Provider<typeof Outer>, { app: Outer, runtime: outerRuntime }))
+      const Outer = await Effect.runPromise(make("NestedOuter", [OuterLeaf]))
+      const outerRuntime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(Outer))), "/outer/leaf")
+      const container = mount(h(RouterProvider, { runtime: outerRuntime }))
       await vi.waitFor(() => expect(container.textContent).toContain("Inner endpoint"))
       if (layouts) {
         expect(container.textContent).toContain("Inner first")
@@ -849,9 +1003,9 @@ describe("Vue router adapter", { concurrent: false }, () => {
           return kind === "Link" ? h(Link, props, slots) : h(Navigate, props, slots)
         }
       })
-      const App = make("ReplaceDefaults", [Home, Target])
-      const runtime = Atom.runtime(Layer.fresh(App.layer.pipe(Layer.provide(historyLayer))))
-      const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+      const App = await Effect.runPromise(make("ReplaceDefaults", [Home, Target]))
+      const runtime = Atom.runtime(Layer.fresh(Router.layer(Effect.succeed(App)).pipe(Layer.provide(historyLayer))))
+      const container = mount(h(RouterProvider, { runtime }))
       if (kind === "Link") {
         await vi.waitFor(() => expect(container.querySelector("a")).not.toBeNull())
         container.querySelector("a")?.click()
@@ -893,14 +1047,14 @@ describe("Vue router adapter", { concurrent: false }, () => {
         }
       })
     })
-    const App = make("NativeInheritedHash", [Child, Index])
+    const App = await Effect.runPromise(make("NativeInheritedHash", [Child, Index]))
     for (const [url, text] of [
       ["/hash-parent/nested/child#7", "Child hash: 7"],
       ["/hash-parent/nested#8", "Index hash: 8"]
     ] as const) {
       // Vue's default registry is shared; isolate each intentionally independent history acquisition.
-      const runtime = Atom.runtime(Layer.fresh(App.layer.pipe(Layer.provide(MemoryHistory.layer(url)))))
-      const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+      const runtime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(App))), url)
+      const container = mount(h(RouterProvider, { runtime }))
       // oxlint-disable-next-line no-await-in-loop -- Mount each independent runtime sequentially to observe gate order.
       await settle()
       // oxlint-disable-next-line no-await-in-loop -- Flush the native renderer before inspecting this runtime.
@@ -912,9 +1066,9 @@ describe("Vue router adapter", { concurrent: false }, () => {
 
   it("renders pending then the native component and navigates through a link", async () => {
     const gate = Effect.runSync(Deferred.make<void>())
-    const App = buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" })))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/slow"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime, pending: SlowPending }))
+    const App = await Effect.runPromise(buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" }))))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)), "/slow")
+    const container = mount(h(RouterProvider, { runtime, pending: SlowPending }))
     await settle()
     expect(container.textContent).toContain("Preparing…")
     Effect.runSync(Deferred.succeed(gate, undefined))
@@ -923,9 +1077,9 @@ describe("Vue router adapter", { concurrent: false }, () => {
   })
 
   it("renders home and follows a typed link", async () => {
-    const App = buildApp(() => Effect.succeed({ title: "Ready" }))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const App = await Effect.runPromise(buildApp(() => Effect.succeed({ title: "Ready" })))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     expect(container.textContent).toContain("Home")
     expect(container.querySelector('[data-testid="slow-link"]')?.textContent).toBe("Slow")
@@ -939,9 +1093,9 @@ describe("Vue router adapter", { concurrent: false }, () => {
 
   it("keeps the retained branch while a different route is pending", async () => {
     const gate = Effect.runSync(Deferred.make<void>())
-    const App = buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" })))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const App = await Effect.runPromise(buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" }))))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     expect(container.textContent).toContain("Home")
     container.querySelector("a")?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
@@ -984,8 +1138,8 @@ describe("Vue router adapter", { concurrent: false }, () => {
           : Effect.void,
       component: Page
     })
-    const App = make("RetainedResources", [Item])
-    const runtime = Atom.runtime(Layer.fresh(App.layer.pipe(Layer.provide(MemoryHistory.layer("/items/1")))))
+    const App = await Effect.runPromise(make("RetainedResources", [Item]))
+    const runtime = memoryRuntime(Layer.fresh(Router.layer(Effect.succeed(App))), "/items/1")
     const resource = Atom.family((id: number) =>
       runtime.atom(
         Effect.sync(() => {
@@ -994,7 +1148,7 @@ describe("Vue router adapter", { concurrent: false }, () => {
         })
       )
     )
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const container = mount(h(RouterProvider, { runtime }))
     await vi.waitFor(() => expect(container.textContent).toContain("Input 1; Resource 1"))
     if (submit === undefined) throw new Error("missing navigation")
     const completed = submit()
@@ -1011,9 +1165,9 @@ describe("Vue router adapter", { concurrent: false }, () => {
   })
 
   it("keeps ancestor layouts around a nested route failure", async () => {
-    const App = buildApp(() => Effect.succeed({ title: "Ready" }))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/areas/7"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const App = await Effect.runPromise(buildApp(() => Effect.succeed({ title: "Ready" })))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)), "/areas/7")
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     await settle()
     expect(container.textContent).toContain("Areas layout")
@@ -1028,7 +1182,7 @@ describe("Vue router adapter", { concurrent: false }, () => {
       prepare: () => Effect.void,
       render: () => h("h1", "Foreign")
     })
-    const ForeignApp = make("Vue", [ForeignHome, ForeignSlow])
+    const ForeignApp = await Effect.runPromise(make("Vue", [ForeignHome, ForeignSlow]))
     const ForeignHookHome = defineComponent({
       name: "ForeignHookHome",
       setup() {
@@ -1040,12 +1194,14 @@ describe("Vue router adapter", { concurrent: false }, () => {
         return () => h("h1", "Leaked")
       }
     })
-    const App = make("Vue", [
-      route("home", "/", { component: ForeignHookHome }),
-      route("slow", "/slow", { prepare: () => Effect.void, render: () => h("h1", "Ready") })
-    ])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const App = await Effect.runPromise(
+      make("Vue", [
+        route("home", "/", { component: ForeignHookHome }),
+        route("slow", "/slow", { prepare: () => Effect.void, render: () => h("h1", "Ready") })
+      ])
+    )
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     await settle()
     expect(diagnosed).toBeInstanceOf(RouteDefinitionError)
@@ -1054,10 +1210,14 @@ describe("Vue router adapter", { concurrent: false }, () => {
 
   it("rejects headless and copied definitions at finalization", () => {
     const Leaf = route("leaf", "/leaf", { render: () => h("h1", "Leaf") })
-    expect(() => make("Vue", [Leaf])).not.toThrow()
-    expect(() => make("Vue", [{ ...(Leaf as object) } as never])).toThrow(RouteDefinitionError)
+    expect(Effect.runSyncExit(make("Vue", [Leaf]))._tag).toBe("Success")
     const headless = Router.route("headless", "/headless", { prepare: () => Effect.void })
-    expect(() => make("Vue", [headless as never])).toThrow(RouteDefinitionError)
+    for (const assembly of [make("Vue", [{ ...(Leaf as object) } as never]), make("Vue", [headless as never])]) {
+      expect(Effect.runSyncExit(assembly)).toMatchObject({
+        _tag: "Failure",
+        cause: { reasons: [{ _tag: "Die", defect: expect.any(RouteDefinitionError) as unknown }] }
+      })
+    }
   })
 
   it("carries an index hash through encode, decode, and the useRouteInput ref", async () => {
@@ -1075,9 +1235,9 @@ describe("Vue router adapter", { concurrent: false }, () => {
         }
       })
     })
-    const App = make("VueHash", [HashedIndex])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/hash-parent#deep"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const App = await Effect.runPromise(make("VueHash", [HashedIndex]))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)), "/hash-parent#deep")
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     expect(container.textContent).toContain("deep:deep")
   })
@@ -1100,10 +1260,10 @@ describe("Vue router adapter", { concurrent: false }, () => {
       prepare: () => Effect.void
     })
     const ProjectDetails = Project.route("details", "/details", { component: () => h("p", "Path details") })
-    const App = make("VuePath", [Home, ProjectsIndex, ProjectDetails])
+    const App = await Effect.runPromise(make("VuePath", [Home, ProjectsIndex, ProjectDetails]))
     appRef.Link = makeNavigation(App).Link as unknown as Component
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     expect(container.textContent).toContain("Path home")
     container
@@ -1142,10 +1302,10 @@ describe("Vue router adapter", { concurrent: false }, () => {
     })
     const Home = route("home", "/", { component: HomePage })
     const Target = route("target", "/target", { component: () => h("p", "Array target") })
-    const App = make("VueArray", [Home, Target])
+    const App = await Effect.runPromise(make("VueArray", [Home, Target]))
     appRef.Link = makeNavigation(App).Link as unknown as Component
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     expect(container.textContent).toContain("Array home")
     container
@@ -1187,10 +1347,10 @@ describe("Vue router adapter", { concurrent: false }, () => {
     })
     const Home = route("home", "/", { component: HomePage })
     const Target = route("target", "/target", { component: () => h("p", "Stop target") })
-    const App = make("VueStop", [Home, Target])
+    const App = await Effect.runPromise(make("VueStop", [Home, Target]))
     appRef.Link = makeNavigation(App).Link as unknown as Component
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     container
       .querySelector('a[href="/target"]')
@@ -1233,10 +1393,10 @@ describe("Vue router adapter", { concurrent: false }, () => {
     })
     const Home = route("home", "/", { component: HomePage })
     const Target = route("target", "/target", { component: () => h("p", "Propagation target") })
-    const App = make("VuePropagation", [Home, Target])
+    const App = await Effect.runPromise(make("VuePropagation", [Home, Target]))
     appRef.Link = makeNavigation(App).Link as unknown as Component
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mount(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mount(h(RouterProvider, { runtime }))
     await settle()
     container
       .querySelector('a[href="/target"]')
@@ -1277,10 +1437,10 @@ describe("Vue router adapter", { concurrent: false }, () => {
       error: () => h("p", { "data-testid": "home-boundary" }, "Home boundary")
     })
     const Target = route("target", "/target", { component: () => h("p", "Async target") })
-    const App = make("VueAsyncThrow", [Home, Target])
+    const App = await Effect.runPromise(make("VueAsyncThrow", [Home, Target]))
     appRef.Link = makeNavigation(App).Link as unknown as Component
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountWithBoundary(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mountWithBoundary(h(RouterProvider, { runtime }))
     await settle()
     container
       .querySelector('a[href="/target"]')
@@ -1324,10 +1484,10 @@ describe("Vue router adapter", { concurrent: false }, () => {
       error: () => h("p", { "data-testid": "home-boundary" }, "Home boundary")
     })
     const Target = route("target", "/target", { component: () => h("p", "Array throw target") })
-    const App = make("VueArrayThrow", [Home, Target])
+    const App = await Effect.runPromise(make("VueArrayThrow", [Home, Target]))
     appRef.Link = makeNavigation(App).Link as unknown as Component
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountWithBoundary(h(Provider<typeof App>, { app: App, runtime }))
+    const runtime = memoryRuntime(Router.layer(Effect.succeed(App)))
+    const container = mountWithBoundary(h(RouterProvider, { runtime }))
     await settle()
     container
       .querySelector('a[href="/target"]')

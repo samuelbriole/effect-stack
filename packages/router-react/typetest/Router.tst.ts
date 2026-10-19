@@ -2,6 +2,9 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import * as Scope from "effect/Scope"
+import * as Atom from "effect/reactivity/Atom"
+import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import type { ComponentProps, ReactNode } from "react"
 import { expect, test } from "tstyche"
 import type * as Router from "@effect-stack/router/Router"
@@ -23,7 +26,8 @@ const Project = Workspace.route("project", "/projects/:projectId", {
   prepare: () => Effect.fail(new Missing()),
   component: () => null
 })
-const App = make("React", [Home, Project])
+const assembly = make("React", [Home, Project])
+const App = Effect.runSync(assembly)
 test("inherited hash stays exact in native gates, hooks, index, and overrides", () => {
   const Parent = layout("inheritedHash", "/inherited-hash", { hash: ProjectId })
   const Nested = Parent.layout("nested", "/nested", {
@@ -64,6 +68,9 @@ test("inherited hash stays exact in native gates, hooks, index, and overrides", 
   expect(useRouteInput(Override)).type.toBe<Router.DecodedRouteInputOfDef<typeof Override>>()
 })
 test("useRouteInput is the sole decoded input hook and preserves exact inference", () => {
+  expect(assembly).type.toBe<Effect.Effect<Router.ApplicationOf<"React", readonly [typeof Home, typeof Project]>>>()
+  expect<Effect.Error<typeof assembly>>().type.toBe<never>()
+  expect<Effect.Services<typeof assembly>>().type.toBe<never>()
   expect(ReactRouter).type.not.toHaveProperty("useRoute")
   expect(useRouteInput(Project)).type.toBe<Router.DecodedRouteInputOfDef<typeof Project>>()
   expect(useRouteInput(Project).params).type.toBe<Router.ParamsOfDef<typeof Project>>()
@@ -78,10 +85,61 @@ test("supplied Layers carry natural startup errors", () => {
   const layer = App.layer.pipe(Layer.provide(Layer.effect(Dep, Effect.fail(new Startup()))))
   expect<Layer.Error<typeof layer>>().type.toBe<Startup | Router.History.HistoryError>()
 })
+test("native layer preserves assembly services, typed errors, and gate evidence while owning Scope", () => {
+  class AssemblyDependency extends Context.Service<AssemblyDependency, { readonly fail: boolean }>()(
+    "type/ReactAssemblyDependency"
+  ) {}
+  class Startup extends Schema.TaggedError<Startup>()("AssemblyStartup", {}) {}
+  const requiredAssembly = Effect.gen(function* () {
+    yield* Scope.Scope
+    const dependency = yield* AssemblyDependency
+    if (dependency.fail) return yield* Effect.fail(new Startup())
+    return yield* assembly
+  })
+  const selected = ReactRouter.layer(requiredAssembly)
+  expect<Layer.Services<typeof selected>>().type.toBe<AssemblyDependency | Dep | Router.History.History>()
+  expect<Layer.Error<typeof selected>>().type.toBe<Startup | Router.History.HistoryError>()
+  expect<Layer.Success<typeof selected>>().type.toBe<Router.RuntimeApplication>()
+})
+test("runtime-only providers retain layer requirements and startup errors", () => {
+  const selected = ReactRouter.layer(assembly)
+  expect<Layer.Services<typeof selected>>().type.toBe<Dep | Router.History.History>()
+  expect<Layer.Error<typeof selected>>().type.toBe<Router.History.HistoryError>()
+  const live = selected.pipe(Layer.provide(Layer.merge(MemoryHistory.layer(), Layer.succeed(Dep, {}))))
+  const runtime = Atom.runtime(live)
+  expect(ReactRouter.RouterProvider).type.toBeCallableWith({ runtime })
+  expect(ReactRouter.RouterProvider).type.not.toBeCallableWith({
+    runtime: Atom.runtime(Layer.empty)
+  })
+  expect(ReactRouter.RouterProvider).type.not.toBeCallableWith({
+    runtime: Atom.runtime(App.layer.pipe(Layer.provide(Layer.merge(MemoryHistory.layer(), Layer.succeed(Dep, {})))))
+  })
+  expect(ReactRouter).type.not.toHaveProperty("Provider")
+  expect<keyof ReactRouter.RouterProviderProps<Router.RuntimeApplication, never>>().type.toBe<"runtime" | "pending">()
+  class Startup extends Schema.TaggedError<Startup>()("Startup", {}) {}
+  const startup = selected.pipe(
+    Layer.provideMerge(Layer.merge(MemoryHistory.layer(), Layer.effect(Dep, Effect.fail(new Startup()))))
+  )
+  expect(ReactRouter.RouterProvider).type.toBeCallableWith({ runtime: Atom.runtime(startup) })
+  expect<Layer.Success<typeof selected>>().type.toBe<Router.RuntimeApplication>()
+  const navigation = makeNavigation<Effect.Success<typeof assembly>>()
+  expect(navigation.useNavigateEffect()).type.toBe<
+    (
+      target: Router.NavigateTarget<typeof App.routes>,
+      options?: Router.NavigateOptions
+    ) => Effect.Effect<Router.NavigationOutcome, Router.NavigationError<Missing>>
+  >()
+  expect<ReturnType<typeof navigation.useNavigate>>().type.toBe<
+    (
+      target: Router.NavigateTarget<typeof App.routes>,
+      options?: Router.NavigateOptions
+    ) => Promise<Router.NavigationOutcome>
+  >()
+})
 test("index hash stays exact through useRouteInput", () => {
   const Parent = layout("hash", "/hash", { component: () => null })
   const Index = Parent.index({ hash: Schema.String, component: () => null })
-  const HashApp = make("Hash", [Index])
+  const HashApp = Effect.runSync(make("Hash", [Index]))
   expect<Router.RoutesOf<typeof HashApp>>().type.toBe<readonly [typeof Index]>()
   expect(useRouteInput(Index).hash).type.toBe<string>()
   expect(Index.to).type.toBeCallableWith({ hash: "deep" })

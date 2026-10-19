@@ -18,28 +18,15 @@
  *
  * @since 0.4.0
  */
-import {
-  collectSelection,
-  defineLayout,
-  defineRoute,
-  type AnyDefinitionShape,
-  type DefinitionFactory
-} from "./internal/definition.ts"
+import type * as Effect from "effect/Effect"
+import { defineLayout, defineRoute, type AnyDefinitionShape, type DefinitionFactory } from "./internal/definition.ts"
 import { applicationRuntime, makeApplication } from "./internal/application.ts"
 import type { ApplicationOf } from "./Router.ts"
-import type { SelectionError, SelectionRequirements } from "./internal/gates.ts"
 import { RouteDefinitionError } from "./internal/errors.ts"
 export { resolveNavigationTarget } from "./internal/destinations.ts"
 
 /** The renderer-specific facts a `makeDefinitionEngine` call needs. @since 0.4.0 */
-export interface AdapterSpec<Presentation> {
-  /** A human-readable renderer name used only in diagnostics. @since 0.4.0 */
-  readonly renderer: string
-  /** Normalizes native options into an opaque presentation snapshot. @since 0.4.0 */
-  readonly normalize: (options: unknown) => Presentation
-  /** Whether a snapshot carries no presentation. @since 0.4.0 */
-  readonly isEmpty: (presentation: Presentation) => boolean
-}
+export type AdapterSpec<Presentation> = Omit<DefinitionFactory<Presentation>, "requiresPresentation">
 
 /**
  * A neutral definition engine for one renderer. Every method creates a
@@ -79,7 +66,7 @@ export const makeDefinitionEngine = <Presentation>(spec: AdapterSpec<Presentatio
 }
 
 /**
- * Finalizes a native application from an inline selection of definitions:
+ * Lazily finalizes a fresh native application from a selection of definitions:
  * validates endpoint coverage and renderer ownership, derives the canonical
  * nodes, and assembles the core application and presentation map.
  *
@@ -98,21 +85,7 @@ export const finishApplication = <
   engine: DefinitionEngine<Presentation>,
   appId: AppId,
   definitions: Defs
-): ApplicationOf<AppId, Defs> => {
-  const selection = collectSelection(
-    definitions,
-    engine.factory.requiresPresentation,
-    engine.factory.isEmpty as (presentation: unknown) => boolean,
-    engine.factory
-  )
-  return makeApplication<AppId, Defs, SelectionError<Defs>, SelectionRequirements<Defs>>(
-    appId,
-    definitions,
-    selection.nodes,
-    selection.inputs,
-    { factory: engine.factory, views: selection.presentations }
-  )
-}
+): Effect.Effect<ApplicationOf<AppId, Defs>> => makeApplication(appId, definitions, engine.factory)
 
 /** Reads native presentation registered by this exact engine. @since 0.4.0 */
 export const getApplicationViews = <Presentation>(
@@ -120,7 +93,7 @@ export const getApplicationViews = <Presentation>(
   app: unknown
 ): ReadonlyMap<string, Presentation> => {
   const runtime = applicationRuntime(app)
-  if (runtime?.views === undefined || runtime.presentationFactory !== engine.factory) {
+  if (runtime?.factory !== engine.factory) {
     throw new RouteDefinitionError({ message: "Application does not belong to this presentation engine" })
   }
   // Assembly stores only presentations normalized by this exact factory.

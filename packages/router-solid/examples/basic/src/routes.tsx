@@ -1,4 +1,4 @@
-import { Outlet, layout, make, route, useRouteInput } from "@effect-stack/router-solid"
+import { Outlet, layout, layer, make, route, useRouteInput } from "@effect-stack/router-solid"
 import { useAtomValue, useAtomRefresh, useAtomResource } from "@effect/atom-solid"
 import { Atom, AsyncResult } from "effect/reactivity"
 import { ErrorBoundary, Suspense } from "solid-js"
@@ -113,12 +113,14 @@ export const Slow = route("slow", "/slow", {
   component: SlowPage
 })
 
-/** The canonical selected application. @since 0.4.0 */
-export const Application = make("Example", [Home, ProjectIndex, ProjectDetails, Slow])
+/** Runtime-owned application assembly. @since 0.4.0 */
+export const assembly = make("Example", [Home, ProjectIndex, ProjectDetails, Slow])
+/** The navigation witness type. @since 0.4.0 */
+export type Application = Effect.Success<typeof assembly>
 
 /** One service context for navigation gates and application resources. @since 0.4.0 */
 export const runtime = Atom.runtime(
-  Application.layer.pipe(Layer.provideMerge(Layer.merge(BrowserHistory.layer, demoProjectsLayer)))
+  layer(assembly).pipe(Layer.provideMerge(Layer.merge(BrowserHistory.layer, demoProjectsLayer)))
 )
 
 /** Application-owned resources using the shared runtime. @since 0.4.0 */

@@ -101,13 +101,7 @@ const encodeUriPart = (
 const asyncDecodeMessage = "Schema codecs must decode synchronously; this codec requires asynchronous decoding"
 const asyncEncodeMessage = "Schema codecs must encode synchronously; this codec requires asynchronous encoding"
 
-/**
- * Effect's synchronous schema adapters throw a plain `Error` whose `cause` is
- * the underlying `Cause` when the schema cannot be evaluated synchronously
- * (for example an asynchronous transformation). Detecting that specific defect
- * lets the URL layer convert it into a typed failure while preserving every
- * unrelated defect.
- */
+/** Only asynchronous evaluation defects become typed URL failures. */
 const isAsyncFiberFailure = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false
   const cause = error.cause
@@ -115,46 +109,25 @@ const isAsyncFiberFailure = (error: unknown): boolean => {
   return cause.reasons.some((reason) => Cause.isDieReason(reason) && Cause.isAsyncFiberError(reason.defect))
 }
 
-const decodeSync = <A, Err>(
+const codecSync = <A, Err>(
   run: () => Result.Result<A, Schema.SchemaError>,
   failure: (message: string) => Err,
   asyncMessage: string
 ): Result.Result<A, Err> => {
   try {
-    const decoded = run()
-    return Result.isFailure(decoded) ? Result.fail(failure(decoded.failure.message)) : Result.succeed(decoded.success)
+    return Result.mapError(run(), (error) => failure(error.message))
   } catch (error) {
     if (isAsyncFiberFailure(error)) return Result.fail(failure(asyncMessage))
     throw error
   }
 }
 
-const encodeSync = <A, Err>(
-  run: () => Result.Result<A, Schema.SchemaError>,
-  failure: (message: string) => Err,
-  asyncMessage: string
-): Result.Result<A, Err> => {
-  try {
-    const encoded = run()
-    return Result.isFailure(encoded) ? Result.fail(failure(encoded.failure.message)) : Result.succeed(encoded.success)
-  } catch (error) {
-    if (isAsyncFiberFailure(error)) return Result.fail(failure(asyncMessage))
-    throw error
-  }
-}
-
-/**
- * Whether a value decodes as a scalar. A synchronous decode failure is a plain
- * `false`; an asynchronous defect is surfaced as the caller's typed failure.
- */
-const probeDecode = <Err>(codec: UrlCodec, value: unknown, onAsync: () => Err): Result.Result<boolean, Err> => {
-  try {
-    return Result.succeed(Result.isSuccess(Schema.decodeUnknownResult(codec)(value)))
-  } catch (error) {
-    if (isAsyncFiberFailure(error)) return Result.fail(onAsync())
-    throw error
-  }
-}
+const probeDecode = <Err>(codec: UrlCodec, value: unknown, onAsync: () => Err): Result.Result<boolean, Err> =>
+  codecSync(
+    () => Result.succeed(Result.isSuccess(Schema.decodeUnknownResult(codec)(value))),
+    onAsync,
+    asyncDecodeMessage
+  )
 
 const rawSearch = (search: string): Readonly<Record<string, unknown>> => {
   const values = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
@@ -165,27 +138,27 @@ const normalizeSearch = (
   routeId: string,
   fields: UrlFields,
   input: Readonly<Record<string, unknown>>
-): Result.Result<Readonly<Record<string, unknown>>, RouteDecodeError> => {
-  const output: Record<string, unknown> = {}
-  for (const key of Object.keys(fields)) {
-    const value = input[key]
-    if (value === undefined) continue
-    const codec = fields[key]
-    if (codec === undefined) continue
-    if (typeof value === "string") {
-      const scalar = probeDecode(
-        codec,
-        value,
-        () => new RouteDecodeError({ routeId, part: "search", input: value, message: asyncDecodeMessage })
-      )
-      if (Result.isFailure(scalar)) return Result.fail(scalar.failure)
-      output[key] = scalar.success ? value : [value]
-    } else {
-      output[key] = value
+): Result.Result<Readonly<Record<string, unknown>>, RouteDecodeError> =>
+  Result.gen(function* () {
+    const output: Record<string, unknown> = {}
+    for (const key of Object.keys(fields)) {
+      const value = input[key]
+      if (value === undefined) continue
+      const codec = fields[key]
+      if (codec === undefined) continue
+      if (typeof value === "string") {
+        const scalar = yield* probeDecode(
+          codec,
+          value,
+          () => new RouteDecodeError({ routeId, part: "search", input: value, message: asyncDecodeMessage })
+        )
+        output[key] = scalar ? value : [value]
+      } else {
+        output[key] = value
+      }
     }
-  }
-  return Result.succeed(output)
-}
+    return output
+  })
 
 /**
  * Matches and decodes one node against a URL. A different path is `None`;
@@ -194,147 +167,122 @@ const normalizeSearch = (
  * @since 0.4.0
  * @category matching
  */
-export const match = (node: UrlCodecs, url: UrlParts): Result.Result<Option.Option<DecodedMatch>, RouteDecodeError> => {
-  const expected = pathSegments(node.path)
-  const actual = pathSegments(url.pathname)
-  if (expected.length !== actual.length) {
-    return Result.succeed(Option.none())
-  }
-
-  const encodedParams: Record<string, string> = {}
-  for (let index = 0; index < expected.length; index++) {
-    const expectedSegment = expected[index]
-    const actualSegment = actual[index]
-    if (expectedSegment === undefined || actualSegment === undefined) {
-      return Result.succeed(Option.none())
+export const match = (node: UrlCodecs, url: UrlParts): Result.Result<Option.Option<DecodedMatch>, RouteDecodeError> =>
+  Result.gen(function* () {
+    const expected = pathSegments(node.path)
+    const actual = pathSegments(url.pathname)
+    if (expected.length !== actual.length) {
+      return Option.none()
     }
-    const decoded = decodeUriPart(node.id, "path", actualSegment)
-    if (Result.isFailure(decoded)) return Result.fail(decoded.failure)
-    if (expectedSegment.startsWith(":")) {
-      encodedParams[expectedSegment.slice(1)] = decoded.success
-    } else if (expectedSegment !== decoded.success) {
-      return Result.succeed(Option.none())
+
+    const encodedParams: Record<string, string> = {}
+    for (let index = 0; index < expected.length; index++) {
+      const expectedSegment = expected[index]
+      const actualSegment = actual[index]
+      if (expectedSegment === undefined || actualSegment === undefined) {
+        return Option.none()
+      }
+      const decoded = yield* decodeUriPart(node.id, "path", actualSegment)
+      if (expectedSegment.startsWith(":")) {
+        encodedParams[expectedSegment.slice(1)] = decoded
+      } else if (expectedSegment !== decoded) {
+        return Option.none()
+      }
     }
-  }
 
-  const params = decodeSync(
-    () => Schema.decodeUnknownResult(node.paramsSchema)(encodedParams),
-    (message) => new RouteDecodeError({ routeId: node.id, part: "path", input: url.pathname, message }),
-    asyncDecodeMessage
-  )
-  if (Result.isFailure(params)) {
-    return Result.fail(params.failure)
-  }
-
-  const normalizedSearch = normalizeSearch(node.id, node.searchSchema.fields, rawSearch(url.search))
-  if (Result.isFailure(normalizedSearch)) {
-    return Result.fail(normalizedSearch.failure)
-  }
-  const search = decodeSync(
-    () => Schema.decodeUnknownResult(node.searchSchema)(normalizedSearch.success),
-    (message) => new RouteDecodeError({ routeId: node.id, part: "search", input: url.search, message }),
-    asyncDecodeMessage
-  )
-  if (Result.isFailure(search)) {
-    return Result.fail(search.failure)
-  }
-
-  let hash: unknown = undefined
-  const hashSchema = node.hashSchema
-  if (hashSchema !== undefined) {
-    // Absence of a fragment is validated as `undefined` by the declared schema,
-    // symmetric with encoding: required schemas reject a missing fragment while
-    // optional/undefined schemas accept it.
-    let raw: unknown = undefined
-    if (url.hash.length > 0) {
-      const encodedHash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash
-      const decodedHash = decodeUriPart(node.id, "hash", encodedHash)
-      if (Result.isFailure(decodedHash)) return Result.fail(decodedHash.failure)
-      raw = decodedHash.success
-    }
-    const decoded = decodeSync(
-      () => Schema.decodeUnknownResult(hashSchema)(raw),
-      (message) => new RouteDecodeError({ routeId: node.id, part: "hash", input: url.hash, message }),
+    const params = yield* codecSync(
+      () => Schema.decodeUnknownResult(node.paramsSchema)(encodedParams),
+      (message) => new RouteDecodeError({ routeId: node.id, part: "path", input: url.pathname, message }),
       asyncDecodeMessage
     )
-    if (Result.isFailure(decoded)) {
-      return Result.fail(decoded.failure)
-    }
-    hash = decoded.success
-  }
-
-  return Result.succeed(Option.some({ params: params.success, search: search.success, hash }))
-}
-
-const encodeSearch = (routeId: string, fields: UrlFields, value: unknown): Result.Result<string, RouteEncodeError> => {
-  if (!Predicate.isObject(value)) {
-    return Result.fail(
-      new RouteEncodeError({ routeId, part: "search", message: "The encoded search value must be an object" })
+    const normalizedSearch = yield* normalizeSearch(node.id, node.searchSchema.fields, rawSearch(url.search))
+    const search = yield* codecSync(
+      () => Schema.decodeUnknownResult(node.searchSchema)(normalizedSearch),
+      (message) => new RouteDecodeError({ routeId: node.id, part: "search", input: url.search, message }),
+      asyncDecodeMessage
     )
-  }
-  const params: Array<readonly [string, string]> = []
-  for (const key of Object.keys(value).sort()) {
-    if (Result.isFailure(encodeUriPart(routeId, "search", key))) {
-      return Result.fail(
-        new RouteEncodeError({ routeId, part: "search", message: "Search field name contains invalid Unicode" })
+    let hash: unknown = undefined
+    const hashSchema = node.hashSchema
+    if (hashSchema !== undefined) {
+      let raw: unknown = undefined
+      if (url.hash.length > 0) {
+        const encodedHash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash
+        raw = yield* decodeUriPart(node.id, "hash", encodedHash)
+      }
+      hash = yield* codecSync(
+        () => Schema.decodeUnknownResult(hashSchema)(raw),
+        (message) => new RouteDecodeError({ routeId: node.id, part: "hash", input: url.hash, message }),
+        asyncDecodeMessage
       )
     }
-    const item = value[key]
-    if (item === undefined) continue
-    if (typeof item === "string") {
-      if (Result.isFailure(encodeUriPart(routeId, "search", item))) {
-        return Result.fail(
-          new RouteEncodeError({ routeId, part: "search", message: `Search field ${key} contains invalid Unicode` })
-        )
-      }
-      params.push([key, item])
-      continue
+
+    return Option.some({ params, search, hash })
+  })
+
+const encodeSearch = (routeId: string, fields: UrlFields, value: unknown): Result.Result<string, RouteEncodeError> =>
+  Result.gen(function* () {
+    if (!Predicate.isObject(value)) {
+      return yield* Result.fail(
+        new RouteEncodeError({ routeId, part: "search", message: "The encoded search value must be an object" })
+      )
     }
-    if (Array.isArray(item) && item.every((entry) => typeof entry === "string")) {
-      if (item.length === 0) {
-        return Result.fail(
-          new RouteEncodeError({ routeId, part: "search", message: `Search field ${key} cannot encode an empty array` })
+    const params: Array<readonly [string, string]> = []
+    for (const key of Object.keys(value).sort()) {
+      yield* Result.mapError(
+        encodeUriPart(routeId, "search", key),
+        () => new RouteEncodeError({ routeId, part: "search", message: "Search field name contains invalid Unicode" })
+      )
+      const item = value[key]
+      if (item === undefined) continue
+      if (typeof item !== "string" && !(Array.isArray(item) && item.every((entry) => typeof entry === "string"))) {
+        return yield* Result.fail(
+          new RouteEncodeError({
+            routeId,
+            part: "search",
+            message: `Search field ${key} must encode to a string or an array of strings`
+          })
         )
       }
-      const codec = fields[key]
-      if (item.length === 1 && codec !== undefined) {
-        const scalar = probeDecode(
-          codec,
-          item[0],
-          () => new RouteEncodeError({ routeId, part: "search", message: asyncDecodeMessage })
-        )
-        if (Result.isFailure(scalar)) return Result.fail(scalar.failure)
-        if (scalar.success) {
-          return Result.fail(
+      if (Array.isArray(item)) {
+        if (item.length === 0) {
+          return yield* Result.fail(
             new RouteEncodeError({
               routeId,
               part: "search",
-              message: `Search field ${key} cannot distinguish a singleton array from a scalar value`
+              message: `Search field ${key} cannot encode an empty array`
             })
           )
         }
-      }
-      for (const entry of item) {
-        if (Result.isFailure(encodeUriPart(routeId, "search", entry))) {
-          return Result.fail(
-            new RouteEncodeError({ routeId, part: "search", message: `Search field ${key} contains invalid Unicode` })
+        const codec = fields[key]
+        if (item.length === 1 && codec !== undefined) {
+          const scalar = yield* probeDecode(
+            codec,
+            item[0],
+            () => new RouteEncodeError({ routeId, part: "search", message: asyncDecodeMessage })
           )
+          if (scalar) {
+            return yield* Result.fail(
+              new RouteEncodeError({
+                routeId,
+                part: "search",
+                message: `Search field ${key} cannot distinguish a singleton array from a scalar value`
+              })
+            )
+          }
         }
+      }
+      for (const entry of typeof item === "string" ? [item] : item) {
+        yield* Result.mapError(
+          encodeUriPart(routeId, "search", entry),
+          () =>
+            new RouteEncodeError({ routeId, part: "search", message: `Search field ${key} contains invalid Unicode` })
+        )
         params.push([key, entry])
       }
-      continue
     }
-    return Result.fail(
-      new RouteEncodeError({
-        routeId,
-        part: "search",
-        message: `Search field ${key} must encode to a string or an array of strings`
-      })
-    )
-  }
-  const encoded = UrlParams.toString(UrlParams.make(params))
-  return Result.succeed(encoded.length === 0 ? "" : `?${encoded}`)
-}
+    const encoded = UrlParams.toString(UrlParams.make(params))
+    return encoded.length === 0 ? "" : `?${encoded}`
+  })
 
 /**
  * Encodes typed node input into a canonical href.
@@ -345,117 +293,102 @@ const encodeSearch = (routeId: string, fields: UrlFields, value: unknown): Resul
 export const encode = (
   node: UrlCodecs,
   input: { readonly params: unknown; readonly search: unknown; readonly hash: unknown }
-): Result.Result<string, RouteEncodeError> => {
-  const encodedParams = encodeSync(
-    () => Schema.encodeResult(node.paramsSchema)(input.params as Record<string, unknown>),
-    (message) => new RouteEncodeError({ routeId: node.id, part: "path", message }),
-    asyncEncodeMessage
-  )
-  if (Result.isFailure(encodedParams)) {
-    return Result.fail(encodedParams.failure)
-  }
-  if (!Predicate.isObject(encodedParams.success)) {
-    return Result.fail(
-      new RouteEncodeError({ routeId: node.id, part: "path", message: "The encoded path parameters must be an object" })
-    )
-  }
-  const pathnameSegments: Array<string> = []
-  for (const segment of pathSegments(node.path)) {
-    const key = segment.startsWith(":") ? segment.slice(1) : undefined
-    const value = key === undefined ? segment : encodedParams.success[key]
-    if (typeof value !== "string") {
-      return Result.fail(
-        new RouteEncodeError({
-          routeId: node.id,
-          part: "path",
-          message: `Path parameter ${key ?? segment} must encode to a string`
-        })
-      )
-    }
-    if (key !== undefined && (value === "." || value === "..")) {
-      return Result.fail(
-        new RouteEncodeError({
-          routeId: node.id,
-          part: "path",
-          message: `Path parameter ${key} cannot be a dot segment`
-        })
-      )
-    }
-    const encoded = encodeUriPart(node.id, "path", value)
-    if (Result.isFailure(encoded)) return encoded
-    if (key !== undefined && encoded.success.length === 0) {
-      return Result.fail(
-        new RouteEncodeError({
-          routeId: node.id,
-          part: "path",
-          message: `Path parameter ${key} cannot encode to an empty segment`
-        })
-      )
-    }
-    pathnameSegments.push(encoded.success)
-  }
-  const pathname = pathnameSegments.length === 0 ? "/" : `/${pathnameSegments.join("/")}`
-  // A canonical internal path is exactly one leading slash. An empty segment
-  // would produce a protocol-relative `//host` href that native `new URL`
-  // resolves to an external origin.
-  if (pathname !== "/" && (pathname.startsWith("//") || !pathname.startsWith("/"))) {
-    return Result.fail(
-      new RouteEncodeError({
-        routeId: node.id,
-        part: "path",
-        message: "The encoded path is not a canonical internal path"
-      })
-    )
-  }
-
-  const encodedSearchValue = encodeSync(
-    () => Schema.encodeResult(node.searchSchema)(input.search as Record<string, unknown>),
-    (message) => new RouteEncodeError({ routeId: node.id, part: "search", message }),
-    asyncEncodeMessage
-  )
-  if (Result.isFailure(encodedSearchValue)) {
-    return Result.fail(encodedSearchValue.failure)
-  }
-  const search = encodeSearch(node.id, node.searchSchema.fields, encodedSearchValue.success)
-  if (Result.isFailure(search)) return search
-
-  let hash = ""
-  const hashSchema = node.hashSchema
-  if (hashSchema !== undefined) {
-    // A declared hash schema always validates the value, including `undefined`:
-    // a required schema rejects an absent fragment, while an optional/undefined
-    // schema accepts it. This keeps the encoded href decodable by the same node.
-    const encodedHashValue = encodeSync(
-      () => Schema.encodeResult(hashSchema)(input.hash),
-      (message) => new RouteEncodeError({ routeId: node.id, part: "hash", message }),
+): Result.Result<string, RouteEncodeError> =>
+  Result.gen(function* () {
+    const encodedParams = yield* codecSync(
+      () => Schema.encodeUnknownResult(node.paramsSchema)(input.params),
+      (message) => new RouteEncodeError({ routeId: node.id, part: "path", message }),
       asyncEncodeMessage
     )
-    if (Result.isFailure(encodedHashValue)) {
-      return Result.fail(encodedHashValue.failure)
+    if (!Predicate.isObject(encodedParams)) {
+      return yield* Result.fail(
+        new RouteEncodeError({
+          routeId: node.id,
+          part: "path",
+          message: "The encoded path parameters must be an object"
+        })
+      )
     }
-    if (encodedHashValue.success !== undefined) {
-      if (typeof encodedHashValue.success !== "string") {
-        return Result.fail(
-          new RouteEncodeError({ routeId: node.id, part: "hash", message: "Hash must encode to a string" })
-        )
-      }
-      const encodedHash = encodeUriPart(node.id, "hash", encodedHashValue.success)
-      if (Result.isFailure(encodedHash)) return encodedHash
-      // An empty fragment is indistinguishable from an absent fragment on
-      // decode, so an empty encoded hash is unrepresentable. A schema that
-      // permits `undefined` represents absence; an actual empty string (or a
-      // transformation producing one) is rejected instead of silently lost.
-      if (encodedHash.success.length === 0) {
-        return Result.fail(
+    const pathnameSegments: Array<string> = []
+    for (const segment of pathSegments(node.path)) {
+      const key = segment.startsWith(":") ? segment.slice(1) : undefined
+      const value = key === undefined ? segment : encodedParams[key]
+      if (typeof value !== "string") {
+        return yield* Result.fail(
           new RouteEncodeError({
             routeId: node.id,
-            part: "hash",
-            message: "A declared hash cannot encode to an empty fragment"
+            part: "path",
+            message: `Path parameter ${key ?? segment} must encode to a string`
           })
         )
       }
-      hash = `#${encodedHash.success}`
+      if (key !== undefined && (value === "." || value === "..")) {
+        return yield* Result.fail(
+          new RouteEncodeError({
+            routeId: node.id,
+            part: "path",
+            message: `Path parameter ${key} cannot be a dot segment`
+          })
+        )
+      }
+      const encoded = yield* encodeUriPart(node.id, "path", value)
+      if (key !== undefined && encoded.length === 0) {
+        return yield* Result.fail(
+          new RouteEncodeError({
+            routeId: node.id,
+            part: "path",
+            message: `Path parameter ${key} cannot encode to an empty segment`
+          })
+        )
+      }
+      pathnameSegments.push(encoded)
     }
-  }
-  return Result.succeed(`${pathname}${search.success}${hash}`)
-}
+    const pathname = pathnameSegments.length === 0 ? "/" : `/${pathnameSegments.join("/")}`
+    // A protocol-relative href would resolve to an external origin.
+    if (pathname !== "/" && (pathname.startsWith("//") || !pathname.startsWith("/"))) {
+      return yield* Result.fail(
+        new RouteEncodeError({
+          routeId: node.id,
+          part: "path",
+          message: "The encoded path is not a canonical internal path"
+        })
+      )
+    }
+
+    const encodedSearchValue = yield* codecSync(
+      () => Schema.encodeUnknownResult(node.searchSchema)(input.search),
+      (message) => new RouteEncodeError({ routeId: node.id, part: "search", message }),
+      asyncEncodeMessage
+    )
+    const search = yield* encodeSearch(node.id, node.searchSchema.fields, encodedSearchValue)
+
+    let hash = ""
+    const hashSchema = node.hashSchema
+    if (hashSchema !== undefined) {
+      const encodedHashValue = yield* codecSync(
+        () => Schema.encodeUnknownResult(hashSchema)(input.hash),
+        (message) => new RouteEncodeError({ routeId: node.id, part: "hash", message }),
+        asyncEncodeMessage
+      )
+      if (encodedHashValue !== undefined) {
+        if (typeof encodedHashValue !== "string") {
+          return yield* Result.fail(
+            new RouteEncodeError({ routeId: node.id, part: "hash", message: "Hash must encode to a string" })
+          )
+        }
+        const encodedHash = yield* encodeUriPart(node.id, "hash", encodedHashValue)
+        // Empty fragments cannot be distinguished from absent fragments.
+        if (encodedHash.length === 0) {
+          return yield* Result.fail(
+            new RouteEncodeError({
+              routeId: node.id,
+              part: "hash",
+              message: "A declared hash cannot encode to an empty fragment"
+            })
+          )
+        }
+        hash = `#${encodedHash}`
+      }
+    }
+    return `${pathname}${search}${hash}`
+  })

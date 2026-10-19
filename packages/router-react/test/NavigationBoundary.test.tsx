@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer"
 import { RegistryProvider } from "@effect/atom-react"
 import { MemoryHistory } from "@effect-stack/router"
 import * as Router from "@effect-stack/router/Router"
-import { Provider } from "@effect-stack/router-react"
+import { RouterProvider } from "@effect-stack/router-react"
 import { Atom } from "effect/reactivity"
 import * as React from "react"
 import { createRoot } from "react-dom/client"
@@ -22,7 +22,7 @@ afterEach(() => {
 })
 
 const mountAt = <Id extends string, Routes>(app: Router.CoreApplication<Id, Routes, never, never>, href: string) => {
-  const runtime = Atom.runtime(app.layer.pipe(Layer.provide(MemoryHistory.layer(href))))
+  const runtime = Atom.runtime(Router.layer(Effect.succeed(app)).pipe(Layer.provide(MemoryHistory.layer(href))))
   const container = document.createElement("div")
   document.body.append(container)
   const root = createRoot(container)
@@ -33,7 +33,7 @@ const mountAt = <Id extends string, Routes>(app: Router.CoreApplication<Id, Rout
   React.act(() => {
     root.render(
       <RegistryProvider>
-        <Provider app={app} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryProvider>
     )
   })

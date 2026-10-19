@@ -8,7 +8,8 @@ export {
   type Route,
   type RouteConstructor
 } from "./internal/route.ts"
-export { make, Provider, type ProviderProps } from "./internal/application.tsx"
+export { make, RouterProvider, type RouterProviderProps } from "./internal/application.tsx"
+export { layer } from "@effect-stack/router/Router"
 export { useRouteInput, useRouter, useRouterState } from "./internal/hooks.ts"
 export {
   Link,

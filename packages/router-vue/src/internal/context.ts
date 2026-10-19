@@ -52,7 +52,8 @@ export function useRouterService(app?: { readonly token: object }): () => Router
   const result = useAtomValue(() => context.atomRouter.service)
   return () => {
     void context.atomRouter
-    if (!AsyncResult.isSuccess(result.value)) throw new Error("Router service is not available yet")
+    if (!AsyncResult.isSuccess(result.value) || result.value.waiting)
+      throw new Error("Router service is not available yet")
     return result.value.value as unknown as RouterService<unknown>
   }
 }

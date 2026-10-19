@@ -19,20 +19,19 @@ const Project = Router.layout("project", "/projects/:projectId", {
   params: { projectId: Schema.FiniteFromString }
 })
 const Index = Project.index()
-const App = Router.make("Example", [Home, Index])
-
 await Effect.runPromise(
   Effect.gen(function* () {
-    const router = yield* App.service
-    yield* router.navigate(Index.to({ params: { projectId: 42 } }))
-    return yield* router.state
-  }).pipe(Effect.provide(App.layer.pipe(Layer.provide(MemoryHistory.layer("/")))))
+    const App = yield* Router.make("Example", [Home, Index])
+    return yield* Effect.gen(function* () {
+      const router = yield* App.service
+      yield* router.navigate(Index.to({ params: { projectId: 42 } }))
+      return yield* router.state
+    }).pipe(Effect.provide(App.layer.pipe(Layer.provide(MemoryHistory.layer("/")))))
+  })
 )
 ```
 
-No renderer or Atom registry is required for headless navigation. Child constructors inherit exact decoded
-params/search and carry the actual typed parent. Hash schemas inherit unless overridden; ancestor schemas still validate. Layouts are not navigable endpoints;
-`parent.index(options)` is shorthand for `parent.route("index", "/", options)` at the parent's path.
+Headless navigation needs neither a renderer nor an Atom registry.
 
 ## React with one application runtime
 
@@ -40,7 +39,7 @@ params/search and carry the actual typed parent. Hash schemas inherit unless ove
 import { Context, Effect, Layer, Schema } from "effect"
 import { Atom, AsyncResult } from "effect/reactivity"
 import { RegistryProvider, useAtomValue, useAtomRefresh } from "@effect/atom-react"
-import { make, Provider, route, useRouteInput } from "@effect-stack/router-react"
+import { layer, make, RouterProvider, route, useRouteInput } from "@effect-stack/router-react"
 import * as BrowserHistory from "@effect-stack/router/BrowserHistory"
 import type { ReactNode } from "react"
 
@@ -69,39 +68,33 @@ function ProjectPage(): ReactNode {
     </section>
   )
 }
-export const Application = make("Example", [Project])
+const assembly = make("Example", [Project])
+export type Application = Effect.Success<typeof assembly>
 const services = Layer.merge(BrowserHistory.layer, domainLayer)
-const runtime = Atom.runtime(Application.layer.pipe(Layer.provideMerge(services)))
+const runtime = Atom.runtime(layer(assembly).pipe(Layer.provideMerge(services)))
 const projectResource = Atom.family((id: typeof ProjectId.Type) =>
   runtime.atom(Projects.use((projects) => projects.get(id)))
 )
 export const App = () => (
   <RegistryProvider>
-    <Provider app={Application} runtime={runtime} />
+    <RouterProvider runtime={runtime} />
   </RegistryProvider>
 )
 ```
 
-The same runtime supplies navigation gates and resource atoms. `Layer.provideMerge` supplies the router's requirements
-while exposing the domain services to atoms. Data remains application-owned: cancelling a gate does not cancel an
-independently subscribed resource, and router retry does not refresh it. Separate runtimes remain an option when service
-lifetimes or Layer startup failures should be independent.
+React, Solid, and Vue share this setup: `layer(assembly)` lazily acquires the application inside the runtime, and
+`RouterProvider` needs no application prop or selector service. Compose one application Layer per runtime; use independent
+runtimes for independent routers. Reusing the same Layer may share acquisition through Effect's memoization.
+Startup pending/failure views render before router context is available.
 
-Solid uses official `useAtomValue(() => atom)` accessors or `useAtomResource`; Vue uses official
-`useAtomValue(() => atom)` refs with computed selection and `injectRegistry().refresh(atom)`. Native components receive
-no mandatory router props. `useRouteInput(def)` reads displayed input, retaining the previous input while navigation is
-pending. Annotate a native component's return type when it reads its own definition to avoid a TypeScript inference cycle.
-In these small examples, definitions, application assembly, runtime, and resource families share `routes.tsx`/`routes.ts`.
-Components read resources only when rendered, after module initialization, so no eager application import cycle is needed.
+`Layer.provideMerge(services)` supplies gate dependencies and exposes domain services to resource atoms in the same runtime.
+Resources remain independent: cancelling a gate does not cancel their subscriptions, and router retry does not refresh them.
+An optional `prepare` gate is for transition readiness, not data publication.
 
-## Gates and recovery
-
-An optional `prepare: (decodedInput) => Effect<void, E, R>` is for transition authorization/readiness, not data publication.
-Supply its requirements through Layers. The router writes history first, then runs ancestor gates before descendants;
-all transient scopes close before atomic publication. `retry` reruns gates, not application resource refresh. Resource
-failure recovery uses the official Atom refresh API. Do not add a gate that waits on every resource by default.
-Initial navigation uses the Provider's optional `pending` component; later preparation retains the displayed branch.
-Native render exceptions and boundary resets belong to application components, not route retry.
+Solid's `useAtomValue(() => atom)` returns an accessor; Vue's returns a ref, refreshed with `injectRegistry().refresh(atom)`.
+See the package examples for native Suspense and error handling. Annotate a component's return type when it reads its own
+definition to avoid an inference cycle. Resources are read during rendering, so definitions and resource families can
+share a module without eager execution.
 
 ## Type-only path helpers
 
@@ -109,11 +102,10 @@ Native render exceptions and boundary resets belong to application components, n
 // navigation.tsx
 import type { Application } from "./App.tsx"
 import { makeNavigation } from "@effect-stack/router-react"
-export const { Link } = makeNavigation<typeof Application>()
+export const { Link } = makeNavigation<Application>()
 ```
 
-Route components can import this helper without importing route definition modules or eagerly creating parent/child
-cycles. The erased application type cannot be verified at runtime: unbound helpers resolve against the nearest provider.
-Use `makeNavigation(Application)` or `useRouter(Application)` when exact provider-token checks matter.
+Type-only helpers avoid eager route-definition import cycles and resolve against the nearest provider.
+Use `makeNavigation(app)` or `useRouter(app)` when exact provider-token checks matter.
 
 See [navigation contracts](router-navigation.md) and [architecture](architecture.md).

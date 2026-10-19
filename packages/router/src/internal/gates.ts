@@ -1,5 +1,5 @@
 /** Renderer-neutral gate type evidence. @since 0.4.0 */
-import type { AnyNode, AnyNodeInfo } from "./definition.ts"
+import type { AnyNodeInfo } from "./definition.ts"
 
 /** Application marker. @since 0.4.0 */
 export const CoreApplicationTypeId: unique symbol = Symbol.for("@effect-stack/router/CoreApplication")
@@ -27,12 +27,6 @@ export type ApplicationServiceId<
   R = unknown
 > = `@effect-stack/router/${AppId}/service` & {
   readonly [ApplicationServiceTypesTypeId]: (types: GateTypes<E, R>) => GateTypes<E, R>
-}
-
-/** Validated runtime gate input. @since 0.4.0 */
-export interface GateDefinitionInput {
-  readonly node: AnyNode
-  readonly prepare: unknown
 }
 
 type Safe<T> = 0 extends 1 & T ? unknown : T

@@ -39,7 +39,7 @@ const Project = Workspace.route("project", "/projects/:projectId", {
   component: () => null
 })
 
-const App = make("React", [Home, Project])
+const App = Effect.runSync(make("React", [Home, Project]))
 void App
 
 // Native components receive no router-owned data props.
@@ -82,7 +82,7 @@ const HashedIndex = HashParent.index({
   hash: Schema.String,
   prepare: () => Effect.void
 })
-const hashApp = make("HashApp", [HashedIndex])
+const hashApp = Effect.runSync(make("HashApp", [HashedIndex]))
 void hashApp
 const hashInput = useRouteInput(HashedIndex)
 const hashValue: string = hashInput.hash
@@ -165,14 +165,14 @@ void linkWithWrongRef
 // Broad or erased definitions are accepted type-wise and report `unknown`
 // requirements through the shared metadata projections (never a silent `{}`).
 const widenedShape: Router.AnyDefinitionShape = Home
-const widenedNativeApp = make("WidenedNative", [widenedShape])
+const widenedNativeApp = Effect.runSync(make("WidenedNative", [widenedShape]))
 declare const widenedNativeReq: Router.ApplicationRequirementsOf<typeof widenedNativeApp>
 void widenedNativeReq
 declare const annotatedTuple: readonly [Router.AnyDefinitionShape, Router.AnyDefinitionShape]
-const annotatedNativeApp = make("AnnotatedTupleNative", annotatedTuple)
+const annotatedNativeApp = Effect.runSync(make("AnnotatedTupleNative", annotatedTuple))
 declare const annotatedNativeReq: Router.ApplicationRequirementsOf<typeof annotatedNativeApp>
 void annotatedNativeReq
 const erasedImpl: Pick<typeof Project, "_tag" | "id" | "path" | "~node"> = Project
-const erasedNativeApp = make("ErasedImplNative", [erasedImpl])
+const erasedNativeApp = Effect.runSync(make("ErasedImplNative", [erasedImpl]))
 declare const erasedNativeReq: Router.ApplicationRequirementsOf<typeof erasedNativeApp>
 void erasedNativeReq

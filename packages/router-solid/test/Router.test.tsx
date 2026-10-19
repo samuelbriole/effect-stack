@@ -1,22 +1,25 @@
 // @vitest-environment happy-dom
 import * as Deferred from "effect/Deferred"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
 import * as Stream from "effect/Stream"
 import { RegistryContext, RegistryProvider, useAtomRefresh, useAtomValue } from "@effect/atom-solid"
 import { History, MemoryHistory } from "@effect-stack/router"
-import type { AtomRuntimeRequirement } from "@effect-stack/router/AtomRouter"
+import type { RouterRuntimeRequirement } from "@effect-stack/router/AtomRouter"
 import type { DecodedRouteInput } from "@effect-stack/router/Router"
 import { RouteDefinitionError } from "@effect-stack/router/Router"
 import * as Router from "@effect-stack/router/Router"
 import {
   Link,
   make,
+  layer,
   makeNavigation,
   Outlet,
-  Provider,
+  RouterProvider,
   layout,
   route,
   useRouteInput,
@@ -31,6 +34,7 @@ import { Atom, AtomRegistry } from "effect/reactivity"
 import {
   createEffect,
   createMemo,
+  createRoot,
   createSignal,
   ErrorBoundary,
   onCleanup,
@@ -41,6 +45,9 @@ import {
 } from "solid-js"
 import { render } from "solid-js/web"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+const memoryRuntime = <R, E>(routerLayer: Layer.Layer<R, E, History.History>, href = "/") =>
+  Atom.runtime(routerLayer.pipe(Layer.provide(MemoryHistory.layer(href))))
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -117,19 +124,128 @@ const renderElement = (element: () => JSX.Element): HTMLDivElement => {
   return container
 }
 
-const mountApp = <App extends Parameters<typeof Provider>[0]["app"], R, ER>(
-  app: App,
-  runtime: AtomRuntimeRequirement<NoInfer<App>, R, ER>
-): HTMLDivElement =>
+const mountApp = <R, ER>(runtime: RouterRuntimeRequirement<R, ER>): HTMLDivElement =>
   renderElement(() => (
     <RegistryProvider>
-      <Provider app={app} runtime={runtime} pending={SlowPending} />
+      <RouterProvider runtime={runtime} pending={SlowPending} />
     </RegistryProvider>
   ))
 
 describe("Solid router adapter", { concurrent: false }, () => {
-  it("reuses native component identities for type-only navigation helpers", () => {
-    const App = make("SolidHelperIdentity", [route("home", "/", { empty: true })])
+  it("rejects captured router hooks while runtime assembly refresh is waiting", async () => {
+    const blocked = Effect.runSync(Deferred.make<void>())
+    let assemblies = 0
+    let pushes = 0
+    let service: Accessor<Router.RouterService<unknown, unknown>> | undefined
+    let navigate: ReturnType<typeof useNavigateEffect> | undefined
+    const Page = route("page", "/", {
+      component: () => {
+        if (navigate === undefined)
+          createRoot((dispose) => {
+            cleanups.push(dispose)
+            service = useRouter()
+            navigate = useNavigateEffect()
+          })
+        return <p>Captured router</p>
+      }
+    })
+    const assembly = Effect.gen(function* () {
+      if (++assemblies > 1) {
+        yield* Deferred.succeed(blocked, undefined)
+        return yield* Effect.never
+      }
+      return yield* make("WaitingRefresh", [Page])
+    })
+    const historyLayer = Layer.effect(
+      History.History,
+      MemoryHistory.make().pipe(
+        Effect.map((history) => ({
+          ...history,
+          push: (destination: History.Destination) =>
+            Effect.sync(() => {
+              pushes++
+            }).pipe(Effect.andThen(history.push(destination)))
+        }))
+      )
+    )
+    const runtime = Atom.runtime(layer(assembly).pipe(Layer.provide(historyLayer)))
+    const registry = AtomRegistry.make()
+    cleanups.push(() => registry.dispose())
+    const container = renderElement(() => (
+      <RegistryContext.Provider value={registry}>
+        <RouterProvider runtime={runtime} />
+      </RegistryContext.Provider>
+    ))
+    expect(await waitForText(container, "Captured router")).toBe(true)
+    if (service === undefined || navigate === undefined) throw new Error("missing captured router hooks")
+    const capturedService = service
+    const capturedNavigate = navigate
+    registry.refresh(runtime)
+    await Effect.runPromise(Deferred.await(blocked))
+    expect(() => capturedService()).toThrow("Router service is not available yet")
+    expect(Exit.isFailure(await Effect.runPromiseExit(capturedNavigate(Page.to())))).toBe(true)
+    expect(pushes).toBe(0)
+  })
+
+  it("owns scoped asynchronous assembly and mounts no views before selection", async () => {
+    const entered = Effect.runSync(Deferred.make<void>())
+    const release = Effect.runSync(Deferred.make<void>())
+    const finalized = Effect.runSync(Deferred.make<void>())
+    let mounts = 0
+    let acquisitions = 0
+    const Page = route("page", "/", {
+      component: () => {
+        mounts++
+        return <p>Runtime-owned page</p>
+      }
+    })
+    const assembly = Effect.gen(function* () {
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          acquisitions++
+        }),
+        () => Deferred.succeed(finalized, undefined)
+      )
+      yield* Deferred.succeed(entered, undefined)
+      yield* Deferred.await(release)
+      return yield* make("ScopedSolid", [Page])
+    })
+    expect(Router.href(Page.to())).toEqual(Result.succeed("/"))
+    const runtime = memoryRuntime(layer(assembly))
+    const [pending, setPending] = createSignal(SlowPending)
+    const registry = AtomRegistry.make()
+    const container = createContainer()
+    const dispose = render(
+      () => (
+        <RegistryContext.Provider value={registry}>
+          <RouterProvider runtime={runtime} pending={pending()} />
+        </RegistryContext.Provider>
+      ),
+      container
+    )
+    try {
+      await Effect.runPromise(Deferred.await(entered))
+      expect(container.textContent).toContain("Preparing…")
+      setPending(() => () => <p>Assembling…</p>)
+      expect(container.textContent).toContain("Assembling…")
+      expect(mounts).toBe(0)
+      expect(Deferred.isDone(finalized).pipe(Effect.runSync)).toBe(false)
+      Effect.runSync(Deferred.succeed(release, undefined))
+      expect(await waitForText(container, "Runtime-owned page")).toBe(true)
+      expect(acquisitions).toBe(1)
+      expect(mounts).toBe(1)
+      expect(Deferred.isDone(finalized).pipe(Effect.runSync)).toBe(false)
+    } finally {
+      dispose()
+      registry.dispose()
+      container.remove()
+      Effect.runSync(Deferred.succeed(release, undefined))
+    }
+    await Effect.runPromise(Deferred.await(finalized))
+  })
+
+  it("reuses native component identities for type-only navigation helpers", async () => {
+    const App = await Effect.runPromise(make("SolidHelperIdentity", [route("home", "/", { empty: true })]))
     const first = makeNavigation<typeof App>()
     const second = makeNavigation<typeof App>()
     expect(second.Link).toBe(first.Link)
@@ -145,19 +261,41 @@ describe("Solid router adapter", { concurrent: false }, () => {
       replace: () => Effect.die("unused"),
       go: () => Effect.die("unused")
     }
-    const App = make("SolidHistoryStartupFailure", [route("home", "/", { component: () => <p>Home</p> })])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(Layer.succeed(History.History, history))))
+    const App = await Effect.runPromise(
+      make("SolidHistoryStartupFailure", [route("home", "/", { component: () => <p>Home</p> })])
+    )
+    const runtime = Atom.runtime(
+      layer(Effect.succeed(App)).pipe(Layer.provide(Layer.succeed(History.History, history)))
+    )
     const registry = AtomRegistry.make()
     cleanups.push(() => registry.dispose())
     const container = renderElement(() => (
       <RegistryContext.Provider value={registry}>
-        <Provider app={App} runtime={runtime} />
+        <RouterProvider runtime={runtime} />
       </RegistryContext.Provider>
     ))
     expect(await Effect.runPromise(AtomRegistry.getResult(registry, runtime).pipe(Effect.flip))).toBe(failure)
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Unable to display")
     expect(container.querySelector('[role="alert"] button')).toBeNull()
     expect(container.querySelector('[role="status"]')).toBeNull()
+  })
+
+  it("renders typed assembly failure without mounting application views", async () => {
+    const failure = new AreaMissing({ code: 2 })
+    const Page = route("page", "/", { component: () => <p>Must not mount</p> })
+    const assembly = Effect.fail(failure).pipe(Effect.andThen(make("FailedAssembly", [Page])))
+    const runtime = memoryRuntime(layer(assembly))
+    const registry = AtomRegistry.make()
+    cleanups.push(() => registry.dispose())
+    const container = renderElement(() => (
+      <RegistryContext.Provider value={registry}>
+        <RouterProvider runtime={runtime} />
+      </RegistryContext.Provider>
+    ))
+    expect(await Effect.runPromise(AtomRegistry.getResult(registry, runtime).pipe(Effect.flip))).toBe(failure)
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Unable to display")
+    expect(container.querySelector('[role="alert"] button')).toBeNull()
+    expect(container.textContent).not.toContain("Must not mount")
   })
 
   it("refreshes an application resource without implicitly retrying route gates", async () => {
@@ -178,41 +316,35 @@ describe("Solid router adapter", { concurrent: false }, () => {
         return <button onClick={refresh}>Resource {text()}</button>
       }
     })
-    const App = make("ResourceRefresh", [Page])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const App = await Effect.runPromise(make("ResourceRefresh", [Page]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
     const resource = runtime.atom(Effect.sync(() => ++reads))
-    const container = mountApp(App, runtime)
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Resource 1")).toBe(true)
     container.querySelector("button")?.click()
     expect(await waitForText(container, "Resource 2")).toBe(true)
     expect(gates).toBe(1)
   })
 
-  it("reacts to provider application and runtime getters and reads the selected views", async () => {
-    const First = make("ReactiveSolid", [route("page", "/", { component: () => <p>First application</p> })])
-    const Second = make("ReactiveSolid", [route("page", "/", { component: () => <p>Second application</p> })])
-    const firstRuntime = Atom.runtime(First.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const secondRuntime = Atom.runtime(Second.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+  it("reacts to provider runtime getters and reads the selected views", async () => {
+    const First = await Effect.runPromise(
+      make("ReactiveSolid", [route("page", "/", { component: () => <p>First application</p> })])
+    )
+    const Second = await Effect.runPromise(
+      make("ReactiveSolid", [route("page", "/", { component: () => <p>Second application</p> })])
+    )
+    const firstRuntime = memoryRuntime(layer(Effect.succeed(First)))
+    const secondRuntime = memoryRuntime(layer(Effect.succeed(Second)))
     const [selected, setSelected] = createSignal({ app: First, runtime: firstRuntime })
     const container = renderElement(() => (
       <RegistryProvider>
-        <Provider app={selected().app} runtime={selected().runtime} />
+        <RouterProvider runtime={selected().runtime} />
       </RegistryProvider>
     ))
     expect(await waitForText(container, "First application")).toBe(true)
     setSelected({ app: Second, runtime: secondRuntime })
     expect(await waitForText(container, "Second application")).toBe(true)
     expect(container.textContent).not.toContain("First application")
-  })
-
-  it("rejects a runtime assembled for a different canonical application at startup", async () => {
-    const Page = route("page", "/", { component: () => <p>Must not mount</p> })
-    const First = make("SameServiceId", [Page])
-    const Second = make("SameServiceId", [Page])
-    const runtime = Atom.runtime(Second.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(First, runtime)
-    expect(await waitForText(container, "Unable to display")).toBe(true)
-    expect(container.textContent).not.toContain("Must not mount")
   })
 
   it("rechecks bound service getters when a provider changes application", async () => {
@@ -222,24 +354,23 @@ describe("Solid router adapter", { concurrent: false }, () => {
       return <p>Bound service</p>
     }
     const Page = route("page", "/", { component: SharedPage })
-    const First = make("GetterToken", [Page])
-    const Second = make("GetterToken", [Page])
+    const First = await Effect.runPromise(make("GetterToken", [Page]))
+    const Second = await Effect.runPromise(make("GetterToken", [Page]))
     const [selected, setSelected] = createSignal({
       app: First,
-      runtime: Atom.runtime(First.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+      runtime: memoryRuntime(layer(Effect.succeed(First)))
     })
     const container = renderElement(() => (
       <RegistryProvider>
         <ErrorBoundary fallback={<p>Token mismatch</p>}>
-          <Provider app={selected().app} runtime={selected().runtime} />
+          <RouterProvider runtime={selected().runtime} />
         </ErrorBoundary>
       </RegistryProvider>
     ))
     expect(await waitForText(container, "Bound service")).toBe(true)
     if (observed === undefined) throw new Error("missing bound service getter")
-    const read = observed
-    setSelected({ app: Second, runtime: Atom.runtime(Second.layer.pipe(Layer.provide(MemoryHistory.layer("/")))) })
-    expect(() => read()).toThrow(Router.RouteDefinitionError)
+    setSelected({ app: Second, runtime: memoryRuntime(layer(Effect.succeed(Second))) })
+    expect(await waitForText(container, "Token mismatch")).toBe(true)
   })
 
   it("preserves native link refs and component cleanup across retained navigation", async () => {
@@ -270,10 +401,10 @@ describe("Solid router adapter", { concurrent: false }, () => {
       component: () => <p>Committed target</p>,
       prepare: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
     })
-    const App = make("NativeRef", [Home, Target])
+    const App = await Effect.runPromise(make("NativeRef", [Home, Target]))
     const Navigation = makeNavigation(App)
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(App, runtime)
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Ref link")).toBe(true)
     expect(reference).toBe(container.querySelector("a"))
     reference?.click()
@@ -289,22 +420,22 @@ describe("Solid router adapter", { concurrent: false }, () => {
 
   it("rechecks bound component tokens after reactive provider replacement", async () => {
     const Page = route("page", "/", { component: () => <Navigation.Link to="/">Bound link</Navigation.Link> })
-    const First = make("ComponentToken", [Page])
-    const Second = make("ComponentToken", [Page])
+    const First = await Effect.runPromise(make("ComponentToken", [Page]))
+    const Second = await Effect.runPromise(make("ComponentToken", [Page]))
     const Navigation = makeNavigation(First)
     const [selected, setSelected] = createSignal({
       app: First,
-      runtime: Atom.runtime(First.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+      runtime: memoryRuntime(layer(Effect.succeed(First)))
     })
     const container = renderElement(() => (
       <RegistryProvider>
         <ErrorBoundary fallback={<p>Bound component mismatch</p>}>
-          <Provider app={selected().app} runtime={selected().runtime} />
+          <RouterProvider runtime={selected().runtime} />
         </ErrorBoundary>
       </RegistryProvider>
     ))
     expect(await waitForText(container, "Bound link")).toBe(true)
-    setSelected({ app: Second, runtime: Atom.runtime(Second.layer.pipe(Layer.provide(MemoryHistory.layer("/")))) })
+    setSelected({ app: Second, runtime: memoryRuntime(layer(Effect.succeed(Second))) })
     expect(await waitForText(container, "Bound component mismatch")).toBe(true)
     expect(container.querySelector("a")).toBeNull()
   })
@@ -375,7 +506,7 @@ describe("Solid router adapter", { concurrent: false }, () => {
       prepare: () => Effect.fail(Router.redirect(Login.to())),
       empty: true
     })
-    const App = make("MountedRedirect", [Root.index({ empty: true }), Protected, Login])
+    const App = await Effect.runPromise(make("MountedRedirect", [Root.index({ empty: true }), Protected, Login]))
     const Navigation = makeNavigation<typeof App>()
     const historyLayer = Layer.effect(
       History.History,
@@ -400,13 +531,13 @@ describe("Solid router adapter", { concurrent: false }, () => {
         }
       })
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
+    const runtime = Atom.runtime(layer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
     const registry = AtomRegistry.make()
     const container = createContainer()
     const dispose = render(
       () => (
         <RegistryContext.Provider value={registry}>
-          <Provider app={App} runtime={runtime} />
+          <RouterProvider runtime={runtime} />
         </RegistryContext.Provider>
       ),
       container
@@ -483,7 +614,7 @@ describe("Solid router adapter", { concurrent: false }, () => {
       hash: Schema.String,
       empty: true
     })
-    const App = make("MountedTargetChanges", [Root.index({ empty: true }), Item])
+    const App = await Effect.runPromise(make("MountedTargetChanges", [Root.index({ empty: true }), Item]))
     const Navigation = makeNavigation<typeof App>()
     const historyLayer = Layer.effect(
       History.History,
@@ -503,13 +634,13 @@ describe("Solid router adapter", { concurrent: false }, () => {
         }
       })
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
+    const runtime = Atom.runtime(layer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
     const registry = AtomRegistry.make()
     const container = createContainer()
     const dispose = render(
       () => (
         <RegistryContext.Provider value={registry}>
-          <Provider app={App} runtime={runtime} />
+          <RouterProvider runtime={runtime} />
         </RegistryContext.Provider>
       ),
       container
@@ -627,15 +758,17 @@ describe("Solid router adapter", { concurrent: false }, () => {
       )
     }
     const Root = layout("root", "/", { component: Controls })
-    const App = make("SolidTargets", [Root.index({ empty: true }), route("plain", "/plain", { empty: true }), Item])
+    const App = await Effect.runPromise(
+      make("SolidTargets", [Root.index({ empty: true }), route("plain", "/plain", { empty: true }), Item])
+    )
     const Navigation = makeNavigation<typeof App>()
     const ready = Effect.runSync(Deferred.make<ReturnType<typeof Navigation.useNavigateEffect>>())
     const historyLayer = Layer.effect(
       History.History,
       MemoryHistory.make().pipe(Effect.tap((history) => Deferred.succeed(historyReady, history)))
     )
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(historyLayer)))
-    const container = mountApp(App, runtime)
+    const runtime = Atom.runtime(layer(Effect.succeed(App)).pipe(Layer.provide(historyLayer)))
+    const container = mountApp(runtime)
     const navigate = await Effect.runPromise(Deferred.await(ready))
     const history = await Effect.runPromise(Deferred.await(historyReady))
     expect(container.querySelector('a[href="/plain"]')).not.toBeNull()
@@ -665,6 +798,18 @@ describe("Solid router adapter", { concurrent: false }, () => {
       Effect.result(navigate(foreign.to({ params: { id: 9 }, search: { page: 1 }, hash: "foreign" })))
     )
     expect(Result.isFailure(rejected)).toBe(true)
+    const defect = new Error("Target getter defect")
+    const thrown = await Effect.runPromiseExit(
+      navigate({
+        get to(): "/" {
+          throw defect
+        }
+      })
+    )
+    expect(Exit.isFailure(thrown)).toBe(true)
+    if (Exit.isFailure(thrown)) {
+      expect(thrown.cause.reasons.some((reason) => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true)
+    }
     expect(Effect.runSync(history.entries)).toEqual(before)
   })
 
@@ -712,10 +857,10 @@ describe("Solid router adapter", { concurrent: false }, () => {
         )
       }
     })
-    const App = make("SolidFreshLink", [Home, Target, Other])
+    const App = await Effect.runPromise(make("SolidFreshLink", [Home, Target, Other]))
     const Navigation = makeNavigation<typeof App>()
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(App, runtime)
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
+    const container = mountApp(runtime)
     await Effect.runPromise(Deferred.await(ready))
     const link = container.querySelector('a[href="/items/1"]')
     expect(link?.getAttribute("class")).toBe("native-link")
@@ -741,13 +886,13 @@ describe("Solid router adapter", { concurrent: false }, () => {
         return <p>Isolated inner</p>
       }
     })
-    const Inner = make("TokenInner", [InnerPage])
-    const innerRuntime = Atom.runtime(Inner.layer.pipe(Layer.provide(MemoryHistory.layer("/inner"))))
+    const Inner = await Effect.runPromise(make("TokenInner", [InnerPage]))
+    const innerRuntime = memoryRuntime(layer(Effect.succeed(Inner)), "/inner")
     const Parent = layout("outer", "/outer", { component: () => <Outlet /> })
-    const Leaf = Parent.route("leaf", "/leaf", { component: () => <Provider app={Inner} runtime={innerRuntime} /> })
-    const Outer = make("TokenOuter", [Leaf])
-    const runtime = Atom.runtime(Outer.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/leaf"))))
-    const container = mountApp(Outer, runtime)
+    const Leaf = Parent.route("leaf", "/leaf", { component: () => <RouterProvider runtime={innerRuntime} /> })
+    const Outer = await Effect.runPromise(make("TokenOuter", [Leaf]))
+    const runtime = memoryRuntime(layer(Effect.succeed(Outer)), "/outer/leaf")
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Isolated inner")).toBe(true)
     expect(diagnosed).toBeInstanceOf(Router.RouteDefinitionError)
     if (!(diagnosed instanceof Router.RouteDefinitionError)) throw new Error("missing token diagnosis")
@@ -774,12 +919,12 @@ describe("Solid router adapter", { concurrent: false }, () => {
         return <p>Gate error</p>
       }
     })
-    const App = make("BlockedRenderRetry", [Page])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/page"))))
+    const App = await Effect.runPromise(make("BlockedRenderRetry", [Page]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)), "/page")
     const container = renderElement(() => (
       <RegistryProvider>
         <ErrorBoundary fallback={(_error, reset) => <button onClick={reset}>Reset rendering</button>}>
-          <Provider app={App} runtime={runtime} />
+          <RouterProvider runtime={runtime} />
         </ErrorBoundary>
       </RegistryProvider>
     ))
@@ -821,21 +966,19 @@ describe("Solid router adapter", { concurrent: false }, () => {
       const Endpoint = layouts
         ? InnerMiddle.route("endpoint", "/endpoint", { component: InnerPage })
         : route("endpoint", "/endpoint", { component: InnerPage })
-      const Inner = make("NestedInner", [Endpoint, Target])
+      const Inner = await Effect.runPromise(make("NestedInner", [Endpoint, Target]))
       const Navigation = makeNavigation<typeof Inner>()
-      const innerRuntime = Atom.runtime(
-        Inner.layer.pipe(Layer.provide(MemoryHistory.layer(layouts ? "/inner/middle/endpoint" : "/endpoint")))
-      )
+      const innerRuntime = memoryRuntime(layer(Effect.succeed(Inner)), layouts ? "/inner/middle/endpoint" : "/endpoint")
       const OuterRoot = layout("outer", "/outer", { component: () => <Outlet /> })
       const OuterLeaf = OuterRoot.route("leaf", "/leaf", {
         component: () => {
           outerService = useRouter(Outer)
-          return <Provider app={Inner} runtime={innerRuntime} />
+          return <RouterProvider runtime={innerRuntime} />
         }
       })
-      const Outer = make("NestedOuter", [OuterLeaf])
-      const outerRuntime = Atom.runtime(Outer.layer.pipe(Layer.provide(MemoryHistory.layer("/outer/leaf"))))
-      const container = mountApp(Outer, outerRuntime)
+      const Outer = await Effect.runPromise(make("NestedOuter", [OuterLeaf]))
+      const outerRuntime = memoryRuntime(layer(Effect.succeed(Outer)), "/outer/leaf")
+      const container = mountApp(outerRuntime)
       expect(await waitForText(container, "Inner endpoint")).toBe(true)
       if (layouts) {
         expect(container.textContent).toContain("Inner first")
@@ -868,13 +1011,13 @@ describe("Solid router adapter", { concurrent: false }, () => {
         }),
       component: (): JSX.Element => <p>Index hash: {useRouteInput(Index)().hash}</p>
     })
-    const App = make("NativeInheritedHash", [Child, Index])
+    const App = await Effect.runPromise(make("NativeInheritedHash", [Child, Index]))
     for (const [url, text] of [
       ["/hash-parent/nested/child#7", "Child hash: 7"],
       ["/hash-parent/nested#8", "Index hash: 8"]
     ] as const) {
-      const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer(url))))
-      const container = mountApp(App, runtime)
+      const runtime = memoryRuntime(layer(Effect.succeed(App)), url)
+      const container = mountApp(runtime)
       // oxlint-disable-next-line no-await-in-loop -- Mount each independent runtime sequentially to observe gate order.
       expect(await waitForText(container, text)).toBe(true)
     }
@@ -883,9 +1026,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
 
   it("renders pending then the native component and navigates through a link", async () => {
     const gate = Effect.runSync(Deferred.make<void>())
-    const App = buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" })))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/slow"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" }))))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)), "/slow")
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Preparing…")).toBe(true)
     Effect.runSync(Deferred.succeed(gate, undefined))
     expect(await waitForText(container, "Ready")).toBe(true)
@@ -898,12 +1041,12 @@ describe("Solid router adapter", { concurrent: false }, () => {
       component: () => <p>Prepared page</p>,
       prepare: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
     })
-    const App = make("ReactivePending", [Page])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const App = await Effect.runPromise(make("ReactivePending", [Page]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
     const [pending, setPending] = createSignal(() => <p>Initial preparation</p>)
     const container = renderElement(() => (
       <RegistryProvider>
-        <Provider app={App} runtime={runtime} pending={pending()} />
+        <RouterProvider runtime={runtime} pending={pending()} />
       </RegistryProvider>
     ))
     await Effect.runPromise(Deferred.await(entered))
@@ -915,9 +1058,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
   })
 
   it("renders home and follows a typed link", async () => {
-    const App = buildApp(() => Effect.succeed({ title: "Ready" }))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(buildApp(() => Effect.succeed({ title: "Ready" })))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Home")).toBe(true)
     const link = container.querySelector("a")
     expect(link?.getAttribute("href")).toBe("/slow")
@@ -927,9 +1070,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
 
   it("keeps the retained branch while a different route is pending", async () => {
     const gate = Effect.runSync(Deferred.make<void>())
-    const App = buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" })))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(buildApp(() => Deferred.await(gate).pipe(Effect.as({ title: "Ready" }))))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Home")).toBe(true)
     container.querySelector("a")?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
     await new Promise((resolve) => setTimeout(resolve, 30))
@@ -940,9 +1083,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
   })
 
   it("keeps ancestor layouts around a nested route failure", async () => {
-    const App = buildApp(() => Effect.succeed({ title: "Ready" }))
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/areas/7"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(buildApp(() => Effect.succeed({ title: "Ready" })))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)), "/areas/7")
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Areas layout")).toBe(true)
     expect(container.textContent).toContain("Area failed")
     expect(container.textContent).not.toContain("Unable to display")
@@ -965,9 +1108,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
     }
     const Slow = route("slow", "/slow", { prepare: () => Effect.void, component: IdentityPage })
     const Home = route("home", "/", { component: () => <h1>Home</h1> })
-    const App = make("Solid", [Home, Slow])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/slow"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(make("Solid", [Home, Slow]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)), "/slow")
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Identity")).toBe(true)
     expect(mounts).toBe(1)
     container.querySelector("button")?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
@@ -990,9 +1133,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
     )
     const DynamicHomeDef = route("home", "/", { component: DynamicHome })
     setTarget(DynamicHomeDef.to())
-    const App = make("Solid", [DynamicHomeDef, Slow])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(make("Solid", [DynamicHomeDef, Slow]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Home")).toBe(true)
     expect(container.querySelector("a")?.getAttribute("href")).toBe("/")
     setTarget(Slow.to())
@@ -1015,9 +1158,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
       )
     })
     const Home = route("home", "/", { component: () => <h1>Home</h1> })
-    const App = make("SolidError", [Home, Project])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/projects/1"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(make("SolidError", [Home, Project]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)), "/projects/1")
+    const container = mountApp(runtime)
     expect(await waitForText(container, "fail-1")).toBe(true)
     container.querySelector("a")?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
     expect(await waitForText(container, "fail-2")).toBe(true)
@@ -1036,12 +1179,12 @@ describe("Solid router adapter", { concurrent: false }, () => {
       error: () => <p>Gate failure only</p>
     })
     const Home = route("home", "/", { component: () => <h1>Home</h1> })
-    const App = make("SolidRecovery", [Home, Project])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/projects/1"))))
+    const App = await Effect.runPromise(make("SolidRecovery", [Home, Project]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)), "/projects/1")
     const container = renderElement(() => (
       <RegistryProvider>
         <ErrorBoundary fallback={<p>Native failure</p>}>
-          <Provider app={App} runtime={runtime} />
+          <RouterProvider runtime={runtime} />
         </ErrorBoundary>
       </RegistryProvider>
     ))
@@ -1069,9 +1212,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
       component: () => <h1>start</h1>
     })
     startTarget.loop = Start.to()
-    const App = make("SolidRouterFailure", [Start, Encoded])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/start"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(make("SolidRouterFailure", [Start, Encoded]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)), "/start")
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Unable to display")).toBe(true)
     const first = container.querySelector("[data-router-failure]")?.getAttribute("data-router-failure") ?? ""
     expect(first).toContain("Redirect loop")
@@ -1091,20 +1234,22 @@ describe("Solid router adapter", { concurrent: false }, () => {
       prepare: () => Effect.void,
       component: SlowPage
     })
-    const ForeignApp = make("Solid", [ForeignHome, ForeignSlow])
+    const ForeignApp = await Effect.runPromise(make("Solid", [ForeignHome, ForeignSlow]))
     const ForeignHookHome = () => {
       useRouter(ForeignApp)()
       return <h1>Leaked</h1>
     }
-    const App = make("Solid", [
-      route("home", "/", { component: ForeignHookHome }),
-      route("slow", "/slow", { prepare: () => Effect.void, component: SlowPage })
-    ])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
+    const App = await Effect.runPromise(
+      make("Solid", [
+        route("home", "/", { component: ForeignHookHome }),
+        route("slow", "/slow", { prepare: () => Effect.void, component: SlowPage })
+      ])
+    )
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
     const container = renderElement(() => (
       <RegistryProvider>
         <ErrorBoundary fallback={<p>Wrong application</p>}>
-          <Provider app={App} runtime={runtime} />
+          <RouterProvider runtime={runtime} />
         </ErrorBoundary>
       </RegistryProvider>
     ))
@@ -1114,10 +1259,14 @@ describe("Solid router adapter", { concurrent: false }, () => {
 
   it("rejects headless and copied definitions at finalization", () => {
     const Leaf = route("leaf", "/leaf", { component: () => <h1>Leaf</h1> })
-    expect(() => make("Solid", [Leaf])).not.toThrow()
-    expect(() => make("Solid", [{ ...(Leaf as object) } as never])).toThrow(RouteDefinitionError)
+    expect(Effect.runSyncExit(make("Solid", [Leaf]))._tag).toBe("Success")
     const headless = Router.route("headless", "/headless", { prepare: () => Effect.void })
-    expect(() => make("Solid", [headless as never])).toThrow(RouteDefinitionError)
+    for (const assembly of [make("Solid", [{ ...(Leaf as object) } as never]), make("Solid", [headless as never])]) {
+      expect(Effect.runSyncExit(assembly)).toMatchObject({
+        _tag: "Failure",
+        cause: { reasons: [{ _tag: "Die", defect: expect.any(RouteDefinitionError) as unknown }] }
+      })
+    }
   })
 
   it("carries an index hash through encode, decode, and the useRouteInput accessor", async () => {
@@ -1134,9 +1283,9 @@ describe("Solid router adapter", { concurrent: false }, () => {
       prepare: () => Effect.void,
       component: HashReader
     })
-    const App = make("SolidHash", [HashedIndex])
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/hash-parent#deep"))))
-    const container = mountApp(App, runtime)
+    const App = await Effect.runPromise(make("SolidHash", [HashedIndex]))
+    const runtime = memoryRuntime(layer(Effect.succeed(App)), "/hash-parent#deep")
+    const container = mountApp(runtime)
     expect(await waitForText(container, "deep:deep")).toBe(true)
   })
 
@@ -1157,10 +1306,10 @@ describe("Solid router adapter", { concurrent: false }, () => {
       prepare: () => Effect.void
     })
     const ProjectDetails = Project.route("details", "/details", { component: () => <p>Path details</p> })
-    const App = make("SolidPath", [Home, ProjectsIndex, ProjectDetails])
+    const App = await Effect.runPromise(make("SolidPath", [Home, ProjectsIndex, ProjectDetails]))
     const Navigation = makeNavigation(App)
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(App, runtime)
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Path home")).toBe(true)
     container
       .querySelector('a[href="/projects/7/details"]')
@@ -1189,10 +1338,10 @@ describe("Solid router adapter", { concurrent: false }, () => {
     }
     const Home = route("home", "/", { component: TupleHome })
     const Target = route("target", "/target", { component: () => <p>Tuple target</p> })
-    const App = make("SolidTuple", [Home, Target])
+    const App = await Effect.runPromise(make("SolidTuple", [Home, Target]))
     const Navigation = makeNavigation(App)
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(App, runtime)
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Tuple home")).toBe(true)
     await Promise.resolve()
     container
@@ -1223,10 +1372,10 @@ describe("Solid router adapter", { concurrent: false }, () => {
     }
     const Home = route("home", "/", { component: PropagationHome })
     const Target = route("target", "/target", { component: () => <p>Propagation target</p> })
-    const App = make("SolidPropagation", [Home, Target])
+    const App = await Effect.runPromise(make("SolidPropagation", [Home, Target]))
     const Navigation = makeNavigation(App)
-    const runtime = Atom.runtime(App.layer.pipe(Layer.provide(MemoryHistory.layer("/"))))
-    const container = mountApp(App, runtime)
+    const runtime = memoryRuntime(layer(Effect.succeed(App)))
+    const container = mountApp(runtime)
     expect(await waitForText(container, "Propagation home")).toBe(true)
     container
       .querySelector('a[href="/target"]')

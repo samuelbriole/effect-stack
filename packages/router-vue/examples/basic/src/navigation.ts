@@ -8,4 +8,4 @@ import { makeNavigation } from "@effect-stack/router-vue"
  *
  * @since 0.4.0
  */
-export const { Link } = makeNavigation<typeof Application>()
+export const { Link } = makeNavigation<Application>()

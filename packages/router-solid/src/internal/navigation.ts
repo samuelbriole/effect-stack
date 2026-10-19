@@ -56,16 +56,9 @@ const navigateEffect = (app?: {
   const context = useRouterContextAccessor(app)
   return (target, options) =>
     Effect.suspend(() => {
-      try {
-        const destination = resolveNavigationTarget(context().atomRouter.app, target)
-        if (Result.isFailure(destination)) return Effect.fail(destination.failure)
-        return service().navigate(destination.success as never, options) as Effect.Effect<
-          NavigationOutcome,
-          NavigationError
-        >
-      } catch (error) {
-        return Effect.die(error)
-      }
+      const destination = resolveNavigationTarget(context().atomRouter.app, target)
+      if (Result.isFailure(destination)) return Effect.fail(destination.failure)
+      return service().navigate(destination.success as never, options)
     })
 }
 

@@ -1,6 +1,9 @@
 import { expect, test } from "tstyche"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Atom from "effect/reactivity/Atom"
+import * as MemoryHistory from "@effect-stack/router/MemoryHistory"
 import * as Schema from "effect/Schema"
 import type * as Router from "@effect-stack/router/Router"
 import * as SolidRouter from "@effect-stack/router-solid"
@@ -24,7 +27,25 @@ const Parent = layout("parent", "/:id", {
   prepare: () => Effect.asVoid(Dep)
 })
 const Child = Parent.route("child", "/child", { prepare: () => Effect.fail(new Missing()), component: () => null })
-const App = make("SolidTypes", [Child])
+const assembly = make("SolidTypes", [Child])
+const App = Effect.runSync(assembly)
+test("runtime-only provider requires selection and accepts domain services and startup errors", () => {
+  const runtime = Atom.runtime(
+    SolidRouter.layer(assembly).pipe(Layer.provideMerge(Layer.succeed(Dep, {})), Layer.provide(MemoryHistory.layer()))
+  )
+  expect(SolidRouter.RouterProvider).type.toBeCallableWith({ runtime })
+  const fallible = assembly.pipe(Effect.andThen((app) => Effect.as(Effect.fail(new Missing()), app)))
+  const fallibleRuntime = Atom.runtime(
+    SolidRouter.layer(fallible).pipe(Layer.provideMerge(Layer.succeed(Dep, {})), Layer.provide(MemoryHistory.layer()))
+  )
+  expect(SolidRouter.RouterProvider).type.toBeCallableWith({ runtime: fallibleRuntime })
+  expect(SolidRouter.RouterProvider).type.not.toBeCallableWith({ runtime: Atom.runtime(Layer.empty) })
+  const unselected = Atom.runtime(
+    App.layer.pipe(Layer.provide(Layer.succeed(Dep, {})), Layer.provide(MemoryHistory.layer()))
+  )
+  expect(SolidRouter.RouterProvider).type.not.toBeCallableWith({ runtime: unselected })
+  expect(SolidRouter).type.not.toHaveProperty("Provider")
+})
 test("inherited hash stays exact in native gates, hooks, index, and overrides", () => {
   const HashParent = layout("inheritedHash", "/inherited-hash", { hash: Id })
   const Nested = HashParent.layout("nested", "/nested", {
@@ -65,6 +86,9 @@ test("inherited hash stays exact in native gates, hooks, index, and overrides", 
   expect(useRouteInput(Override)).type.toBe<Accessor<Router.DecodedRouteInputOfDef<typeof Override>>>()
 })
 test("actual parent, inherited input, and gate E/R remain exact", () => {
+  expect(assembly).type.toBe<Effect.Effect<Router.ApplicationOf<"SolidTypes", readonly [typeof Child]>>>()
+  expect<Effect.Error<typeof assembly>>().type.toBe<never>()
+  expect<Effect.Services<typeof assembly>>().type.toBe<never>()
   expect<(typeof Child)["~parent"]>().type.toBe<typeof Parent>()
   expect<Router.ErrorOf<typeof Child>>().type.toBe<Missing>()
   expect<Router.ApplicationRequirementsOf<typeof App>>().type.toBe<Dep>()
@@ -78,7 +102,7 @@ test("application errors aggregate actual ancestors while definition errors stay
     prepare: () => Effect.fail(new Missing()),
     empty: true
   })
-  const ErrorApp = make("SolidParentErrors", [ErrorChild])
+  const ErrorApp = Effect.runSync(make("SolidParentErrors", [ErrorChild]))
   expect<Router.ErrorOf<typeof ErrorChild>>().type.toBe<Missing>()
   expect<Router.ApplicationErrorOf<typeof ErrorApp>>().type.toBe<Missing | ParentMissing>()
   expect<Router.RequirementsOf<typeof Child>>().type.toBe<never>()
