@@ -6,6 +6,7 @@
     { "path": "packages/router" },
     { "path": "packages/router-react" },
     { "path": "packages/router-solid" },
-    { "path": "packages/router-vue" }
+    { "path": "packages/router-vue" },
+    { "path": "packages/router-foldkit" }
   ]
 }

@@ -62,6 +62,31 @@ export interface ViewLookup<V extends ViewShape = ViewShape> {
   readonly get: (id: string) => V | undefined
 }
 
+/** A node-independent display entry for renderer adapters. @since 0.4.0 */
+export interface DisplayItem<Input, Failure> {
+  readonly id: string
+  readonly input: Input
+  readonly failure: Failure | null
+}
+
+/** A renderer-neutral snapshot with failure required only for router failures. @since 0.4.0 */
+export type DisplaySnapshot<Entry, Failure> =
+  | { readonly _tag: "Empty" | "Pending" | "NotFound" | "Entries"; readonly entries: ReadonlyArray<Entry> }
+  | { readonly _tag: "RouterFailure"; readonly entries: ReadonlyArray<Entry>; readonly failure: Failure }
+
+/** The node-independent decision for an outlet at one depth. @since 0.4.0 */
+export type SnapshotOutletDecision<Entry, Failure, V extends ViewShape> =
+  | { readonly _tag: "Empty" | "NotFound" | "Pending" }
+  | { readonly _tag: "RouterFailure"; readonly failure: Failure }
+  | { readonly _tag: "View"; readonly nextDepth: number; readonly entry: Entry; readonly view: V }
+  | {
+      readonly _tag: "Failure"
+      readonly nextDepth: number
+      readonly entry: Entry
+      readonly view: V
+      readonly failure: Failure
+    }
+
 /**
  * The outlet disposition for one depth. A transparent group is skipped so its
  * descendant's decision is returned instead; an explicit `empty` view is
@@ -136,46 +161,81 @@ export const toDisplayEntry = (entry: EntryState): DisplayEntry => {
 }
 
 /**
- * Decides what an outlet at `depth` renders. Transparent groups (no component
- * or render function) are traversed so their descendants render in place, and
- * an explicit `empty` view terminates the branch. Router-level failures without
- * an owning entry are only rendered at the root outlet.
+ * Projects the displayed branch, retaining resolved inputs during pending work.
+ * Only the current failure owner receives an entry failure; stale failures on
+ * other entries are not presented. Selection does not require nodes downstream.
  *
  * @since 0.4.0
  */
-export const outletDecision = <V extends ViewShape>(
-  state: PresentationState,
-  depth: number,
-  views: ViewLookup<V>,
-  fallback: V
-): OutletDecision<V> => {
+export const projectPresentation = (
+  state: PresentationState
+): DisplaySnapshot<DisplayItem<Option.Option<unknown>, ViewFailure> & { readonly node: AnyNode }, ViewFailure> => {
   const presentation = Option.getOrUndefined(state.presentation)
-  if (presentation === undefined) return { _tag: "Empty" }
+  if (presentation === undefined) return { _tag: "Empty", entries: [] }
   const resolved = Option.getOrUndefined(state.resolved)
   if (presentation._tag === "Pending" && resolved === undefined) {
-    return depth === 0 ? { _tag: "Pending" } : { _tag: "Empty" }
+    return { _tag: "Pending", entries: [] }
   }
   const entries = displayEntries(state)
   const owner = presentation._tag === "Failed" ? presentation.owner : undefined
   const cause = presentation._tag === "Failed" ? presentation.cause : undefined
-  if (owner === NotFoundFailureOwner) return { _tag: "NotFound" }
+  if (owner === NotFoundFailureOwner) return { _tag: "NotFound", entries: [] }
   if (owner !== undefined && !entries.some((candidate) => candidate.id === owner)) {
-    return depth === 0
-      ? { _tag: "RouterFailure", failure: { _tag: "Cause", cause: cause ?? Cause.empty } }
-      : { _tag: "Empty" }
+    return { _tag: "RouterFailure", entries: [], failure: { _tag: "Cause", cause: cause ?? Cause.empty } }
   }
+  return {
+    _tag: "Entries",
+    entries: entries.map((entry) => {
+      const display = toDisplayEntry(entry)
+      return {
+        node: display.node,
+        id: display.id,
+        input: display.input,
+        failure: owner === entry.id ? Option.getOrNull(display.failure) : null
+      }
+    })
+  }
+}
+
+/**
+ * Selects an outlet without requiring core nodes or Effect inputs. Transparent
+ * layouts are skipped; explicit empty views terminate the branch. Entry errors
+ * replace their subtree, and router-level failures render only at the root.
+ *
+ * @since 0.4.0
+ */
+export const selectOutlet = <
+  Entry extends { readonly id: string; readonly failure: Failure | null },
+  Failure,
+  V extends ViewShape
+>(
+  snapshot: DisplaySnapshot<Entry, Failure>,
+  depth: number,
+  views: ViewLookup<V>,
+  fallback: V
+): SnapshotOutletDecision<Entry, Failure, V> => {
+  switch (snapshot._tag) {
+    case "Empty":
+      return { _tag: "Empty" }
+    case "NotFound":
+      return { _tag: "NotFound" }
+    case "Pending":
+      return depth === 0 ? { _tag: "Pending" } : { _tag: "Empty" }
+    case "RouterFailure":
+      return depth === 0 ? { _tag: "RouterFailure", failure: snapshot.failure } : { _tag: "Empty" }
+  }
+  const entries = snapshot.entries
   for (let index = depth; index < entries.length; index++) {
     const entry = entries[index]
     if (entry === undefined) return { _tag: "Empty" }
     const view = views.get(entry.id)
-    const display = toDisplayEntry(entry)
-    if (owner === entry.id && Option.isSome(display.failure)) {
+    if (entry.failure !== null) {
       return {
         _tag: "Failure",
         nextDepth: index + 1,
-        entry: display,
+        entry,
         view: view ?? fallback,
-        failure: display.failure.value
+        failure: entry.failure
       }
     }
     if (view !== undefined && view.empty === true) return { _tag: "Empty" }
@@ -184,7 +244,31 @@ export const outletDecision = <V extends ViewShape>(
       // A transparent layout passes through to its descendant.
       continue
     }
-    return { _tag: "View", nextDepth: index + 1, entry: display, view }
+    return { _tag: "View", nextDepth: index + 1, entry, view }
   }
   return { _tag: "Empty" }
+}
+
+/** The compatible core outlet decision with Option-valued display entries. @since 0.4.0 */
+export const outletDecision = <V extends ViewShape>(
+  state: PresentationState,
+  depth: number,
+  views: ViewLookup<V>,
+  fallback: V
+): OutletDecision<V> => {
+  const decision = selectOutlet(projectPresentation(state), depth, views, fallback)
+  if (decision._tag === "View" || decision._tag === "Failure") {
+    const entry = displayEntries(state)[decision.nextDepth - 1]
+    if (entry === undefined) return { _tag: "Empty" }
+    return { ...decision, entry: toDisplayEntry(entry) }
+  }
+  if (decision._tag === "RouterFailure") {
+    const failure = decision.failure
+    // Router-level failures are always causes, never domain gate errors.
+    return {
+      _tag: "RouterFailure",
+      failure: { _tag: "Cause", cause: failure._tag === "Cause" ? failure.cause : Cause.empty }
+    }
+  }
+  return decision
 }
