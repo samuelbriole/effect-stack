@@ -1,5 +1,42 @@
 # @effect-stack/router
 
+## 0.4.0
+
+### Minor Changes
+
+- [#23](https://github.com/samuelbriole/effect-stack/pull/23) [`2ee66e1`](https://github.com/samuelbriole/effect-stack/commit/2ee66e16612217a4152ac17d6ef0c6e165604e29) Thanks [@samuelbriole](https://github.com/samuelbriole)! - - Make headless and native `make(...)` return a lazy Effect. Each execution creates a fresh canonical application;
+    invalid assembly is a defect. Route declarations, rendering, and href encoding remain synchronous.
+  - Replace native `Provider` with `<RouterProvider runtime={runtime} />` in React, Solid, and Vue. Compose
+    `layer(make(...))` into the Atom runtime; no application prop, selector service, or top-level runner is needed.
+    `AtomRouter.make` now requires that acquired application bundle.
+  - Use native stream observations and independent command atoms. React navigation preserves typed errors and per-call
+    outcomes without replay on runtime refresh; registry teardown cleans up outstanding waits. Promise navigation rejects
+    normalization defects, and captured Effect navigation rejects obsolete or refreshing services before writing history.
+  - Show React providers' pending view during runtime reacquisition instead of crashing render-time router consumers.
+
+- [#19](https://github.com/samuelbriole/effect-stack/pull/19) [`1ea52e8`](https://github.com/samuelbriole/effect-stack/commit/1ea52e84d9582428197ba0f46c83bfa248b82114) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Replace split route contracts and implementations with unified route and layout definitions for the core, React,
+  Solid, and Vue. Definitions inherit typed URL schemas and support direct `prepare` gates; ordinary native components use
+  `useRouteInput` and application-owned Effect atoms instead of router loader data or injected data props. Remove the redundant
+  `useRoute` hook and `RouteResult` alias.
+  
+  Assemble one canonical application; native `Provider` takes `app` and `runtime`. Add type-only path navigation, optional
+  exact application binding through `makeNavigation(app)`, and single-runtime examples. `index` is shorthand for an ordinary
+  endpoint at its parent's path. Expose definition and aggregate application error/requirement projections; rename the
+  history service to `History.History`.
+  
+  Use application-level initial pending views and application-owned native render boundaries. Pre-acceptance failures leave
+  accepted navigation status unchanged; initial history acquisition failures surface as startup errors. Fix nested provider
+  outlets and omitted Vue navigation defaults, and prevent resubmission of unchanged `Navigate` targets. Self-interrupting
+  gates settle as cause-level failures. Resource refresh remains independent of navigation retry and cancellation.
+
+### Patch Changes
+
+- [#25](https://github.com/samuelbriole/effect-stack/pull/25) [`95c6c0a`](https://github.com/samuelbriole/effect-stack/commit/95c6c0a56f5f074c085de40d5be8fb52d755f31e) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Require Effect 4.0.5 and matching Effect Atom adapters, aligning peer requirements with the updated adapters.
+
+- [#20](https://github.com/samuelbriole/effect-stack/pull/20) [`bb29d92`](https://github.com/samuelbriole/effect-stack/commit/bb29d927966179e83631671df8304d57b616e1ff) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Imports now use the new Effect module paths: `effect/unstable/reactivity` is replaced by `effect/reactivity` and `effect/unstable/http` by `effect/http`.
+
+- [#21](https://github.com/samuelbriole/effect-stack/pull/21) [`b3aada0`](https://github.com/samuelbriole/effect-stack/commit/b3aada0e732aa5ff324f15f4c3c158128de52b4c) Thanks [@samuelbriole](https://github.com/samuelbriole)! - Require stable Effect 4.0.0 and the matching Effect Atom adapters instead of the v4 release candidates.
+
 ## 0.3.0
 
 ### Minor Changes
