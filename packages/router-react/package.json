@@ -38,16 +38,16 @@
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.3.0",
-    "@effect/atom-react": "^4.0.0",
-    "effect": "^4.0.0",
+    "@effect/atom-react": "^4.0.5",
+    "effect": "^4.0.5",
     "react": "^19.3.0"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-react": "4.0.0",
+    "@effect/atom-react": "4.0.5",
     "@types/react": "19.3.0",
-    "effect": "4.0.0",
-    "react": "19.3.0"
+    "effect": "4.0.5",
+    "react": "19.3.1"
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
