@@ -37,15 +37,15 @@
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.3.0",
-    "@effect/atom-vue": "^4.0.0",
-    "effect": "^4.0.0",
+    "@effect/atom-vue": "^4.0.5",
+    "effect": "^4.0.5",
     "vue": "^3.5.43"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-vue": "4.0.0",
-    "effect": "4.0.0",
-    "vue": "3.5.43"
+    "@effect/atom-vue": "4.0.5",
+    "effect": "4.0.5",
+    "vue": "3.5.44"
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",

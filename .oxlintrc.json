@@ -50,6 +50,7 @@
     "effecttsgo/global-error-in-effect-failure": "off",
     "effecttsgo/lazy-effect": "off",
     "effecttsgo/prefer-unsafe-constructor": "off",
+    "effecttsgo/schema-class-missing-brand": "off",
     "effecttsgo/strict-effect-provide": "off",
     "effecttsgo/effect-in-failure": "error",
     "effecttsgo/effect-in-void-success": "error",
@@ -74,8 +75,11 @@
       "files": [
         "packages/router/src/AtomRouter.ts",
         "packages/router/src/internal/url.ts",
+        "packages/router-react/src/internal/{application.tsx,hooks.ts,navigation.tsx}",
         "packages/router-react/src/internal/{context.ts,rendering.tsx}",
+        "packages/router-solid/src/internal/{application,navigation}.ts",
         "packages/router-solid/src/internal/{context,hooks,rendering}.ts",
+        "packages/router-vue/src/internal/{application,navigation}.ts",
         "packages/router-vue/src/internal/{context,hooks,rendering}.ts"
       ],
       "rules": {

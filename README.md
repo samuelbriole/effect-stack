@@ -35,7 +35,7 @@ For remote state, use Effect Atom, Effect's alternative to TanStack Query.
 
 Use the pinned pnpm version through Corepack: `corepack pnpm install`, then `corepack pnpm run ci`.
 
-Scheduler stays on 0.27 because `@effect/atom-react` requires `<0.28`. The Vue example keeps TypeScript 6 because
+Oxlint stays on 1.88 because `@effect/tsgo` does not yet support 1.89. The Vue example keeps TypeScript 6 because
 `vue-tsc` requires its JavaScript compiler API; the rest of the workspace uses TypeScript 7. Unstable-API lint
 exceptions are scoped to the existing Effect Atom/URL integration files and their tests/examples; other code
-continues to reject unstable APIs.
+continues to reject unstable APIs. The schema-class brand lint rule is disabled to preserve existing structural types.

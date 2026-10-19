@@ -17,8 +17,6 @@ import type { LinkProps, NavigateProps, NavigateTarget } from "./route.ts"
 /** @since 0.4.0 */
 export type NavigationError = Router.NavigationError<unknown>
 
-// The adapter intentionally bridges the project's pinned Effect Atom APIs.
-/* oxlint-disable effecttsgo/unstable-api-usage */
 const navigationPromise = (
   registry: AtomRegistry.AtomRegistry,
   action: Atom.Atom<AsyncResult.AsyncResult<NavigationOutcome, unknown>>
@@ -55,7 +53,6 @@ const navigationPromise = (
       finish(Exit.die(error))
     }
   })
-/* oxlint-enable effecttsgo/unstable-api-usage */
 
 /** An Effect-based navigation function bound to the provider's router. @since 0.4.0 */
 export function useNavigateEffect<App extends { readonly token: object }>(

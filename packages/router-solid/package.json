@@ -38,15 +38,15 @@
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.3.0",
-    "@effect/atom-solid": "^4.0.0",
-    "effect": "^4.0.0",
+    "@effect/atom-solid": "^4.0.5",
+    "effect": "^4.0.5",
     "solid-js": "^1.9.15"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-solid": "4.0.0",
-    "effect": "4.0.0",
-    "solid-js": "1.9.15"
+    "@effect/atom-solid": "4.0.5",
+    "effect": "4.0.5",
+    "solid-js": "1.9.17"
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
