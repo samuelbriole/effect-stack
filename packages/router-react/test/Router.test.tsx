@@ -274,6 +274,71 @@ describe("React router adapter", { concurrent: false }, () => {
     expect(container.textContent).not.toContain("First application")
   })
 
+  it.each([false, true])(
+    "shows pending during runtime refresh without tripping render boundaries (failure: %s)",
+    async (fail) => {
+      const started = Effect.runSync(Deferred.make<void>())
+      const release = Effect.runSync(Deferred.make<void>())
+      function Page(): React.ReactNode {
+        const router = useRouter()
+        return <p>Router {router.applicationId}</p>
+      }
+      const application = make("RefreshConsumer", [route("home", "/", { component: Page })])
+      let acquisitions = 0
+      const assembly = Effect.suspend(() => {
+        acquisitions++
+        if (acquisitions !== 2) return application
+        return Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+          Effect.andThen(fail ? Effect.fail("startup") : application)
+        )
+      })
+      const runtime = memoryRuntime(routerLayer(assembly))
+      const registry = AtomRegistry.make()
+      const element = () => (
+        <React.StrictMode>
+          <RegistryContext.Provider value={registry}>
+            <ErrorBoundary fallback={() => <p>Render crashed</p>}>
+              <RouterProvider runtime={runtime} pending={SlowPending} />
+            </ErrorBoundary>
+          </RegistryContext.Provider>
+        </React.StrictMode>
+      )
+      const { container, root } = mount(element())
+      try {
+        await React.act(async () => {})
+        expect(container.textContent).toBe("Router RefreshConsumer")
+        await React.act(async () => {
+          registry.refresh(runtime)
+          await Effect.runPromise(Deferred.await(started))
+        })
+        expect(container.textContent).toBe("Preparing…")
+        expect(registry.get(runtime)).toMatchObject({ _tag: "Success", waiting: true })
+        // An unrelated parent render must not expose consumers to the unavailable service.
+        await React.act(async () => {
+          root.render(element())
+        })
+        expect(container.textContent).toBe("Preparing…")
+        await React.act(async () => {
+          Effect.runSync(Deferred.succeed(release, undefined))
+        })
+        expect(acquisitions).toBe(2)
+        expect(container.textContent).toContain(fail ? "Unable to display" : "Router RefreshConsumer")
+        expect(container.textContent).not.toContain("Render crashed")
+        if (fail) {
+          expect(container.querySelector('[role="alert"] button')).toBeNull()
+          await React.act(async () => {
+            registry.refresh(runtime)
+          })
+          expect(container.textContent).toBe("Router RefreshConsumer")
+        }
+      } finally {
+        React.act(() => root.render(null))
+        registry.dispose()
+      }
+    }
+  )
+
   it("does not resubmit a mounted path Navigate while its redirect gate is blocked", async () => {
     const loginEntered = Effect.runSync(Deferred.make<void>())
     const loginRelease = Effect.runSync(Deferred.make<void>())

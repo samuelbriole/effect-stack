@@ -27,9 +27,11 @@ export function RouterProvider<R, ER>(props: RouterProviderProps<R, ER>): React.
       ),
     [runtime]
   )
+  const acquisition = useAtomValue(runtime)
   const result = useAtomValue(atom)
   const Pending = props.pending ?? DefaultPending
-  if (result._tag === "Initial") return <Pending />
+  // The runtime can retain a success while its scoped services are being replaced.
+  if (acquisition.waiting || result._tag === "Initial") return <Pending />
   if (result._tag === "Failure") return <DefaultError failure={{ _tag: "Cause", cause: result.cause }} />
   return <MountedRouter app={result.value.app} runtime={runtime} pending={props.pending} />
 }

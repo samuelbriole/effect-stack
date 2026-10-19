@@ -13,3 +13,4 @@
 - Use native stream observations and independent command atoms. React navigation preserves typed errors and per-call
   outcomes without replay on runtime refresh; registry teardown cleans up outstanding waits. Promise navigation rejects
   normalization defects, and captured Effect navigation rejects obsolete or refreshing services before writing history.
+- Show React providers' pending view during runtime reacquisition instead of crashing render-time router consumers.

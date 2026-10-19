@@ -97,6 +97,8 @@ only `runtime` and optional `pending`; startup pending/failure render outside ro
 its acquired application. Every endpoint needs presentation (`component` or Vue `render`) or `empty: true`; layouts may
 be transparent. `index(options)` is shorthand for `route("index", "/", options)` at the parent's path.
 
+React also shows the provider's pending view during runtime reacquisition, distinct from route retry or preparation.
+
 React's Promise navigation and retry helpers execute through independent runtime result atoms, not host Effect runners.
 Overlapping calls retain their own completion outcomes. Component unmount does not cancel accepted work; registry disposal
 rejects outstanding waits and closes the runtime's scoped resources. `useNavigateEffect` remains available for Effect composition.
