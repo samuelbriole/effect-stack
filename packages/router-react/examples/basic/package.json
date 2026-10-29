@@ -9,8 +9,8 @@
   "dependencies": {
     "@effect-stack/router": "workspace:*",
     "@effect-stack/router-react": "workspace:*",
-    "@effect/atom-react": "4.0.5",
-    "effect": "4.0.5",
+    "@effect/atom-react": "4.1.0",
+    "effect": "4.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "scheduler": "0.28.0"
@@ -20,6 +20,6 @@
     "@types/react-dom": "19.3.0",
     "@types/scheduler": "0.28.0",
     "@vitejs/plugin-react": "6.1.2",
-    "vite": "8.3.4"
+    "vite": "8.3.5"
   }
 }

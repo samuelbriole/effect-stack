@@ -51,10 +51,12 @@ const Redirecting = Router.route("redirecting", "/redirecting", {
 })
 
 // A redirect combined with a finalizer defect is not a pure redirect signal.
+const badReleaseRedirect = Router.redirect(Project.to({ params: { projectId: 5 } }))
+const badReleaseDefect = new Error("redirect-release-boom")
 const RedirectBadRelease = Router.route("redirectBadRelease", "/redirect-bad-release", {
   prepare: () =>
-    Effect.acquireRelease(Effect.void, () => Effect.die(new Error("redirect-release-boom"))).pipe(
-      Effect.andThen(Effect.fail(Router.redirect(Project.to({ params: { projectId: 5 } }))))
+    Effect.acquireRelease(Effect.void, () => Effect.die(badReleaseDefect)).pipe(
+      Effect.andThen(Effect.fail(badReleaseRedirect))
     )
 })
 
@@ -241,8 +243,11 @@ describe("Router navigation", () => {
       const exit = yield* Effect.exit(router.navigate(RedirectBadRelease.to()))
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) {
-        expect(exit.cause.reasons.some(Cause.isDieReason)).toBe(true)
-        expect(exit.cause.reasons.some(Cause.isFailReason)).toBe(true)
+        // Effect 4.1 elects the original failure to a defect when finalization dies.
+        expect(exit.cause.reasons.filter(Cause.isDieReason).map((reason) => reason.defect)).toEqual([
+          badReleaseRedirect,
+          badReleaseDefect
+        ])
       }
       const state = yield* router.state
       const presentation = Option.getOrThrow(state.presentation)
