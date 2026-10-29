@@ -37,14 +37,14 @@
   },
   "peerDependencies": {
     "@effect-stack/router": "^0.3.0",
-    "@effect/atom-vue": "^4.0.5",
-    "effect": "^4.0.5",
+    "@effect/atom-vue": "^4.1.0",
+    "effect": "^4.1.0",
     "vue": "^3.5.43"
   },
   "devDependencies": {
     "@effect-stack/router": "workspace:*",
-    "@effect/atom-vue": "4.0.5",
-    "effect": "4.0.5",
+    "@effect/atom-vue": "4.1.0",
+    "effect": "4.1.0",
     "vue": "3.5.44"
   },
   "scripts": {
